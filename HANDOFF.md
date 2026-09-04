@@ -491,3 +491,27 @@ aufzuheben.
 Für die Mod ist das eine Warnung: Ein ausgerüsteter Stapel trägt etwas, das
 ein anderer nicht hat. Eine Signatur, mit der wir geparkte Favoriten
 wiederfinden, darf daran nicht hängen.
+
+---
+
+## 11. Was die Mod können soll (Stand 2026-09-05)
+
+Aus dem Starfield-Projekt übernommen, weil es sich dort bewährt hat:
+
+- **`ToggleEquipOnSelect`, Standard 1.** Ein zweiter Druck auf denselben
+  Favoriten legt das Ausgerüstete wieder ab. In Starfield ist das eine der
+  eigenen Erweiterungen (`ToggleEquipOnSelect=1`, gilt nur für Ausrüstbares,
+  nie für Aid oder Munition). Alexander nutzt in Fallout 4 bisher eine
+  fremde Mod dafür und deinstalliert sie zugunsten dieser hier — das Verhalten
+  gehört also in den Kern und nicht hinter einen Schalter, der standardmäßig
+  aus ist.
+- Seitentasten vor und zurück, `ResetToFirstPageOnClose`,
+  `ExternallyManagedSlots` — dieselbe Begründung, aber noch nicht im Detail
+  durchgesprochen.
+
+**Fallout-4-eigen:**
+
+- Die Farbe aus `Fallout4Prefs.ini` (`iHUDColorR/G/B`, dazu `[Pipboy]`), mit
+  einer MCM-Überschreibung darüber.
+- Die Plätze 10 und 11 bekommen eine anklickbare Zelle; über die Tastatur
+  sind sie in Vanilla nicht erreichbar (Abschnitt 7).
