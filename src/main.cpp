@@ -313,6 +313,56 @@ namespace
 	// manager's array, it says which *stack* is bound, not just which kind
 	// of item. That distinction decides how a page has to remember a
 	// favorite it is not currently showing.
+	// The few extra-data types worth naming in the log. Everything else is
+	// printed as its raw number; the enum in BSExtraData.h translates it.
+	[[nodiscard]] std::string_view NameExtraType(RE::EXTRA_DATA_TYPE a_type)
+	{
+		switch (a_type) {
+		case RE::EXTRA_DATA_TYPE::kFavorite:
+			return "Favorite"sv;
+		case RE::EXTRA_DATA_TYPE::kHealth:
+			return "Health"sv;
+		case RE::EXTRA_DATA_TYPE::kCount:
+			return "Count"sv;
+		case RE::EXTRA_DATA_TYPE::kOwnership:
+			return "Ownership"sv;
+		case RE::EXTRA_DATA_TYPE::kCharge:
+			return "Charge"sv;
+		case RE::EXTRA_DATA_TYPE::kRank:
+			return "Rank"sv;
+		case RE::EXTRA_DATA_TYPE::kTimeLeft:
+			return "TimeLeft"sv;
+		case RE::EXTRA_DATA_TYPE::kPoison:
+			return "Poison"sv;
+		case RE::EXTRA_DATA_TYPE::kLock:
+			return "Lock"sv;
+		case RE::EXTRA_DATA_TYPE::kReferenceHandle:
+			return "ReferenceHandle"sv;
+		default:
+			return {};
+		}
+	}
+
+	// Everything hanging off a stack, by type. This is the whole question of
+	// identity in one line: what a page has to write down about a favorite
+	// so that it can find the same stack again later.
+	[[nodiscard]] std::string DescribeExtras(const RE::ExtraDataList& a_extra)
+	{
+		std::string types;
+		for (std::uint32_t raw = 0;
+			 raw < static_cast<std::uint32_t>(RE::EXTRA_DATA_TYPE::kTotal);
+			 ++raw) {
+			const auto type = static_cast<RE::EXTRA_DATA_TYPE>(raw);
+			if (!a_extra.HasType(type)) {
+				continue;
+			}
+			const auto name = NameExtraType(type);
+			types += name.empty() ? std::format("#{} ", raw)
+								  : std::format("{} ", name);
+		}
+		return types.empty() ? std::string{ "none" } : types;
+	}
+
 	void DumpInventoryFavorites()
 	{
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -325,6 +375,11 @@ namespace
 
 		int stacksSeen = 0;
 		int favoritesSeen = 0;
+		// Which kinds of item hold a favorite. Their other stacks are worth
+		// a second pass: a page has to tell the favorited 10mm from the
+		// three others in the pocket, and this says what there is to tell
+		// them apart by.
+		std::vector<RE::TESBoundObject*> favoritedObjects;
 
 		// ForEachStack does not lock; the whole probe runs as a UI task, so
 		// nothing else is walking the list at the same time.
@@ -342,6 +397,9 @@ namespace
 				}
 
 				++favoritesSeen;
+				if (a_item.object) {
+					favoritedObjects.push_back(a_item.object);
+				}
 				const auto* object = a_item.object;
 				// The digit keys run 1..9 then 0, so index 9 is key 0.
 				const auto index = static_cast<int>(favorite->quickkeyIndex);
@@ -358,6 +416,44 @@ namespace
 
 		logger::info(
 			"inventory: {} stacks, {} of them favorited", stacksSeen, favoritesSeen);
+
+		// Second pass: every stack of every favorited kind, with what makes
+		// it distinguishable.
+		logger::info("inventory: --- the stacks of those items in detail ---");
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) {
+				return std::ranges::find(favoritedObjects, a_item.object) !=
+					favoritedObjects.end();
+			},
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				// The ordinal is the position in this item's chain of
+				// stacks -- the closest thing to a handle the engine offers
+				// here, and the very thing that moves when the inventory
+				// changes.
+				std::uint32_t ordinal = 0;
+				for (auto* walk = a_item.stackData.get(); walk;
+					 walk = walk->nextStack.get(), ++ordinal) {
+					if (walk == &a_stack) {
+						break;
+					}
+				}
+
+				const auto* favorite =
+					a_stack.extra ? a_stack.extra->GetByType<RE::ExtraFavorite>()
+								  : nullptr;
+
+				logger::info(
+					"inventory:   \"{}\" stack {} at {:p} count {:3} flags {:#06x} quickkey {} extras [ {}]",
+					a_item.object ? RE::TESFullName::GetFullName(*a_item.object)
+								  : "?"sv,
+					ordinal,
+					static_cast<const void*>(&a_stack),
+					a_stack.count,
+					static_cast<std::uint16_t>(*a_stack.flags),
+					favorite ? std::to_string(favorite->quickkeyIndex) : "-",
+					a_stack.extra ? DescribeExtras(*a_stack.extra) : "none");
+				return true;
+			});
 
 		// Side by side with the manager's array, so the log shows in one
 		// place whether the two agree.
