@@ -28,12 +28,17 @@ DEFAULT_DATA = Path(
 def game_is_running() -> bool:
     """True when Fallout4.exe holds a handle we would fight over."""
     try:
+        # tasklist writes in the console code page, which is not what
+        # Python assumes. Decoding strictly throws on a German Windows
+        # before the check ever runs.
         output = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq Fallout4.exe"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
-        ).stdout
+        ).stdout or ""
     except OSError:
         return False
     return "Fallout4.exe" in output
