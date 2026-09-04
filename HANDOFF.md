@@ -15,7 +15,11 @@ Der Zweck ist, drei Fragen zu beantworten, die in keinem Header stehen —
 siehe Abschnitt 2.
 
 **Im Spiel noch nicht geprüft.** Bis das Log aus einer laufenden Sitzung
-vorliegt, ist alles unten Entwurf.
+vorliegt, ist alles unten Entwurf. Alexander aktualisiert seit dem
+2026-09-04 erst seine Fallout-4-Mods; der Test kommt danach.
+
+**Quellcode ist öffentlich:**
+`https://github.com/alexanderjohnen/Fallout4FavoritesMenuGrid` (GPL-3.0-or-later).
 
 ### Was offen ist
 
