@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BUILT_DLL = ROOT / "build" / "Release" / "FavoritesMenuGrid.dll"
 BUILT_PDB = ROOT / "build" / "Release" / "FavoritesMenuGrid.pdb"
+REFERENCE_INI = ROOT / "FavoritesMenuGrid.ini"
 
 DEFAULT_DATA = Path(
     os.environ.get(
@@ -68,6 +69,18 @@ def main() -> int:
     if BUILT_PDB.is_file():
         shutil.copy2(BUILT_PDB, plugins / BUILT_PDB.name)
         print(f"copied {BUILT_PDB.name} -> {plugins}")
+
+    # The INI is never overwritten once it is there: it holds the player's
+    # own keys. A new build that introduces a setting has to be merged by
+    # hand for now -- there is only one section, and this stays true only
+    # while that is the case.
+    if REFERENCE_INI.is_file():
+        installed = plugins / REFERENCE_INI.name
+        if installed.is_file():
+            print(f"kept the existing {installed.name}")
+        else:
+            shutil.copy2(REFERENCE_INI, installed)
+            print(f"copied {REFERENCE_INI.name} -> {plugins}")
 
     return 0
 
