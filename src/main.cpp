@@ -224,6 +224,7 @@ namespace
 	// F9 was a poor choice: it is quickload in Bethesda's own bindings and
 	// Alexander has Steam's screenshot key on it as well. F6 to F8 are free
 	// in vanilla Fallout 4.
+	constexpr int kInventoryKey = VK_F5;
 	constexpr int kDisplayListKey = VK_F6;
 	constexpr int kWriteTestKey = VK_F7;
 	constexpr int kWriteTestKeyWithRefresh = VK_F8;
@@ -304,6 +305,63 @@ namespace
 		}
 		queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kInventoryUpdate);
 		logger::info("write test: kInventoryUpdate sent to {}", kProbeMenu);
+	}
+
+	// Walks the player's inventory and reports every stack that carries an
+	// ExtraFavorite. Writing storedFavTypes changed nothing, so this is the
+	// other candidate for where a favorite really lives -- and unlike the
+	// manager's array, it says which *stack* is bound, not just which kind
+	// of item. That distinction decides how a page has to remember a
+	// favorite it is not currently showing.
+	void DumpInventoryFavorites()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList) {
+			logger::warn("inventory: no player inventory");
+			return;
+		}
+
+		logger::info("inventory: --- stacks carrying ExtraFavorite ---");
+
+		int stacksSeen = 0;
+		int favoritesSeen = 0;
+
+		// ForEachStack does not lock; the whole probe runs as a UI task, so
+		// nothing else is walking the list at the same time.
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				++stacksSeen;
+				if (!a_stack.extra) {
+					return true;
+				}
+				const auto* favorite =
+					a_stack.extra->GetByType<RE::ExtraFavorite>();
+				if (!favorite) {
+					return true;
+				}
+
+				++favoritesSeen;
+				const auto* object = a_item.object;
+				// The digit keys run 1..9 then 0, so index 9 is key 0.
+				const auto index = static_cast<int>(favorite->quickkeyIndex);
+				logger::info(
+					"inventory: quickkey {:2} (key {}) count {:3} form {:08X} \"{}\"",
+					index,
+					(index >= 0 && index <= 8) ? static_cast<char>('1' + index)
+											   : (index == 9 ? '0' : '?'),
+					a_stack.count,
+					object ? object->formID : 0,
+					object ? RE::TESFullName::GetFullName(*object) : "?"sv);
+				return true;
+			});
+
+		logger::info(
+			"inventory: {} stacks, {} of them favorited", stacksSeen, favoritesSeen);
+
+		// Side by side with the manager's array, so the log shows in one
+		// place whether the two agree.
+		DumpFavorites("inventory probe");
 	}
 
 	// Walks the display list of a menu and writes it to the log. The write
@@ -393,6 +451,7 @@ namespace
 		bool previousPlain = false;
 		bool previousRefresh = false;
 		bool previousDisplay = false;
+		bool previousInventory = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -403,12 +462,14 @@ namespace
 				previousPlain = false;
 				previousRefresh = false;
 				previousDisplay = false;
+				previousInventory = false;
 				continue;
 			}
 
 			const auto plain = IsKeyDown(kWriteTestKey);
 			const auto refresh = IsKeyDown(kWriteTestKeyWithRefresh);
 			const auto display = IsKeyDown(kDisplayListKey);
+			const auto inventory = IsKeyDown(kInventoryKey);
 
 			const auto* tasks = F4SE::GetTaskInterface();
 			if (tasks && ((plain && !previousPlain) ||
@@ -421,10 +482,14 @@ namespace
 			if (tasks && display && !previousDisplay) {
 				tasks->AddUITask([]() { DumpMenuStructure(); });
 			}
+			if (tasks && inventory && !previousInventory) {
+				tasks->AddUITask([]() { DumpInventoryFavorites(); });
+			}
 
 			previousPlain = plain;
 			previousRefresh = refresh;
 			previousDisplay = display;
+			previousInventory = inventory;
 		}
 	}
 
@@ -476,7 +541,7 @@ namespace
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info(
-			"write test armed: F7 writes, F8 writes and updates, F6 dumps the {} display list",
+			"armed: F5 lists the inventory favorites, F6 dumps the {} display list, F7 writes, F8 writes and updates",
 			kProbeMenu);
 
 		DumpFavorites("game data ready");
