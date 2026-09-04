@@ -228,11 +228,28 @@ namespace
 	constexpr int kWriteTestKey = VK_F7;
 	constexpr int kWriteTestKeyWithRefresh = VK_F8;
 
+	// Names, not just form IDs: the log has to be readable on its own.
+	// Comparing a screenshot against a list of hex numbers means holding
+	// the state of the game in your head, and the favorites change between
+	// attempts -- which already invalidated one comparison.
 	[[nodiscard]] std::string DescribeSlots(const RE::FavoritesManager& a_manager)
 	{
 		std::string line;
-		for (const auto* form : a_manager.storedFavTypes) {
-			line += form ? std::format("{:08X} ", form->formID) : "-------- ";
+		for (std::size_t index = 0; index < 12; ++index) {
+			const auto* form = a_manager.storedFavTypes[index];
+			// The digit keys run 1..9 then 0, so slot 9 is key 0.
+			const auto key = (index == 9) ? '0' : static_cast<char>('1' + index);
+			if (index == 10 || index == 11) {
+				line += std::format(
+					"[{}]{} ",
+					index + 1,
+					form ? RE::TESFullName::GetFullName(*form) : "-"sv);
+			} else {
+				line += std::format(
+					"[{}]{} ",
+					key,
+					form ? RE::TESFullName::GetFullName(*form) : "-"sv);
+			}
 		}
 		return line;
 	}
