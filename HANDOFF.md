@@ -312,7 +312,7 @@ als Klasse modelliert, aber `ApplyChangesFunctor` trägt `favoriteIndex` an
 ein Favorit zeige in Fallout 4 auf das Basisobjekt und die
 Auflösungs-Maschinerie aus Starfield entfalle, stammte daher, dass
 `storedFavTypes` ein `TESBoundObject*`-Array ist. Das war der Cache. Die
-echte Bindung haengt an einem Inventar-Stack, also näher an Starfield als
+echte Bindung hängt an einem Inventar-Stack, also näher an Starfield als
 gedacht. Der Port ist damit nicht mehr klar kleiner als das Original; wie
 viel größer, entscheidet sich daran, wie stabil ein Stack über Auf- und
 Abgeben hinweg zu identifizieren ist.
@@ -433,3 +433,61 @@ aufgebraucht wird, und ob eine Modifikation an der Werkbank die Bindung
 überlebt. Der Lauf vom 2026-09-05 zeigt am T60 keine Veränderung der
 Extra-Liste, aber es ist nicht sicher, ob dabei tatsächlich modifiziert
 wurde.
+
+---
+
+## 9. Der Cache ist das Gedächtnis der Engine (2026-09-05, 00:43)
+
+**Korrektur zu Abschnitt 6.** Dort steht, `storedFavTypes` werde von niemandem
+zurückgelesen. Das gilt für die Anzeige und für das Benutzen, aber nicht
+allgemein:
+
+1. Der favorisierte Stimpak-Stapel wurde vollständig aufgebraucht. Kein
+   Inventarstapel trug mehr ein `ExtraFavorite` — `storedFavTypes[3]` stand
+   aber weiter auf Stimpak.
+2. Ein einzelner Stimpak wurde abgelegt und wieder aufgehoben. Er bekam
+   `quickkey 3` **von selbst**.
+
+Der Cache ist also die Merkliste „welche Sorte gehört auf welche Taste", und
+die Engine hängt einem passenden Neuzugang den Favoriten wieder an. Für den
+Seitenwechsel heißt das: Beim Wegschalten einer Seite muss der Cache
+mitgeräumt werden, sonst zieht die Engine geparkte Favoriten beim nächsten
+Aufheben eigenmächtig zurueck.
+
+Nebenbei: Ein verwaister Platz ist möglich. Ein Favorit kann verschwinden,
+ohne dass ihn jemand entfernt hat — der Stapel wird einfach aufgebraucht.
+
+---
+
+## 10. Warum Fallout 4 favorisierte Stapel spaltet
+
+Alexanders alte Beschwerde, unterwegs mitgemessen. **Nicht das Favorisieren
+spaltet, sondern das Ausrüsten.**
+
+Zwei Stapel derselben Sorte verschmelzen nur bei gleichen Extra-Daten. Drei
+Messungen an denselben Granaten:
+
+```
+00:47  stack 0 count 5 flags 0x0001 quickkey 3 extras [ Favorite ]
+       -> abgelegtes Stück verschmilzt wieder hinein
+00:49  stack 0 count 3 flags 0x0001 quickkey 3 extras [ Favorite #186 ]
+       stack 1 count 1 flags 0x0000 quickkey -  extras [ none ]
+```
+
+`#186` ist `kInstanceData` und kam mit dem Ausrüsten dazu. Ab da
+unterscheidet sich der Stapel von jedem frisch aufgesammelten Stück.
+
+**Das `ExtraFavorite` ist ausdrücklich kein Hindernis:** Um 00:47 ist ein
+blanker Stapel in einen mit `[ Favorite ]` hineingeflossen.
+
+Der Stimpak-Fall aus Abschnitt 8 ist dieselbe Regel aus der anderen Richtung:
+Dort brachte das *aufgehobene* Stück `kStartingPosition` und
+`kStartingWorldOrCell` mit, die dem Stapel fehlten.
+
+**Offen:** ob `#186` beim Ablegen der Ausrüstung wieder verschwindet. Der
+Test dafür ist, die Waffe zu wechseln und danach erneut abzulegen und
+aufzuheben.
+
+Für die Mod ist das eine Warnung: Ein ausgerüsteter Stapel trägt etwas, das
+ein anderer nicht hat. Eine Signatur, mit der wir geparkte Favoriten
+wiederfinden, darf daran nicht hängen.
