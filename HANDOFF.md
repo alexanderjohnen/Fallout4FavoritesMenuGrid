@@ -46,13 +46,35 @@ Zwei Kleinigkeiten aus demselben Lauf: `stageWidth`/`stageHeight` kamen als
 `-1` zurück, weil Scaleform sie als Int statt als Number liefert — dafür gibt
 es jetzt `ReadNumber`, wie im Starfield-Projekt.
 
+**Dritter Lauf, 23:50 Uhr — Meilenstein 0 ist komplett.** Mit gesetzten
+Favoriten liest der Dump sie sauber aus:
+
+```
+slot  2 form FE0A7F12 type  43 "Hunting Shotgun"
+slot  3 form 00023736 type  48 "Stimpak"
+slot  8 form FE034F9A type  43 "T60"
+```
+
+Typ 43 ist `0x2B` = WEAP, Typ 48 ist `0x30` = ALCH. Namen, Typen und
+FormIDs passen zusammen, `allowStimpakUse` liest 1. **`REL::ID(198281)` und
+das Speicherlayout aus dem Header gelten auf 1.10.163.** Damit ist der
+Datenzugriff auf die zwölf Plätze gesichert — lesend.
+
+Eine Kleinigkeit bleibt offen: `weaponLoadedAmmo` steht durchgehend auf `-1`,
+auch mit favorisierter Schrotflinte. Entweder wird das Feld nur für eine
+geladene Waffe gepflegt, oder der Offset dieses Arrays stimmt nicht. Es wird
+erst gebraucht, wenn der Munitionsstand angezeigt werden soll — dann
+nachmessen.
+
 **Quellcode ist öffentlich:**
 `https://github.com/alexanderjohnen/Fallout4FavoritesMenuGrid` (GPL-3.0-or-later).
 
 ### Was offen ist
 
-1. **Frage 1 aus Abschnitt 2** — ob das Speicherlayout des
-   `FavoritesManager` wirklich stimmt. Die Fragen 2 und 3 sind beantwortet.
+1. ~~Die drei Fragen aus Abschnitt 2.~~ **Alle drei beantwortet** (siehe
+   oben). Der nächste Schritt ist Meilenstein 1: schreiben statt nur lesen —
+   einen Platz belegen und nachsehen, ob die Oberfläche das mitbekommt oder
+   ob es eine Benachrichtigung braucht.
 2. **Der Kern.** `favorites_core.cpp` aus dem Starfield-Projekt wird nicht
    portiert, sondern neu geschrieben. Der größere Teil davon entfällt
    allerdings — siehe Abschnitt 3.
