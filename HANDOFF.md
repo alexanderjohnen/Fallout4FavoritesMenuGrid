@@ -34,6 +34,14 @@ Abschnitt 2 sind beantwortet:
   nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
   im Log auftaucht.**
 
+**Zweiter Lauf, 23:43 Uhr — die Oberflaechenfrage ist ganz beantwortet.**
+`FavoritesMenu` nimmt den Sprite ebenfalls an, seine Buehne ist 1280 x 720,
+und `menuObj` hat **`ProcessUserEvent`** (`HUDMenu` hat es nicht). Damit steht
+auch der Auswahlweg des Starfield-Grids in Fallout 4 offen: Auswahl durch den
+eigenen Pfad des Menuees schicken, statt selbst auszuruesten. Die Probe zielt
+seitdem nur noch auf `FavoritesMenu` — in `HUDMenu` blieb das Rechteck sonst
+die ganze Sitzung stehen.
+
 Zwei Kleinigkeiten aus demselben Lauf: `stageWidth`/`stageHeight` kamen als
 `-1` zurück, weil Scaleform sie als Int statt als Number liefert — dafür gibt
 es jetzt `ReadNumber`, wie im Starfield-Projekt. Und die Probe zielt seitdem
