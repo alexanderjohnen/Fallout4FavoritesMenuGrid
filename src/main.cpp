@@ -240,12 +240,11 @@ namespace
 	// front of the queue.
 	constexpr std::array kRefreshMessages{
 		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv },
-		// None of the four above moved anything. If the menu builds its
-		// entries when it is created rather than when it is shown, then
-		// taking it away is the only thing that helps -- so these two hide
-		// it first and show it again immediately.
-		std::pair{ RE::UI_MESSAGE_TYPE::kHide, "kHide then kShow"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kForceHide, "kForceHide then kShow"sv },
+		// kHide and kForceHide were here and are gone again: hiding the
+		// menu and showing it in the same frame crashed the game, with the
+		// probe drawing into a menu that was being torn down. They also
+		// could not have proven anything the player cannot do by closing
+		// and reopening the cross himself.
 		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
 		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
 		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv }
@@ -265,10 +264,6 @@ namespace
 
 		static const RE::BSFixedString menuName{ kProbeMenu };
 		queue->AddMessage(menuName, type);
-		if (type == RE::UI_MESSAGE_TYPE::kHide ||
-			type == RE::UI_MESSAGE_TYPE::kForceHide) {
-			queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kShow);
-		}
 		logger::info("refresh: sent {} to {}", name, kProbeMenu);
 	}
 
@@ -881,7 +876,13 @@ namespace
 			// in a known state -- the cheapest safe place to look at both
 			// halves at once.
 			DumpFavorites(a_event.opening ? "menu opened" : "menu closed");
-			ProbeStage(kProbeMenu);
+
+			// Only on the way in, and only for our own menu. Drawing into
+			// a menu that is closing is what crashed the game at 01:31:58
+			// on 2026-09-05; a menu being torn down is not a canvas.
+			if (a_event.opening && name == kProbeMenu) {
+				ProbeStage(kProbeMenu);
+			}
 
 			return RE::BSEventNotifyControl::kContinue;
 		}
