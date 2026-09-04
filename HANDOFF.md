@@ -275,3 +275,53 @@ Drei Schlüsse daraus:
    Laufzeit aus, das Grid tut dasselbe beim Seitenwechsel. Zwei Schreiber auf
    denselben zwölf Plätzen können sich in die Quere kommen; das
    `FavoriteChangedEvent` ist die Stelle, an der man das mitbekommt.
+
+---
+
+## 6. `storedFavTypes` ist nicht die Wahrheit, sondern ein Abbild
+
+**Der Befund vom 2026-09-05, im Spiel gemessen.** Ein Schreibzugriff auf
+`FavoritesManager::storedFavTypes` ändert **nichts**: nicht die Anzeige im
+Kreuz, nicht mit `kInventoryUpdate` nachgeschoben, und auch nicht das
+Verhalten — die Zifferntaste rüstet weiterhin das Item aus, das vorher dort
+favorisiert war. Das Array lässt sich beschreiben, es liest nur niemand
+zurück.
+
+**Wo die Bindung stattdessen steht**, beides in CommonLibF4 abgebildet:
+
+```cpp
+class ExtraFavorite : public BSExtraData {
+    std::int8_t quickkeyIndex;   // 0x18
+};
+
+// BGSInventoryItem::Stack-Seite, über ApplyChangesFunctor gesetzt:
+std::int8_t favoriteIndex;       // 0x2B
+```
+
+Ein Favorit ist also eine Eigenschaft **des Inventargegenstands**, nicht ein
+Eintrag in einer Liste des Managers. Dazu passt, was neben `storedFavTypes`
+liegt: `bufferedFavGeometries[12]` mit vorgeladenen Modellen. Die zwölf
+Zeiger sind der Vorlade- und Anzeige-Cache des Menüs, mehr nicht.
+
+Die Engine hat dafür einen eigenen Funktor: RTTI `SetFavoriteFunctor`
+(`REL::ID(222655)`), VTABLE `REL::ID(1064496)`. In CommonLibF4 ist er nicht
+als Klasse modelliert, aber `ApplyChangesFunctor` trägt `favoriteIndex` an
+0x2B und ist der dokumentierte Weg, eine Stack-Eigenschaft zu schreiben.
+
+**Was das für den Entwurf heißt — Korrektur zu Abschnitt 3.** Die Annahme,
+ein Favorit zeige in Fallout 4 auf das Basisobjekt und die
+Auflösungs-Maschinerie aus Starfield entfalle, stammte daher, dass
+`storedFavTypes` ein `TESBoundObject*`-Array ist. Das war der Cache. Die
+echte Bindung haengt an einem Inventar-Stack, also näher an Starfield als
+gedacht. Der Port ist damit nicht mehr klar kleiner als das Original; wie
+viel größer, entscheidet sich daran, wie stabil ein Stack über Auf- und
+Abgeben hinweg zu identifizieren ist.
+
+**Die nächsten Schritte:**
+
+1. Den Inventar-Weg lesen: über die Inventarliste des Spielers laufen und
+   für jeden Gegenstand `favoriteIndex` bzw. `ExtraFavorite::quickkeyIndex`
+   protokollieren. Wenn die zwölf Plätze daraus zu rekonstruieren sind,
+   ist die Quelle bestaetigt.
+2. Danach denselben Schreibtest gegen dieses Feld — erst dann steht fest,
+   wie ein Seitenwechsel aussieht.
