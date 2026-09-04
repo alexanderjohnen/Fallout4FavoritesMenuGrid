@@ -221,13 +221,139 @@ namespace
 	// F10 does, the message belongs in the switch. If neither does while
 	// the log shows the array reversed, the menu holds its own copy and
 	// gets it from somewhere else -- and that is the next thing to find.
-	// Only F6 to F8 are used, because those are the only function keys
-	// vanilla Fallout 4 leaves alone: F5 is quicksave, F9 is quickload, and
-	// F12 belongs to Steam. Both of the first two were tried and had to be
-	// given back.
-	constexpr int kInventoryKey = VK_F6;
-	constexpr int kDisplayListKey = VK_F7;
-	constexpr int kWriteTestKey = VK_F8;
+	// The keys come from the INI. Guessing them has cost four rounds now:
+	// F5 is quicksave, F9 is quickload, and Steam's screenshot key sits
+	// wherever the player has put it -- on this machine on F8 and F9. The
+	// defaults below are only what applies when the file says nothing.
+	int g_inventoryKey = VK_F6;
+	int g_displayListKey = VK_F7;
+	int g_swapKey = VK_F8;
+
+	[[nodiscard]] std::filesystem::path GetSettingsPath()
+	{
+		std::wstring buffer(MAX_PATH, L'\0');
+		const auto length = GetModuleFileNameW(
+			nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+		buffer.resize(length);
+		return std::filesystem::path(buffer).parent_path() /
+			L"Data" / L"F4SE" / L"Plugins" / L"FavoritesMenuGrid.ini";
+	}
+
+	[[nodiscard]] std::wstring NormalizeKeyName(std::wstring a_value)
+	{
+		std::wstring normalized;
+		normalized.reserve(a_value.size());
+		for (const auto character : a_value) {
+			if (!std::iswspace(character) && character != L'_') {
+				normalized.push_back(
+					static_cast<wchar_t>(std::towupper(character)));
+			}
+		}
+		return normalized;
+	}
+
+	// Same spelling of key names as the Starfield mod, so a player who knows
+	// one INI knows the other.
+	[[nodiscard]] std::optional<int> ParseVirtualKey(const std::wstring& a_raw)
+	{
+		const auto value = NormalizeKeyName(a_raw);
+		if (value.empty()) {
+			return std::nullopt;
+		}
+		if (value == L"NONE" || value == L"DISABLED") {
+			return 0;
+		}
+		if (value.size() == 1) {
+			const auto character = value.front();
+			if ((character >= L'A' && character <= L'Z') ||
+				(character >= L'0' && character <= L'9')) {
+				return static_cast<int>(character);
+			}
+		}
+		if (value.starts_with(L"F") && value.size() <= 3) {
+			const auto number = std::wcstol(value.c_str() + 1, nullptr, 10);
+			if (number >= 1 && number <= 24) {
+				return VK_F1 + static_cast<int>(number - 1);
+			}
+		}
+
+		const std::array<std::pair<std::wstring_view, int>, 20> names{
+			std::pair{ L"PAGEUP"sv, VK_PRIOR },
+			std::pair{ L"PGUP"sv, VK_PRIOR },
+			std::pair{ L"PAGEDOWN"sv, VK_NEXT },
+			std::pair{ L"PGDN"sv, VK_NEXT },
+			std::pair{ L"HOME"sv, VK_HOME },
+			std::pair{ L"END"sv, VK_END },
+			std::pair{ L"INSERT"sv, VK_INSERT },
+			std::pair{ L"DELETE"sv, VK_DELETE },
+			std::pair{ L"SPACE"sv, VK_SPACE },
+			std::pair{ L"TAB"sv, VK_TAB },
+			std::pair{ L"NUMPAD0"sv, VK_NUMPAD0 },
+			std::pair{ L"NUMPAD1"sv, VK_NUMPAD1 },
+			std::pair{ L"NUMPAD2"sv, VK_NUMPAD2 },
+			std::pair{ L"NUMPAD3"sv, VK_NUMPAD3 },
+			std::pair{ L"NUMPAD4"sv, VK_NUMPAD4 },
+			std::pair{ L"NUMPAD5"sv, VK_NUMPAD5 },
+			std::pair{ L"NUMPAD6"sv, VK_NUMPAD6 },
+			std::pair{ L"NUMPAD7"sv, VK_NUMPAD7 },
+			std::pair{ L"NUMPAD8"sv, VK_NUMPAD8 },
+			std::pair{ L"NUMPAD9"sv, VK_NUMPAD9 }
+		};
+		for (const auto& [name, code] : names) {
+			if (value == name) {
+				return code;
+			}
+		}
+
+		wchar_t* end = nullptr;
+		const auto numeric = std::wcstol(value.c_str(), &end, 0);
+		if (end && *end == L'\0' && numeric >= 0 && numeric <= 0xFF) {
+			return static_cast<int>(numeric);
+		}
+		return std::nullopt;
+	}
+
+	void LoadSettings()
+	{
+		const auto path = GetSettingsPath();
+		std::error_code error;
+		if (!std::filesystem::exists(path, error)) {
+			logger::info("settings: no {}, using the defaults", path.string());
+			return;
+		}
+
+		const auto read = [&](const wchar_t* a_key, int& a_target) {
+			std::wstring value(64, L'\0');
+			const auto length = GetPrivateProfileStringW(
+				L"Debug",
+				a_key,
+				L"",
+				value.data(),
+				static_cast<DWORD>(value.size()),
+				path.c_str());
+			value.resize(length);
+			if (value.empty()) {
+				return;
+			}
+			if (const auto parsed = ParseVirtualKey(value)) {
+				a_target = *parsed;
+			} else {
+				logger::warn(
+					"settings: could not read a key from \"{}\"",
+					std::filesystem::path(value).string());
+			}
+		};
+
+		read(L"InventoryProbeKey", g_inventoryKey);
+		read(L"DisplayListKey", g_displayListKey);
+		read(L"SwapFavoritesKey", g_swapKey);
+
+		logger::info(
+			"settings: keys are {:#04x} (inventory), {:#04x} (display list), {:#04x} (swap)",
+			g_inventoryKey,
+			g_displayListKey,
+			g_swapKey);
+	}
 
 	// Names, not just form IDs: the log has to be readable on its own.
 	// Comparing a screenshot against a list of hex numbers means holding
@@ -640,18 +766,25 @@ namespace
 				continue;
 			}
 
-			const auto plain = IsKeyDown(kWriteTestKey);
-			const auto display = IsKeyDown(kDisplayListKey);
-			const auto inventory = IsKeyDown(kInventoryKey);
+			const auto plain = IsKeyDown(g_swapKey);
+			const auto display = IsKeyDown(g_displayListKey);
+			const auto inventory = IsKeyDown(g_inventoryKey);
 
 			const auto* tasks = F4SE::GetTaskInterface();
 			if (tasks && plain && !previousPlain) {
+				// Logged on the way in, not only on the way out: a press
+				// that never arrives looks exactly like one that arrived
+				// and did nothing, and telling those two apart by
+				// timestamps costs more than this line.
+				logger::info("key: swap requested");
 				tasks->AddUITask([]() { RunFavoriteSwap(); });
 			}
 			if (tasks && display && !previousDisplay) {
+				logger::info("key: display list requested");
 				tasks->AddUITask([]() { DumpMenuStructure(); });
 			}
 			if (tasks && inventory && !previousInventory) {
+				logger::info("key: inventory probe requested");
 				tasks->AddUITask([]() { DumpInventoryFavorites(); });
 			}
 
@@ -709,7 +842,7 @@ namespace
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info(
-			"armed: F6 lists the inventory favorites, F7 dumps the {} display list, F8 swaps two favorites",
+			"armed -- the keys are in FavoritesMenuGrid.ini; {} is the menu being probed",
 			kProbeMenu);
 
 		DumpFavorites("game data ready");
@@ -739,6 +872,7 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(
 	F4SE::PluginInfo* a_info)
 {
 	InitializeLog();
+	LoadSettings();
 	logger::info(
 		"{} {}.{}.{}",
 		PLUGIN_NAME,

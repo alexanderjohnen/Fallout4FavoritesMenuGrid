@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cwctype>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
