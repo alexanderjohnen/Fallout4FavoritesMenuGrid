@@ -325,3 +325,51 @@ Abgeben hinweg zu identifizieren ist.
    ist die Quelle bestaetigt.
 2. Danach denselben Schreibtest gegen dieses Feld — erst dann steht fest,
    wie ein Seitenwechsel aussieht.
+
+---
+
+## 7. Bestätigt: Die Favoriten stehen im Inventar
+
+**Gemessen am 2026-09-05, 00:24 Uhr.** Die Inventar-Sonde (F6) liefert zehn
+Treffer:
+
+```
+inventory: quickkey  0 (key 1) count   2 form 000459C5 "Addictol"
+inventory: quickkey  2 (key 3) count  30 form 00023736 "Stimpak"
+inventory: quickkey 10 (key ?) count   1 form FE0A7F12 "Hunting Shotgun"
+inventory: 704 stacks, 10 of them favorited
+```
+
+Drei Befunde:
+
+1. **`ExtraFavorite::quickkeyIndex` ist die Quelle.** Vor dem Schreibtest
+   stimmt das Array des Managers Platz für Platz mit den Inventar-Indizes
+   überein.
+2. **Das Array wird nicht nachgeführt.** Nach dem Umkehren blieb es umgekehrt,
+   auch als das Menü danach geöffnet wurde — das Menü baut seine Einträge
+   also nicht daraus auf. Es ist ein Cache, den das Spiel beim Favorisieren
+   füllt und für die Anzeige nicht zurückliest.
+3. **Fallout 4 hat zwölf Plätze, aber nur zehn Zifferntasten.** `quickkey 10`
+   und `11` sind über die Tastatur gar nicht erreichbar, nur über das Kreuz.
+   Für das Grid heißt das: Zwei Plätze bekommen bei uns zum ersten Mal eine
+   anklickbare Zelle.
+
+Nebenbei: 704 beziehungsweise 706 Stapel im Inventar, und die Zahl ändert
+sich im Spielverlauf. Ein voller Durchlauf ist für einen Tastendruck billig,
+für jeden Bildaufbau wäre er es nicht — das Grid muss seine Liste zwischen
+Änderungen behalten.
+
+### Was daraus für den Kern folgt
+
+Ein Seitenwechsel schreibt `quickkeyIndex` auf den Inventar-Stapeln. Der Weg
+dafür ist `BGSInventoryList::FindAndWriteStackDataForItem` zusammen mit
+`ApplyChangesFunctor` (`favoriteIndex` an 0x2B); die Engine hat zusätzlich
+einen `SetFavoriteFunctor` (RTTI `REL::ID(222655)`).
+
+**Und damit steht die eigentliche Frage des Ports fest**, dieselbe wie in
+Starfield: Ein Favorit hängt an einem **Stapel**, und ein `std::int8_t` mit
+zwölf gültigen Werten hat keinen Platz für „gehört zu Seite 2, Platz 3". Der
+Zustand der anderen Seiten muss also bei uns liegen und beim Zurückschalten
+den richtigen Stapel wiederfinden. Wie stabil ein Stapel über Aufnehmen,
+Ablegen und Modifizieren hinweg zu identifizieren ist, ist die nächste
+Messung — und sie entscheidet den Aufwand.
