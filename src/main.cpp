@@ -760,6 +760,72 @@ namespace
 		}
 	}
 
+	// Which functions the menu offers. The game fills the twelve cells at
+	// load, so something can set one -- and if that something is reachable
+	// as a function on the menu object, calling it is far safer than
+	// writing past the engine and hoping it notices.
+	//
+	// HasMember only asks; nothing is invoked here.
+	void ProbeMenuFunctions()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		const auto menu = ui->GetMenu(menuName);
+		if (!menu || !menu->menuObj.IsObject()) {
+			logger::info("functions: {} is not open", kProbeMenu);
+			return;
+		}
+
+		constexpr std::array kCandidates{
+			"ProcessUserEvent"sv, "SetFavorite"sv, "ToggleFavorite"sv,
+			"SetQuickkey"sv, "AssignQuickkey"sv, "SetFavoriteIndex"sv,
+			"SetEntry"sv, "SetEntryData"sv, "SetItem"sv, "SetupItem"sv,
+			"SetData"sv, "UpdateData"sv, "onDataUpdate"sv, "InvalidateData"sv,
+			"Update"sv, "UpdateEntries"sv, "UpdateFavorites"sv, "Refresh"sv,
+			"RefreshEntries"sv, "PopulateEntries"sv, "BuildEntries"sv,
+			"Populate"sv, "Reset"sv, "Clear"sv, "SetIcon"sv, "LoadIcon"sv,
+			"SetSelectedIndex"sv, "selectedIndex"sv, "entries"sv, "data"sv
+		};
+
+		const auto report = [&](const char* a_where,
+								RE::Scaleform::GFx::Value& a_object) {
+			if (!a_object.IsObject()) {
+				return;
+			}
+			std::string found;
+			for (const auto candidate : kCandidates) {
+				if (a_object.HasMember(candidate.data())) {
+					found += std::format("{} ", candidate);
+				}
+			}
+			logger::info(
+				"functions: {} has [ {}]",
+				a_where,
+				found.empty() ? "nothing of the list" : found);
+		};
+
+		report("menuObj", menu->menuObj);
+
+		RE::Scaleform::GFx::Value cross;
+		if (menu->menuObj.GetMember("Cross_mc", &cross)) {
+			report("Cross_mc", cross);
+
+			RE::Scaleform::GFx::Value holder;
+			if (cross.GetMember("EntryHolder_mc", &holder)) {
+				report("EntryHolder_mc", holder);
+
+				RE::Scaleform::GFx::Value entry;
+				const RE::Scaleform::GFx::Value entryName{ "Entry_2" };
+				if (holder.Invoke("getChildByName", &entry, &entryName, 1)) {
+					report("Entry_2", entry);
+				}
+			}
+		}
+	}
+
 	void DumpMenuStructure()
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -838,7 +904,10 @@ namespace
 			}
 			if (tasks && display && !previousDisplay) {
 				logger::info("key: display list requested");
-				tasks->AddUITask([]() { DumpMenuStructure(); });
+				tasks->AddUITask([]() {
+					DumpMenuStructure();
+					ProbeMenuFunctions();
+				});
 			}
 			if (tasks && inventory && !previousInventory) {
 				logger::info("key: inventory probe requested");
