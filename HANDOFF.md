@@ -162,6 +162,40 @@ Sprite, bis das Menü selbst verschwindet.
 
 ---
 
+## 2a. Der Schreibtest (Meilenstein 1a)
+
+Gebaut am 2026-09-04, **im Spiel noch nicht geprüft.**
+
+Nur solange `FavoritesMenu` offen ist und das Spiel im Vordergrund:
+
+- **F9** kehrt die zwölf Einträge um und tut sonst nichts.
+- **F10** kehrt sie um und schickt danach `kInventoryUpdate` an
+  `FavoritesMenu`.
+
+Umkehren ist seine eigene Umkehrung: Zweimal drücken stellt die
+ursprüngliche Reihenfolge exakt wieder her, und selbst ein Abbruch dazwischen
+hinterlässt die eigenen Favoriten des Spielers statt etwas Erfundenem. Es
+wird kein Zeiger erzeugt oder freigegeben, also kann nichts baumeln.
+
+Die Auswertung:
+
+| Beobachtung | Schluss für den Seitenwechsel |
+| --- | --- |
+| F9 bewegt die Symbole | Ein Seitenwechsel ist ein schlichter Schreibzugriff. |
+| Nur F10 bewegt sie | Die Nachricht gehört in den Seitenwechsel. |
+| Keins von beiden, obwohl das Log das Feld umgekehrt zeigt | Das Menü hält eine eigene Kopie und bezieht sie woanders her — dann ist das die nächste Spur. |
+
+Nicht mitgedreht wird `bufferedFavGeometries[12]`, das neben den Plätzen
+liegt und vorgeladene Modelle hält. Falls die 3D-Vorschau im Menü danach
+nicht zum Symbol passt, ist das der Grund und kein Fehler im Schreibweg.
+
+Die Tastatur wird auf einem eigenen Thread abgefragt, der nur `GetMenuOpen`
+anfasst; alles, was das Spiel berührt, läuft als UI-Task auf dem Thread, den
+die Engine erwartet. Siehe die Regel aus dem Starfield-Projekt: kein
+Scaleform von einem fremden Thread.
+
+---
+
 ## 3. Warum der Port kleiner ist als das Original
 
 In Starfield zeigt ein Favorit auf eine **Inventarzeile**. Daher stammen
