@@ -229,6 +229,7 @@ namespace
 	int g_displayListKey = VK_F7;
 	int g_swapKey = VK_F8;
 	int g_refreshKey = VK_F10;
+	int g_notifyKey = VK_NUMPAD3;
 
 	// Saving and reloading picks up a swap, so the writes are right and they
 	// last -- the game simply never looks again while it is running. What is
@@ -386,13 +387,17 @@ namespace
 		read(L"DisplayListKey", g_displayListKey);
 		read(L"SwapFavoritesKey", g_swapKey);
 		read(L"RefreshMenuKey", g_refreshKey);
+		read(L"NotifyFavoriteKey", g_notifyKey);
 
 		logger::info(
 			"settings: keys are {:#04x} (inventory), {:#04x} (display list), {:#04x} (swap)",
 			g_inventoryKey,
 			g_displayListKey,
 			g_swapKey);
-		logger::info("settings: refresh key is {:#04x}", g_refreshKey);
+		logger::info(
+			"settings: refresh key is {:#04x}, notify key is {:#04x}",
+			g_refreshKey,
+			g_notifyKey);
 	}
 
 	// Names, not just form IDs: the log has to be readable on its own.
@@ -499,6 +504,61 @@ namespace
 
 		logger::info("swap: done -- open the cross and try the number keys");
 		DumpInventoryFavorites();
+	}
+
+	// Telling the engine instead of asking the interface.
+	//
+	// FavoritesManager is itself a sink for
+	// InventoryInterface::FavoriteChangedEvent -- that is the message it
+	// gets when a favorite changes in the inventory, and presumably what
+	// makes it update its cache and push the cells into the menu. No UI
+	// message and no reopening moves anything, so this is the remaining
+	// candidate short of writing past the engine.
+	//
+	// It calls engine code through the engine's own vtable and hands it a
+	// real inventory item, so nothing about the layout is being guessed.
+	// The source pointer is null, which most sinks ignore -- that is the
+	// part that could still bite.
+	void NotifyFavoriteChanged()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!player || !player->inventoryList || !manager) {
+			logger::warn("notify: no inventory or no singleton");
+			return;
+		}
+
+		std::vector<RE::BGSInventoryItem*> favorited;
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (a_stack.extra &&
+					a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+					favorited.push_back(&a_item);
+				}
+				return true;
+			});
+
+		if (favorited.empty()) {
+			logger::warn("notify: nothing is favorited");
+			return;
+		}
+
+		auto* sink = static_cast<
+			RE::BSTEventSink<RE::InventoryInterface::FavoriteChangedEvent>*>(
+			manager);
+
+		for (auto* item : favorited) {
+			logger::info(
+				"notify: telling the manager about \"{}\"",
+				item->object ? RE::TESFullName::GetFullName(*item->object)
+							 : "?"sv);
+			RE::InventoryInterface::FavoriteChangedEvent event{ item };
+			static_cast<void>(sink->ProcessEvent(event, nullptr));
+		}
+
+		logger::info("notify: done -- look at the cross");
+		DumpFavorites("after notify");
 	}
 
 	void RunWriteTest(bool a_withRefresh)
@@ -874,6 +934,7 @@ namespace
 		bool previousDisplay = false;
 		bool previousInventory = false;
 		bool previousRefresh = false;
+		bool previousNotify = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -885,6 +946,7 @@ namespace
 				previousDisplay = false;
 				previousInventory = false;
 				previousRefresh = false;
+				previousNotify = false;
 				continue;
 			}
 
@@ -892,6 +954,7 @@ namespace
 			const auto display = IsKeyDown(g_displayListKey);
 			const auto inventory = IsKeyDown(g_inventoryKey);
 			const auto refresh = IsKeyDown(g_refreshKey);
+			const auto notify = IsKeyDown(g_notifyKey);
 
 			const auto* tasks = F4SE::GetTaskInterface();
 			if (tasks && plain && !previousPlain) {
@@ -917,11 +980,16 @@ namespace
 				logger::info("key: refresh requested");
 				tasks->AddUITask([]() { SendNextRefreshMessage(); });
 			}
+			if (tasks && notify && !previousNotify) {
+				logger::info("key: notify requested");
+				tasks->AddUITask([]() { NotifyFavoriteChanged(); });
+			}
 
 			previousPlain = plain;
 			previousDisplay = display;
 			previousInventory = inventory;
 			previousRefresh = refresh;
+			previousNotify = notify;
 		}
 	}
 
