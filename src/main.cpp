@@ -872,15 +872,21 @@ namespace
 			return;
 		}
 
+		// Not guesses any more. These are the identifiers inside
+		// FavoritesMenu.swf itself, read out of the file after extracting
+		// it from Fallout4 - Interface.ba2 with Archive2. Thirty invented
+		// names had found nothing; the first look at the real ones turned
+		// up SetIsDirty and _FavoritesInfoA.
 		constexpr std::array kCandidates{
-			"ProcessUserEvent"sv, "SetFavorite"sv, "ToggleFavorite"sv,
-			"SetQuickkey"sv, "AssignQuickkey"sv, "SetFavoriteIndex"sv,
-			"SetEntry"sv, "SetEntryData"sv, "SetItem"sv, "SetupItem"sv,
-			"SetData"sv, "UpdateData"sv, "onDataUpdate"sv, "InvalidateData"sv,
-			"Update"sv, "UpdateEntries"sv, "UpdateFavorites"sv, "Refresh"sv,
-			"RefreshEntries"sv, "PopulateEntries"sv, "BuildEntries"sv,
-			"Populate"sv, "Reset"sv, "Clear"sv, "SetIcon"sv, "LoadIcon"sv,
-			"SetSelectedIndex"sv, "selectedIndex"sv, "entries"sv, "data"sv
+			"ProcessUserEvent"sv, "selectedIndex"sv,
+			"SetIsDirty"sv, "ClearIsDirty"sv, "UpdateBrackets"sv,
+			"GetEntryClip"sv, "SelectItem"sv, "ShouldHideSlot"sv,
+			"_FavoritesInfoA"sv, "_EntryIndex"sv, "_HideEmptySlots"sv,
+			"selectedEntry"sv, "hideEmptySlots"sv, "entryIndex"sv,
+			"Quickkeys"sv, "FavIconType"sv, "useQuickkeyP"sv,
+			"onFavEntryClick"sv, "itemPress"sv, "selectionUpdate"sv,
+			"Cross_mc"sv, "EntryHolder_mc"sv, "Icon_mc"sv,
+			"ItemName_tf"sv, "ItemAmmo_tf"sv, "Quickkey_tf"sv
 		};
 
 		const auto report = [&](const char* a_where,
