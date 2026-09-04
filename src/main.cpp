@@ -201,6 +201,123 @@ namespace
 		logger::info("probe: rectangle drawn into {}", a_menuName);
 	}
 
+	// ---- The write test -------------------------------------------------
+	//
+	// Reading the twelve slots is settled. What is not is whether writing
+	// them reaches the menu on screen, or whether the menu keeps its own
+	// copy and has to be told. That decides the shape of the page switch,
+	// so it is worth a test of its own before any of it is designed.
+	//
+	// The test reverses the twelve entries. Reversing is its own inverse:
+	// pressing the key twice restores the original order exactly, and even
+	// an interruption leaves a set of the player's own favorites rather
+	// than something invented. No pointer is created or destroyed, so
+	// nothing can dangle.
+	//
+	// F9  writes and does nothing else.
+	// F10 writes and then asks the menu to update.
+	//
+	// If F9 alone moves the icons, a page switch is a plain write. If only
+	// F10 does, the message belongs in the switch. If neither does while
+	// the log shows the array reversed, the menu holds its own copy and
+	// gets it from somewhere else -- and that is the next thing to find.
+	constexpr int kWriteTestKey = VK_F9;
+	constexpr int kWriteTestKeyWithRefresh = VK_F10;
+
+	[[nodiscard]] std::string DescribeSlots(const RE::FavoritesManager& a_manager)
+	{
+		std::string line;
+		for (const auto* form : a_manager.storedFavTypes) {
+			line += form ? std::format("{:08X} ", form->formID) : "-------- ";
+		}
+		return line;
+	}
+
+	void RunWriteTest(bool a_withRefresh)
+	{
+		auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!manager) {
+			logger::warn("write test: no singleton");
+			return;
+		}
+
+		logger::info("write test: before [ {}]", DescribeSlots(*manager));
+
+		std::reverse(
+			std::begin(manager->storedFavTypes),
+			std::end(manager->storedFavTypes));
+
+		logger::info("write test: after  [ {}]", DescribeSlots(*manager));
+
+		if (!a_withRefresh) {
+			logger::info("write test: no message sent -- watch the menu");
+			return;
+		}
+
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!queue) {
+			logger::warn("write test: no UI message queue");
+			return;
+		}
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kInventoryUpdate);
+		logger::info("write test: kInventoryUpdate sent to {}", kProbeMenu);
+	}
+
+	[[nodiscard]] bool IsGameForeground()
+	{
+		const auto foreground = GetForegroundWindow();
+		if (!foreground) {
+			return false;
+		}
+		DWORD processID = 0;
+		GetWindowThreadProcessId(foreground, &processID);
+		return processID == GetCurrentProcessId();
+	}
+
+	[[nodiscard]] bool IsKeyDown(int a_key)
+	{
+		return (GetAsyncKeyState(a_key) & 0x8000) != 0;
+	}
+
+	// The thread only ever reads the keyboard and asks whether the menu is
+	// open. Everything that touches the game runs as a UI task, on the
+	// thread the engine expects.
+	void KeyboardPollingLoop()
+	{
+		bool previousPlain = false;
+		bool previousRefresh = false;
+
+		while (true) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(25));
+
+			auto* ui = RE::UI::GetSingleton();
+			static const RE::BSFixedString menuName{ kProbeMenu };
+			const auto ready =
+				ui && ui->GetMenuOpen(menuName) && IsGameForeground();
+			if (!ready) {
+				previousPlain = false;
+				previousRefresh = false;
+				continue;
+			}
+
+			const auto plain = IsKeyDown(kWriteTestKey);
+			const auto refresh = IsKeyDown(kWriteTestKeyWithRefresh);
+
+			if ((plain && !previousPlain) || (refresh && !previousRefresh)) {
+				const auto withRefresh = refresh && !previousRefresh;
+				if (const auto* tasks = F4SE::GetTaskInterface()) {
+					tasks->AddUITask([withRefresh]() {
+						RunWriteTest(withRefresh);
+					});
+				}
+			}
+
+			previousPlain = plain;
+			previousRefresh = refresh;
+		}
+	}
+
 	class MenuWatch : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
@@ -246,6 +363,11 @@ namespace
 		ui->GetEventSource<RE::MenuOpenCloseEvent>()->RegisterSink(
 			MenuWatch::GetSingleton());
 		logger::info("menu watch registered");
+
+		std::thread(KeyboardPollingLoop).detach();
+		logger::info(
+			"write test armed: F9 writes, F10 writes and updates -- only while {} is open",
+			kProbeMenu);
 
 		DumpFavorites("game data ready");
 	}
