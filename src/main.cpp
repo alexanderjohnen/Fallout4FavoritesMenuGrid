@@ -221,13 +221,13 @@ namespace
 	// F10 does, the message belongs in the switch. If neither does while
 	// the log shows the array reversed, the menu holds its own copy and
 	// gets it from somewhere else -- and that is the next thing to find.
-	// F9 was a poor choice: it is quickload in Bethesda's own bindings and
-	// Alexander has Steam's screenshot key on it as well. F6 to F8 are free
-	// in vanilla Fallout 4.
-	constexpr int kInventoryKey = VK_F5;
-	constexpr int kDisplayListKey = VK_F6;
-	constexpr int kWriteTestKey = VK_F7;
-	constexpr int kWriteTestKeyWithRefresh = VK_F8;
+	// Only F6 to F8 are used, because those are the only function keys
+	// vanilla Fallout 4 leaves alone: F5 is quicksave, F9 is quickload, and
+	// F12 belongs to Steam. Both of the first two were tried and had to be
+	// given back.
+	constexpr int kInventoryKey = VK_F6;
+	constexpr int kDisplayListKey = VK_F7;
+	constexpr int kWriteTestKey = VK_F8;
 
 	// Names, not just form IDs: the log has to be readable on its own.
 	// Comparing a screenshot against a list of hex numbers means holding
@@ -449,7 +449,6 @@ namespace
 	void KeyboardPollingLoop()
 	{
 		bool previousPlain = false;
-		bool previousRefresh = false;
 		bool previousDisplay = false;
 		bool previousInventory = false;
 
@@ -460,24 +459,18 @@ namespace
 			// is the more interesting half of the test.
 			if (!IsGameForeground()) {
 				previousPlain = false;
-				previousRefresh = false;
 				previousDisplay = false;
 				previousInventory = false;
 				continue;
 			}
 
 			const auto plain = IsKeyDown(kWriteTestKey);
-			const auto refresh = IsKeyDown(kWriteTestKeyWithRefresh);
 			const auto display = IsKeyDown(kDisplayListKey);
 			const auto inventory = IsKeyDown(kInventoryKey);
 
 			const auto* tasks = F4SE::GetTaskInterface();
-			if (tasks && ((plain && !previousPlain) ||
-						  (refresh && !previousRefresh))) {
-				const auto withRefresh = refresh && !previousRefresh;
-				tasks->AddUITask([withRefresh]() {
-					RunWriteTest(withRefresh);
-				});
+			if (tasks && plain && !previousPlain) {
+				tasks->AddUITask([]() { RunWriteTest(false); });
 			}
 			if (tasks && display && !previousDisplay) {
 				tasks->AddUITask([]() { DumpMenuStructure(); });
@@ -487,7 +480,6 @@ namespace
 			}
 
 			previousPlain = plain;
-			previousRefresh = refresh;
 			previousDisplay = display;
 			previousInventory = inventory;
 		}
@@ -541,7 +533,7 @@ namespace
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info(
-			"armed: F5 lists the inventory favorites, F6 dumps the {} display list, F7 writes, F8 writes and updates",
+			"armed: F6 lists the inventory favorites, F7 dumps the {} display list, F8 runs the write test",
 			kProbeMenu);
 
 		DumpFavorites("game data ready");
