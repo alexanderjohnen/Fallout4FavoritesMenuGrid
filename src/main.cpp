@@ -239,7 +239,13 @@ namespace
 		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
 		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
 		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv }
+		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv },
+		// None of the four above moved anything. If the menu builds its
+		// entries when it is created rather than when it is shown, then
+		// taking it away is the only thing that helps -- so these two hide
+		// it first and show it again immediately.
+		std::pair{ RE::UI_MESSAGE_TYPE::kHide, "kHide then kShow"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kForceHide, "kForceHide then kShow"sv }
 	};
 
 	void SendNextRefreshMessage()
@@ -256,6 +262,10 @@ namespace
 
 		static const RE::BSFixedString menuName{ kProbeMenu };
 		queue->AddMessage(menuName, type);
+		if (type == RE::UI_MESSAGE_TYPE::kHide ||
+			type == RE::UI_MESSAGE_TYPE::kForceHide) {
+			queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kShow);
+		}
 		logger::info("refresh: sent {} to {}", name, kProbeMenu);
 	}
 
@@ -728,11 +738,25 @@ namespace
 			const auto childPath = std::format(
 				"{}.{}", a_path, named ? name.GetString() : "?");
 
+			// Text and item id where there is any: that is what tells one
+			// entry of the cross from another, and it is the first thing a
+			// grid drawing its own cells would have to read.
+			std::string detail;
+			for (const auto* member : { "text", "htmlText", "itemId", "formId" }) {
+				RE::Scaleform::GFx::Value value;
+				if (child.GetMember(member, &value) && value.IsString()) {
+					detail += std::format(" {}=\"{}\"", member, value.GetString());
+				} else if (value.IsNumber() || value.IsInt() || value.IsUInt()) {
+					detail += std::format(
+						" {}={}", member, ReadNumber(child, member, 0.0));
+				}
+			}
+
 			logger::info(
-				"display: {} ({} children, visible={})",
+				"display: {} ({} children){}",
 				childPath,
 				static_cast<int>(ReadNumber(child, "numChildren", 0.0)),
-				child.HasMember("visible"));
+				detail);
 
 			DumpDisplayList(child, childPath, a_depth - 1);
 		}
@@ -752,7 +776,7 @@ namespace
 		}
 
 		logger::info("display: --- {} ---", kProbeMenu);
-		DumpDisplayList(menu->menuObj, "menuObj", 3);
+		DumpDisplayList(menu->menuObj, "menuObj", 4);
 
 		RE::Scaleform::GFx::Value stage;
 		if (menu->menuObj.GetMember("stage", &stage) &&
