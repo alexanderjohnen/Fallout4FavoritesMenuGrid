@@ -493,16 +493,15 @@ namespace
 		first.favorite->quickkeyIndex = static_cast<std::int8_t>(second.index);
 		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
 
-		// And the engine's note of which kind sits where, so that a later
-		// pickup is not re-bound to the old key.
-		if (first.index >= 0 && first.index < 12 && second.index >= 0 &&
-			second.index < 12) {
-			std::swap(
-				manager->storedFavTypes[first.index],
-				manager->storedFavTypes[second.index]);
-		}
+		// The cache is deliberately left alone now. Writing both halves
+		// made the notification test toothless: the cache already agreed,
+		// so there was nothing the manager could have been seen to fix.
+		// With only the bindings changed, a manager that reacts has to
+		// bring the cache along by itself -- and that is visible.
+		static_cast<void>(manager);
 
-		logger::info("swap: done -- open the cross and try the number keys");
+		logger::info(
+			"swap: bindings changed, cache deliberately left stale");
 		DumpInventoryFavorites();
 	}
 
@@ -519,6 +518,40 @@ namespace
 	// real inventory item, so nothing about the layout is being guessed.
 	// The source pointer is null, which most sinks ignore -- that is the
 	// part that could still bite.
+	// Which slot the write functor's method sits on, read rather than
+	// assumed. CommonLibF4 documents StackDataWriteFunctor::WriteDataImpl
+	// as slot 1 and StackDataCompareFunctor::CompareData as slot 0, and
+	// both classes have exactly one virtual method and no destructor -- so
+	// one of the two is wrong, and passing a functor of our own to the
+	// engine on the wrong assumption means it calls into nothing.
+	//
+	// ApplyChangesFunctor is a write functor of the engine's own, and its
+	// WriteDataImpl has a known address. Finding that address in its vtable
+	// says what the layout really is. This only reads memory.
+	void DumpFunctorVTable()
+	{
+		const REL::Relocation<std::uintptr_t> vtable{
+			RE::VTABLE::__ApplyChangesFunctor[0]
+		};
+		const REL::Relocation<std::uintptr_t> writeData{ REL::ID(1291190) };
+		const auto base = REL::Module::get().base();
+
+		logger::info(
+			"vtable: ApplyChangesFunctor at {:X}, WriteDataImpl at {:X} (offsets from the module base)",
+			vtable.address() - base,
+			writeData.address() - base);
+
+		const auto* slots = reinterpret_cast<const std::uintptr_t*>(vtable.address());
+		for (std::size_t index = 0; index < 4; ++index) {
+			const auto entry = slots[index];
+			logger::info(
+				"vtable: slot {} -> {:X}{}",
+				index,
+				entry > base ? entry - base : entry,
+				entry == writeData.address() ? "   <-- WriteDataImpl" : "");
+		}
+	}
+
 	void NotifyFavoriteChanged()
 	{
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -982,7 +1015,10 @@ namespace
 			}
 			if (tasks && notify && !previousNotify) {
 				logger::info("key: notify requested");
-				tasks->AddUITask([]() { NotifyFavoriteChanged(); });
+				tasks->AddUITask([]() {
+					DumpFunctorVTable();
+					NotifyFavoriteChanged();
+				});
 			}
 
 			previousPlain = plain;
