@@ -228,6 +228,36 @@ namespace
 	int g_inventoryKey = VK_F6;
 	int g_displayListKey = VK_F7;
 	int g_swapKey = VK_F8;
+	int g_refreshKey = VK_F10;
+
+	// Saving and reloading picks up a swap, so the writes are right and they
+	// last -- the game simply never looks again while it is running. What is
+	// missing is the nudge. Rather than guess which message that is, the key
+	// walks through the candidates one press at a time and says which one it
+	// just sent, so the one that works can be recognised by its effect.
+	constexpr std::array kRefreshMessages{
+		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv }
+	};
+
+	void SendNextRefreshMessage()
+	{
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!queue) {
+			logger::warn("refresh: no UI message queue");
+			return;
+		}
+
+		static std::size_t next = 0;
+		const auto [type, name] = kRefreshMessages[next % kRefreshMessages.size()];
+		++next;
+
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		queue->AddMessage(menuName, type);
+		logger::info("refresh: sent {} to {}", name, kProbeMenu);
+	}
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
@@ -347,12 +377,14 @@ namespace
 		read(L"InventoryProbeKey", g_inventoryKey);
 		read(L"DisplayListKey", g_displayListKey);
 		read(L"SwapFavoritesKey", g_swapKey);
+		read(L"RefreshMenuKey", g_refreshKey);
 
 		logger::info(
 			"settings: keys are {:#04x} (inventory), {:#04x} (display list), {:#04x} (swap)",
 			g_inventoryKey,
 			g_displayListKey,
 			g_swapKey);
+		logger::info("settings: refresh key is {:#04x}", g_refreshKey);
 	}
 
 	// Names, not just form IDs: the log has to be readable on its own.
@@ -753,6 +785,7 @@ namespace
 		bool previousPlain = false;
 		bool previousDisplay = false;
 		bool previousInventory = false;
+		bool previousRefresh = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -763,12 +796,14 @@ namespace
 				previousPlain = false;
 				previousDisplay = false;
 				previousInventory = false;
+				previousRefresh = false;
 				continue;
 			}
 
 			const auto plain = IsKeyDown(g_swapKey);
 			const auto display = IsKeyDown(g_displayListKey);
 			const auto inventory = IsKeyDown(g_inventoryKey);
+			const auto refresh = IsKeyDown(g_refreshKey);
 
 			const auto* tasks = F4SE::GetTaskInterface();
 			if (tasks && plain && !previousPlain) {
@@ -787,10 +822,15 @@ namespace
 				logger::info("key: inventory probe requested");
 				tasks->AddUITask([]() { DumpInventoryFavorites(); });
 			}
+			if (tasks && refresh && !previousRefresh) {
+				logger::info("key: refresh requested");
+				tasks->AddUITask([]() { SendNextRefreshMessage(); });
+			}
 
 			previousPlain = plain;
 			previousDisplay = display;
 			previousInventory = inventory;
+			previousRefresh = refresh;
 		}
 	}
 
