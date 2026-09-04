@@ -15,11 +15,36 @@
 
 namespace
 {
-	// Every menu open and close is logged once, so the log itself answers
-	// which menu the favorites cross lives in -- a question no header can.
-	// The probe draws into the menu named here.
-	constexpr auto kProbeMenu = "HUDMenu"sv;
+	// Both menus are probed. HUDMenu was the first guess and works; the log
+	// then showed that Fallout 4 has a FavoritesMenu of its own after all,
+	// and that is where the grid belongs -- it lives and dies with the
+	// favorites cross instead of with the HUD.
+	constexpr std::array kProbeMenus{ "FavoritesMenu"sv, "HUDMenu"sv };
 	constexpr auto kProbeSprite = "FavoritesMenuGridProbe";
+
+	// Scaleform hands the same number back as a double, an int or an
+	// unsigned int depending on the property. Asking only for IsNumber is
+	// how the first probe read the stage as -1 x -1.
+	[[nodiscard]] double ReadNumber(
+		const RE::Scaleform::GFx::Value& a_object,
+		const char* a_member,
+		double a_fallback)
+	{
+		RE::Scaleform::GFx::Value value;
+		if (!a_object.IsObject() || !a_object.GetMember(a_member, &value)) {
+			return a_fallback;
+		}
+		if (value.IsNumber()) {
+			return value.GetNumber();
+		}
+		if (value.IsInt()) {
+			return static_cast<double>(value.GetInt());
+		}
+		if (value.IsUInt()) {
+			return static_cast<double>(value.GetUInt());
+		}
+		return a_fallback;
+	}
 
 	void DumpFavorites(std::string_view a_reason)
 	{
@@ -100,16 +125,20 @@ namespace
 			return;
 		}
 
-		RE::Scaleform::GFx::Value width;
-		RE::Scaleform::GFx::Value height;
-		if (stage.GetMember("stageWidth", &width) &&
-			stage.GetMember("stageHeight", &height)) {
-			logger::info(
-				"probe: {} stage is {} x {}",
-				a_menuName,
-				width.IsNumber() ? width.GetNumber() : -1.0,
-				height.IsNumber() ? height.GetNumber() : -1.0);
-		}
+		logger::info(
+			"probe: {} stage is {} x {}",
+			a_menuName,
+			ReadNumber(stage, "stageWidth", -1.0),
+			ReadNumber(stage, "stageHeight", -1.0));
+
+		// What the menu object offers decides how a selection is fired
+		// later: through the menu's own path, the way the Starfield grid
+		// does it, or by equipping ourselves.
+		logger::info(
+			"probe: {} menuObj has ProcessUserEvent={} root={}",
+			a_menuName,
+			menu->menuObj.HasMember("ProcessUserEvent"),
+			menu->menuObj.HasMember("root"));
 
 		// Reuse the sprite across probes; a second one per menu opening
 		// would pile up.
@@ -181,7 +210,9 @@ namespace
 			// in a known state -- the cheapest safe place to look at both
 			// halves at once.
 			DumpFavorites(a_event.opening ? "menu opened" : "menu closed");
-			ProbeStage(kProbeMenu);
+			for (const auto probe : kProbeMenus) {
+				ProbeStage(probe);
+			}
 
 			return RE::BSEventNotifyControl::kContinue;
 		}
