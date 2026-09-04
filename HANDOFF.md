@@ -34,26 +34,25 @@ Abschnitt 2 sind beantwortet:
   nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
   im Log auftaucht.**
 
-**Zweiter Lauf, 23:43 Uhr — die Oberflaechenfrage ist ganz beantwortet.**
-`FavoritesMenu` nimmt den Sprite ebenfalls an, seine Buehne ist 1280 x 720,
+**Zweiter Lauf, 23:43 Uhr — die Oberflächenfrage ist ganz beantwortet.**
+`FavoritesMenu` nimmt den Sprite ebenfalls an, seine Bühne ist 1280 x 720,
 und `menuObj` hat **`ProcessUserEvent`** (`HUDMenu` hat es nicht). Damit steht
 auch der Auswahlweg des Starfield-Grids in Fallout 4 offen: Auswahl durch den
-eigenen Pfad des Menuees schicken, statt selbst auszuruesten. Die Probe zielt
+eigenen Pfad des Menüs schicken, statt selbst auszurüsten. Die Probe zielt
 seitdem nur noch auf `FavoritesMenu` — in `HUDMenu` blieb das Rechteck sonst
 die ganze Sitzung stehen.
 
 Zwei Kleinigkeiten aus demselben Lauf: `stageWidth`/`stageHeight` kamen als
 `-1` zurück, weil Scaleform sie als Int statt als Number liefert — dafür gibt
-es jetzt `ReadNumber`, wie im Starfield-Projekt. Und die Probe zielt seitdem
-auf **beide** Menüs.
+es jetzt `ReadNumber`, wie im Starfield-Projekt.
 
 **Quellcode ist öffentlich:**
 `https://github.com/alexanderjohnen/Fallout4FavoritesMenuGrid` (GPL-3.0-or-later).
 
 ### Was offen ist
 
-1. **Alle drei Fragen aus Abschnitt 2.** Erst danach steht fest, ob die
-   Oberfläche wie in Starfield gebaut werden kann.
+1. **Frage 1 aus Abschnitt 2** — ob das Speicherlayout des
+   `FavoritesManager` wirklich stimmt. Die Fragen 2 und 3 sind beantwortet.
 2. **Der Kern.** `favorites_core.cpp` aus dem Starfield-Projekt wird nicht
    portiert, sondern neu geschrieben. Der größere Teil davon entfällt
    allerdings — siehe Abschnitt 3.
@@ -121,9 +120,11 @@ Das Log liegt in
    passen, was im Spiel auf den Zifferntasten liegt. Passt es nicht, stimmt
    entweder die ID oder das Speicherlayout nicht — und dann taugt auch
    `weaponLoadedAmmo` nichts, das als zweite Probe daneben ausgegeben wird.
-2. **Welches Menü trägt das Favoritenkreuz?** Fallout 4 hat kein eigenes
-   `FavoritesMenu.swf`; die Vermutung ist `HUDMenu`. Das Log schreibt jeden
-   Menüwechsel mit, also steht danach fest, welche Menüs es überhaupt gibt.
+2. **Welches Menü trägt das Favoritenkreuz?** ~~Vermutung: `HUDMenu`.~~
+   **Beantwortet:** Es ist ein eigenes `FavoritesMenu`. Die `.swf` dazu liegt
+   in einem BA2, nicht lose in `Data\Interface` — daher die falsche Annahme.
+   Das Log schreibt jeden Menüwechsel mit, also steht auch fest, welche Menüs
+   es sonst noch gibt.
 3. **Nimmt die Bühne einen eigenen Sprite an?** Genau das macht das
    Starfield-Grid (`favorites_grid.cpp`, `BuildOverlay`). Klappt es hier
    auch, braucht der Port **keine** ersetzte Interface-Datei — der wichtigste
@@ -132,9 +133,10 @@ Das Log liegt in
    „exposes no stage", ist das Movie kein AS3, und die Oberfläche muss anders
    gebaut werden.
 
-Die Probe zeichnet bei **jedem** Menüereignis. Das ist für Meilenstein 0
-Absicht: Ein Rechteck, das nach dem Schließen des Pip-Boys noch da ist, sagt
-etwas über die Lebensdauer der Bühne aus.
+Die Probe läuft bei **jedem** Menüereignis, zeichnet aber nur noch in
+`FavoritesMenu`. In `HUDMenu` blieb das Rechteck sonst die ganze Sitzung
+stehen — was für sich genommen auch eine Antwort war: Die Bühne behält den
+Sprite, bis das Menü selbst verschwindet.
 
 ---
 
