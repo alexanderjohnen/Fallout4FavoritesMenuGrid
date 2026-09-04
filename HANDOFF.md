@@ -14,9 +14,30 @@ versucht ein Rechteck in die Bühne von `HUDMenu` zu zeichnen. Mehr nicht.
 Der Zweck ist, drei Fragen zu beantworten, die in keinem Header stehen —
 siehe Abschnitt 2.
 
-**Im Spiel noch nicht geprüft.** Bis das Log aus einer laufenden Sitzung
-vorliegt, ist alles unten Entwurf. Alexander aktualisiert seit dem
-2026-09-04 erst seine Fallout-4-Mods; der Test kommt danach.
+**Erster Lauf im Spiel: 2026-09-04, 21:19 Uhr.** Zwei der drei Fragen aus
+Abschnitt 2 sind beantwortet:
+
+- **Die Bühne nimmt einen eigenen Sprite an.** `sprite added to the stage of
+  HUDMenu`, danach `rectangle drawn` — und das Rechteck war im Spiel zu
+  sehen. Der Port braucht **keine ersetzte Interface-Datei**. Der Sprite
+  überlebt auch weitere Menüereignisse (`the sprite from a previous probe is
+  still there`).
+- **Fallout 4 hat ein eigenes `FavoritesMenu`.** Das war die Korrektur des
+  Tages: Die Annahme, das Kreuz stecke in `HUDMenu`, stammte daher, dass in
+  `Data\Interface` keine `FavoritesMenu.swf` liegt — sie steckt in einem BA2.
+  Im Log öffnet und schließt `FavoritesMenu` sauber als eigenes Menü. Das
+  Grid gehört dorthin, nicht in den HUD.
+- **Offen bleibt Frage 1.** Der Singleton löst stabil auf
+  (`0x7ff7ab5fc3e0`, über den ganzen Lauf derselbe), aber alle zwölf Plätze
+  waren leer und `weaponLoadedAmmo` durchgehend `-1`. Das ist mit einem
+  Spielstand ohne gesetzte Favoriten verträglich, beweist das Layout aber
+  nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
+  im Log auftaucht.**
+
+Zwei Kleinigkeiten aus demselben Lauf: `stageWidth`/`stageHeight` kamen als
+`-1` zurück, weil Scaleform sie als Int statt als Number liefert — dafür gibt
+es jetzt `ReadNumber`, wie im Starfield-Projekt. Und die Probe zielt seitdem
+auf **beide** Menüs.
 
 **Quellcode ist öffentlich:**
 `https://github.com/alexanderjohnen/Fallout4FavoritesMenuGrid` (GPL-3.0-or-later).
