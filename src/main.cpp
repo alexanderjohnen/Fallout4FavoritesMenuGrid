@@ -235,17 +235,20 @@ namespace
 	// missing is the nudge. Rather than guess which message that is, the key
 	// walks through the candidates one press at a time and says which one it
 	// just sent, so the one that works can be recognised by its effect.
+	// The untested ones first: three presses in a row is all that reliably
+	// arrives, so whatever has not been ruled out yet has to be at the
+	// front of the queue.
 	constexpr std::array kRefreshMessages{
-		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv },
 		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv },
 		// None of the four above moved anything. If the menu builds its
 		// entries when it is created rather than when it is shown, then
 		// taking it away is the only thing that helps -- so these two hide
 		// it first and show it again immediately.
 		std::pair{ RE::UI_MESSAGE_TYPE::kHide, "kHide then kShow"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kForceHide, "kForceHide then kShow"sv }
+		std::pair{ RE::UI_MESSAGE_TYPE::kForceHide, "kForceHide then kShow"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
+		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv }
 	};
 
 	void SendNextRefreshMessage()

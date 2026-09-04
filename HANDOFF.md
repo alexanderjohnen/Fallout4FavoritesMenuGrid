@@ -349,10 +349,11 @@ Drei Befunde:
    auch als das Menü danach geöffnet wurde — das Menü baut seine Einträge
    also nicht daraus auf. Es ist ein Cache, den das Spiel beim Favorisieren
    füllt und für die Anzeige nicht zurückliest.
-3. **Fallout 4 hat zwölf Plätze, aber nur zehn Zifferntasten.** `quickkey 10`
-   und `11` sind über die Tastatur gar nicht erreichbar, nur über das Kreuz.
-   Für das Grid heißt das: Zwei Plätze bekommen bei uns zum ersten Mal eine
-   anklickbare Zelle.
+3. **Fallout 4 hat zwölf Plätze und zwölf Tasten.** ~~`quickkey 10` und `11`
+   sind über die Tastatur gar nicht erreichbar.~~ **Falsch** — die Ausgabe der
+   Menüstruktur vom 2026-09-05 zeigt `Entry_10.Quickkey_tf` mit dem Text `-`
+   und `Entry_11` mit `=`. Die beiden liegen also auf den Tasten neben der
+   Null.
 
 Nebenbei: 704 beziehungsweise 706 Stapel im Inventar, und die Zahl ändert
 sich im Spielverlauf. Ein voller Durchlauf ist für einen Tastendruck billig,
@@ -513,5 +514,30 @@ Aus dem Starfield-Projekt übernommen, weil es sich dort bewährt hat:
 
 - Die Farbe aus `Fallout4Prefs.ini` (`iHUDColorR/G/B`, dazu `[Pipboy]`), mit
   einer MCM-Überschreibung darüber.
-- Die Plätze 10 und 11 bekommen eine anklickbare Zelle; über die Tastatur
-  sind sie in Vanilla nicht erreichbar (Abschnitt 7).
+- Die Plätze 10 und 11 liegen auf `-` und `=` (Abschnitt 7) — im Grid
+  bekommen sie eine Zelle wie alle anderen.
+
+---
+
+## 12. Wie das Menü seine Zellen hält (2026-09-05, 01:24)
+
+```
+menuObj.Cross_mc.EntryHolder_mc.Entry_0 .. Entry_11
+    instanceNN (1 child)
+    Icon_mc      -- 1 Kind, wenn der Platz belegt ist, sonst 0
+    Quickkey_tf  -- der Text der Taste: "1".."9", "0", "-", "="
+```
+
+Belegt waren `Entry_2` und `Entry_3` — genau die beiden Plätze mit
+Favoriten. Die Zelle trägt ihr Symbol also als geladenen Clip, und der
+bleibt stehen, wenn sich die Zuordnung darunter ändert. Das erklaert das
+eingefrorene Bild vollständig.
+
+Für das Grid ist das dieselbe Ausgangslage wie in Starfield: Die Icons des
+Spiels sind vorhanden und wiederverwendbar, statt eigene Grafik mitzubringen.
+
+**Refresh-Versuche bisher ohne Wirkung:** `kInventoryUpdate`, `kUpdate` und
+`kReshow` wurden unter der richtigen Bedingung geprüft (Daten geändert,
+Anzeige alt) und bewegen nichts. `kShow`, `kHide`+`kShow` und
+`kForceHide`+`kShow` stehen noch aus; sie sind in der Reihenfolge jetzt
+vorn.
