@@ -231,43 +231,6 @@ namespace
 	int g_refreshKey = VK_F10;
 	int g_notifyKey = VK_NUMPAD3;
 
-	// Saving and reloading picks up a swap, so the writes are right and they
-	// last -- the game simply never looks again while it is running. What is
-	// missing is the nudge. Rather than guess which message that is, the key
-	// walks through the candidates one press at a time and says which one it
-	// just sent, so the one that works can be recognised by its effect.
-	// The untested ones first: three presses in a row is all that reliably
-	// arrives, so whatever has not been ruled out yet has to be at the
-	// front of the queue.
-	constexpr std::array kRefreshMessages{
-		std::pair{ RE::UI_MESSAGE_TYPE::kShow, "kShow"sv },
-		// kHide and kForceHide were here and are gone again: hiding the
-		// menu and showing it in the same frame crashed the game, with the
-		// probe drawing into a menu that was being torn down. They also
-		// could not have proven anything the player cannot do by closing
-		// and reopening the cross himself.
-		std::pair{ RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv },
-		std::pair{ RE::UI_MESSAGE_TYPE::kReshow, "kReshow"sv }
-	};
-
-	void SendNextRefreshMessage()
-	{
-		auto* queue = RE::UIMessageQueue::GetSingleton();
-		if (!queue) {
-			logger::warn("refresh: no UI message queue");
-			return;
-		}
-
-		static std::size_t next = 0;
-		const auto [type, name] = kRefreshMessages[next % kRefreshMessages.size()];
-		++next;
-
-		static const RE::BSFixedString menuName{ kProbeMenu };
-		queue->AddMessage(menuName, type);
-		logger::info("refresh: sent {} to {}", name, kProbeMenu);
-	}
-
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
 		std::wstring buffer(MAX_PATH, L'\0');
@@ -400,124 +363,82 @@ namespace
 			g_notifyKey);
 	}
 
-	// Names, not just form IDs: the log has to be readable on its own.
-	// Comparing a screenshot against a list of hex numbers means holding
-	// the state of the game in your head, and the favorites change between
-	// attempts -- which already invalidated one comparison.
-	[[nodiscard]] std::string DescribeSlots(const RE::FavoritesManager& a_manager)
+
+	// Saving and reloading picks up a swap, so the writes are right and they
+	// last -- the game simply never looks again while it is running. What is
+	// missing is the nudge. Rather than guess which message that is, the key
+	// walks through the candidates one press at a time and says which one it
+	// just sent, so the one that works can be recognised by its effect.
+	// The menu's own functions, read out of FavoritesMenu.swf and then
+	// confirmed present on Cross_mc: SetIsDirty, UpdateBrackets,
+	// GetEntryClip, SelectItem. Calling one of those is a far better bet
+	// than another UI message, so they go first; the messages stay at the
+	// end as the fallback they have earned.
+	[[nodiscard]] bool GetCross(RE::Scaleform::GFx::Value& a_cross)
 	{
-		std::string line;
-		for (std::size_t index = 0; index < 12; ++index) {
-			const auto* form = a_manager.storedFavTypes[index];
-			// The digit keys run 1..9 then 0, so slot 9 is key 0.
-			const auto key = (index == 9) ? '0' : static_cast<char>('1' + index);
-			if (index == 10 || index == 11) {
-				line += std::format(
-					"[{}]{} ",
-					index + 1,
-					form ? RE::TESFullName::GetFullName(*form) : "-"sv);
-			} else {
-				line += std::format(
-					"[{}]{} ",
-					key,
-					form ? RE::TESFullName::GetFullName(*form) : "-"sv);
-			}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return false;
 		}
-		return line;
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		const auto menu = ui->GetMenu(menuName);
+		if (!menu || !menu->menuObj.IsObject()) {
+			logger::info("refresh: {} is not open", kProbeMenu);
+			return false;
+		}
+		return menu->menuObj.GetMember("Cross_mc", &a_cross) &&
+			a_cross.IsObject();
 	}
 
-	// The real write test. Everything before this wrote the manager's cache
-	// and was ignored; the binding lives on the inventory stack, and the
-	// cache is the engine's note of which kind of item belongs on which key.
-	// So this writes both, exactly as a page switch would have to:
-	//
-	//   - swap quickkeyIndex on the two ExtraFavorite entries with the
-	//     lowest keys,
-	//   - swap the matching entries in storedFavTypes.
-	//
-	// Both are plain data writes; no engine call is involved. Swapping is
-	// its own inverse, so a second press puts everything back, and the two
-	// items keep their favorites either way -- nothing can end up unbound.
-	// Defined further down, with the rest of the inventory reading.
-	void DumpInventoryFavorites();
-
-	void RunFavoriteSwap()
+	void InvokeOnCross(std::string_view a_name, bool a_withTrue)
 	{
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		auto* manager = RE::FavoritesManager::GetSingleton();
-		if (!player || !player->inventoryList || !manager) {
-			logger::warn("swap: no inventory or no singleton");
+		RE::Scaleform::GFx::Value cross;
+		if (!GetCross(cross)) {
 			return;
 		}
+		const RE::Scaleform::GFx::Value argument{ true };
+		const auto ok = a_withTrue
+			? cross.Invoke(a_name.data(), nullptr, &argument, 1)
+			: cross.Invoke(a_name.data(), nullptr);
+		logger::info(
+			"refresh: Cross_mc.{}({}) {}",
+			a_name,
+			a_withTrue ? "true" : "",
+			ok ? "returned" : "was refused");
+	}
 
-		struct Bound
-		{
-			RE::ExtraFavorite* favorite;
-			RE::TESBoundObject* object;
-			int index;
+	void SendMessage(RE::UI_MESSAGE_TYPE a_type, std::string_view a_name)
+	{
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!queue) {
+			logger::warn("refresh: no UI message queue");
+			return;
+		}
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		queue->AddMessage(menuName, a_type);
+		logger::info("refresh: sent {} to {}", a_name, kProbeMenu);
+	}
+
+	void SendNextRefreshMessage()
+	{
+		using Action = void (*)();
+		static constexpr std::array<std::pair<Action, std::string_view>, 7> kSteps{
+			std::pair{ +[]() { InvokeOnCross("SetIsDirty", false); }, "SetIsDirty()"sv },
+			std::pair{ +[]() { InvokeOnCross("SetIsDirty", true); }, "SetIsDirty(true)"sv },
+			std::pair{ +[]() { InvokeOnCross("UpdateBrackets", false); }, "UpdateBrackets()"sv },
+			std::pair{ +[]() { InvokeOnCross("ClearIsDirty", false); }, "ClearIsDirty()"sv },
+			std::pair{ +[]() { SendMessage(RE::UI_MESSAGE_TYPE::kShow, "kShow"sv); }, "kShow"sv },
+			std::pair{ +[]() { SendMessage(RE::UI_MESSAGE_TYPE::kInventoryUpdate, "kInventoryUpdate"sv); }, "kInventoryUpdate"sv },
+			std::pair{ +[]() { SendMessage(RE::UI_MESSAGE_TYPE::kUpdate, "kUpdate"sv); }, "kUpdate"sv }
 		};
-		std::vector<Bound> bound;
 
-		player->inventoryList->ForEachStack(
-			[](RE::BGSInventoryItem&) { return true; },
-			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
-				if (!a_stack.extra) {
-					return true;
-				}
-				if (auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>()) {
-					bound.push_back(
-						{ favorite,
-						  a_item.object,
-						  static_cast<int>(favorite->quickkeyIndex) });
-				}
-				return true;
-			});
-
-		if (bound.size() < 2) {
-			logger::warn("swap: fewer than two favorites to swap");
-			return;
-		}
-
-		std::ranges::sort(bound, {}, &Bound::index);
-		auto& first = bound[0];
-		auto& second = bound[1];
-
-		logger::info(
-			"swap: \"{}\" is on key index {}, \"{}\" on {} -- exchanging them",
-			first.object ? RE::TESFullName::GetFullName(*first.object) : "?"sv,
-			first.index,
-			second.object ? RE::TESFullName::GetFullName(*second.object) : "?"sv,
-			second.index);
-
-		// The binding itself.
-		first.favorite->quickkeyIndex = static_cast<std::int8_t>(second.index);
-		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
-
-		// The cache is deliberately left alone now. Writing both halves
-		// made the notification test toothless: the cache already agreed,
-		// so there was nothing the manager could have been seen to fix.
-		// With only the bindings changed, a manager that reacts has to
-		// bring the cache along by itself -- and that is visible.
-		static_cast<void>(manager);
-
-		logger::info(
-			"swap: bindings changed, cache deliberately left stale");
-		DumpInventoryFavorites();
+		static std::size_t next = 0;
+		const auto [action, name] = kSteps[next % kSteps.size()];
+		++next;
+		logger::info("refresh: step {} -- {}", next, name);
+		action();
 	}
 
-	// Telling the engine instead of asking the interface.
-	//
-	// FavoritesManager is itself a sink for
-	// InventoryInterface::FavoriteChangedEvent -- that is the message it
-	// gets when a favorite changes in the inventory, and presumably what
-	// makes it update its cache and push the cells into the menu. No UI
-	// message and no reopening moves anything, so this is the remaining
-	// candidate short of writing past the engine.
-	//
-	// It calls engine code through the engine's own vtable and hands it a
-	// real inventory item, so nothing about the layout is being guessed.
-	// The source pointer is null, which most sinks ignore -- that is the
-	// part that could still bite.
 	// Which slot the write functor's method sits on, read rather than
 	// assumed. CommonLibF4 documents StackDataWriteFunctor::WriteDataImpl
 	// as slot 1 and StackDataCompareFunctor::CompareData as slot 0, and
@@ -594,56 +515,87 @@ namespace
 		DumpFavorites("after notify");
 	}
 
-	void RunWriteTest(bool a_withRefresh)
+	// Names and key labels of the twelve slots, for a log that can be read
+	// without holding the state of the game in your head.
+	[[nodiscard]] std::string DescribeSlots(const RE::FavoritesManager& a_manager)
 	{
+		std::string line;
+		for (std::size_t index = 0; index < 12; ++index) {
+			const auto* form = a_manager.storedFavTypes[index];
+			// The digit keys run 1..9, then 0, then - and =.
+			const auto key = index < 9 ? std::string(1, static_cast<char>('1' + index))
+				: index == 9           ? std::string("0")
+				: index == 10          ? std::string("-")
+									   : std::string("=");
+			line += std::format(
+				"[{}]{} ",
+				key,
+				form ? RE::TESFullName::GetFullName(*form) : "-"sv);
+		}
+		return line;
+	}
+
+	// Defined further down, with the rest of the inventory reading.
+	void DumpInventoryFavorites();
+
+	// Exchanges the two favorites with the lowest keys, by writing the
+	// binding on the inventory stacks. The cache is deliberately left
+	// alone: with both halves written, a notification test has nothing it
+	// could be seen to fix.
+	void RunFavoriteSwap()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
 		auto* manager = RE::FavoritesManager::GetSingleton();
-		if (!manager) {
-			logger::warn("write test: no singleton");
+		if (!player || !player->inventoryList || !manager) {
+			logger::warn("swap: no inventory or no singleton");
 			return;
 		}
 
-		// Writing while the menu is open changed the array and nothing on
-		// screen. Whether the menu builds its list once when it opens is a
-		// different question, and a much friendlier answer -- so the test
-		// now runs with the menu closed too, and says which case it was.
-		auto* ui = RE::UI::GetSingleton();
-		static const RE::BSFixedString menuName{ kProbeMenu };
+		struct Bound
+		{
+			RE::ExtraFavorite* favorite;
+			RE::TESBoundObject* object;
+			int index;
+		};
+		std::vector<Bound> bound;
+
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (!a_stack.extra) {
+					return true;
+				}
+				if (auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+					bound.push_back(
+						{ favorite,
+						  a_item.object,
+						  static_cast<int>(favorite->quickkeyIndex) });
+				}
+				return true;
+			});
+
+		if (bound.size() < 2) {
+			logger::warn("swap: fewer than two favorites to swap");
+			return;
+		}
+
+		std::ranges::sort(bound, {}, &Bound::index);
+		auto& first = bound[0];
+		auto& second = bound[1];
+
 		logger::info(
-			"write test: {} is {}",
-			kProbeMenu,
-			ui && ui->GetMenuOpen(menuName) ? "open" : "closed");
+			"swap: \"{}\" is on key index {}, \"{}\" on {} -- exchanging them",
+			first.object ? RE::TESFullName::GetFullName(*first.object) : "?"sv,
+			first.index,
+			second.object ? RE::TESFullName::GetFullName(*second.object) : "?"sv,
+			second.index);
 
-		logger::info("write test: before [ {}]", DescribeSlots(*manager));
+		first.favorite->quickkeyIndex = static_cast<std::int8_t>(second.index);
+		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
 
-		std::reverse(
-			std::begin(manager->storedFavTypes),
-			std::end(manager->storedFavTypes));
-
-		// Reversing twice is the same as not reversing at all, and that is
-		// exactly how the first closed-menu run was lost: the second press
-		// put the set back before the menu was reopened. The parity is
-		// logged so a run can never be misread that way again.
-		static int presses = 0;
-		++presses;
-
-		logger::info("write test: after  [ {}]", DescribeSlots(*manager));
-		logger::info(
-			"write test: press {} -- the set is now {} the one this session started with",
-			presses,
-			(presses % 2) ? "REVERSED against" : "back to");
-
-		if (!a_withRefresh) {
-			logger::info("write test: no message sent -- watch the menu");
-			return;
-		}
-
-		auto* queue = RE::UIMessageQueue::GetSingleton();
-		if (!queue) {
-			logger::warn("write test: no UI message queue");
-			return;
-		}
-		queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kInventoryUpdate);
-		logger::info("write test: kInventoryUpdate sent to {}", kProbeMenu);
+		logger::info("swap: bindings changed, cache deliberately left stale");
+		logger::info("swap: cache still says [ {}]", DescribeSlots(*manager));
+		DumpInventoryFavorites();
 	}
 
 	// Walks the player's inventory and reports every stack that carries an
