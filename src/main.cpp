@@ -262,7 +262,18 @@ namespace
 			std::begin(manager->storedFavTypes),
 			std::end(manager->storedFavTypes));
 
+		// Reversing twice is the same as not reversing at all, and that is
+		// exactly how the first closed-menu run was lost: the second press
+		// put the set back before the menu was reopened. The parity is
+		// logged so a run can never be misread that way again.
+		static int presses = 0;
+		++presses;
+
 		logger::info("write test: after  [ {}]", DescribeSlots(*manager));
+		logger::info(
+			"write test: press {} -- the set is now {} the one this session started with",
+			presses,
+			(presses % 2) ? "REVERSED against" : "back to");
 
 		if (!a_withRefresh) {
 			logger::info("write test: no message sent -- watch the menu");
