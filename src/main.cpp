@@ -221,8 +221,12 @@ namespace
 	// F10 does, the message belongs in the switch. If neither does while
 	// the log shows the array reversed, the menu holds its own copy and
 	// gets it from somewhere else -- and that is the next thing to find.
-	constexpr int kWriteTestKey = VK_F9;
-	constexpr int kWriteTestKeyWithRefresh = VK_F10;
+	// F9 was a poor choice: it is quickload in Bethesda's own bindings and
+	// Alexander has Steam's screenshot key on it as well. F6 to F8 are free
+	// in vanilla Fallout 4.
+	constexpr int kDisplayListKey = VK_F6;
+	constexpr int kWriteTestKey = VK_F7;
+	constexpr int kWriteTestKeyWithRefresh = VK_F8;
 
 	[[nodiscard]] std::string DescribeSlots(const RE::FavoritesManager& a_manager)
 	{
@@ -240,6 +244,17 @@ namespace
 			logger::warn("write test: no singleton");
 			return;
 		}
+
+		// Writing while the menu is open changed the array and nothing on
+		// screen. Whether the menu builds its list once when it opens is a
+		// different question, and a much friendlier answer -- so the test
+		// now runs with the menu closed too, and says which case it was.
+		auto* ui = RE::UI::GetSingleton();
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		logger::info(
+			"write test: {} is {}",
+			kProbeMenu,
+			ui && ui->GetMenuOpen(menuName) ? "open" : "closed");
 
 		logger::info("write test: before [ {}]", DescribeSlots(*manager));
 
@@ -259,9 +274,71 @@ namespace
 			logger::warn("write test: no UI message queue");
 			return;
 		}
-		static const RE::BSFixedString menuName{ kProbeMenu };
 		queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kInventoryUpdate);
 		logger::info("write test: kInventoryUpdate sent to {}", kProbeMenu);
+	}
+
+	// Walks the display list of a menu and writes it to the log. The write
+	// test showed the menu ignores the array while it is open, so the next
+	// question is where it keeps what it does show. CommonLibF4 has no way
+	// to enumerate the members of a Scaleform object, but the display list
+	// can be walked by index, and the names in it are usually enough to
+	// recognise the clips that hold the twelve slots.
+	void DumpDisplayList(
+		RE::Scaleform::GFx::Value& a_node,
+		const std::string& a_path,
+		int a_depth)
+	{
+		if (a_depth <= 0 || !a_node.IsObject()) {
+			return;
+		}
+
+		const auto count = static_cast<int>(ReadNumber(a_node, "numChildren", 0.0));
+		for (int index = 0; index < count; ++index) {
+			const RE::Scaleform::GFx::Value argument{ index };
+			RE::Scaleform::GFx::Value child;
+			if (!a_node.Invoke("getChildAt", &child, &argument, 1) ||
+				!child.IsDisplayObject()) {
+				continue;
+			}
+
+			RE::Scaleform::GFx::Value name;
+			const auto named =
+				child.GetMember("name", &name) && name.IsString();
+			const auto childPath = std::format(
+				"{}.{}", a_path, named ? name.GetString() : "?");
+
+			logger::info(
+				"display: {} ({} children, visible={})",
+				childPath,
+				static_cast<int>(ReadNumber(child, "numChildren", 0.0)),
+				child.HasMember("visible"));
+
+			DumpDisplayList(child, childPath, a_depth - 1);
+		}
+	}
+
+	void DumpMenuStructure()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		const auto menu = ui->GetMenu(menuName);
+		if (!menu || !menu->menuObj.IsObject()) {
+			logger::info("display: {} is not open", kProbeMenu);
+			return;
+		}
+
+		logger::info("display: --- {} ---", kProbeMenu);
+		DumpDisplayList(menu->menuObj, "menuObj", 3);
+
+		RE::Scaleform::GFx::Value stage;
+		if (menu->menuObj.GetMember("stage", &stage) &&
+			stage.IsDisplayObject()) {
+			DumpDisplayList(stage, "stage", 2);
+		}
 	}
 
 	[[nodiscard]] bool IsGameForeground()
@@ -287,34 +364,39 @@ namespace
 	{
 		bool previousPlain = false;
 		bool previousRefresh = false;
+		bool previousDisplay = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 
-			auto* ui = RE::UI::GetSingleton();
-			static const RE::BSFixedString menuName{ kProbeMenu };
-			const auto ready =
-				ui && ui->GetMenuOpen(menuName) && IsGameForeground();
-			if (!ready) {
+			// The menu no longer has to be open: writing while it is closed
+			// is the more interesting half of the test.
+			if (!IsGameForeground()) {
 				previousPlain = false;
 				previousRefresh = false;
+				previousDisplay = false;
 				continue;
 			}
 
 			const auto plain = IsKeyDown(kWriteTestKey);
 			const auto refresh = IsKeyDown(kWriteTestKeyWithRefresh);
+			const auto display = IsKeyDown(kDisplayListKey);
 
-			if ((plain && !previousPlain) || (refresh && !previousRefresh)) {
+			const auto* tasks = F4SE::GetTaskInterface();
+			if (tasks && ((plain && !previousPlain) ||
+						  (refresh && !previousRefresh))) {
 				const auto withRefresh = refresh && !previousRefresh;
-				if (const auto* tasks = F4SE::GetTaskInterface()) {
-					tasks->AddUITask([withRefresh]() {
-						RunWriteTest(withRefresh);
-					});
-				}
+				tasks->AddUITask([withRefresh]() {
+					RunWriteTest(withRefresh);
+				});
+			}
+			if (tasks && display && !previousDisplay) {
+				tasks->AddUITask([]() { DumpMenuStructure(); });
 			}
 
 			previousPlain = plain;
 			previousRefresh = refresh;
+			previousDisplay = display;
 		}
 	}
 
@@ -366,7 +448,7 @@ namespace
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info(
-			"write test armed: F9 writes, F10 writes and updates -- only while {} is open",
+			"write test armed: F7 writes, F8 writes and updates, F6 dumps the {} display list",
 			kProbeMenu);
 
 		DumpFavorites("game data ready");
