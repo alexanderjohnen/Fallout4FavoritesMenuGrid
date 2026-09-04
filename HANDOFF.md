@@ -373,3 +373,63 @@ Zustand der anderen Seiten muss also bei uns liegen und beim Zurückschalten
 den richtigen Stapel wiederfinden. Wie stabil ein Stapel über Aufnehmen,
 Ablegen und Modifizieren hinweg zu identifizieren ist, ist die nächste
 Messung — und sie entscheidet den Aufwand.
+
+---
+
+## 8. Wie stabil ein Stapel ist (gemessen 2026-09-05, 00:33 bis 00:36)
+
+Fünf Durchläufe von F6, dazwischen Ablegen und Aufnehmen, Verbrauchen und
+allgemeine Inventarbewegung (705 → 706 → 694 Stapel).
+
+**Der favorisierte Stapel hat alles überstanden.** Über alle fünf Läufe:
+dieselbe Adresse, dieselbe Ordnungszahl 0 in der Kette, der Favorit blieb
+daran hängen. Auch als der Stimpak-Stapel von 30 auf 29 schrumpfte.
+
+**Ein aufgenommener Gegenstand verschmilzt nicht.** Nach Ablegen und
+Wiederaufnehmen eines Stimpaks:
+
+```
+"Stimpak" stack 0 at 0x2b39103e3e0 count 29 quickkey 3 extras [ Favorite ]
+"Stimpak" stack 1 at 0x2b3c1a4b290 count  1 quickkey -  extras [ #14 #72 ]
+```
+
+Ein **zweiter** Stapel derselben Sorte, ohne Favorit. Er trägt
+`kStartingPosition` (14) und `kStartingWorldOrCell` (72) — die Spuren davon,
+in der Welt gelegen zu haben. Das Spiel führt die beiden nicht zusammen.
+
+**Die Extra-Typen aus den Läufen, entschlüsselt** (`BSExtraData.h`, die
+Aufzählung ist lückenlos ab `kNone` = 0):
+
+| Nr. | Typ | Wo gesehen |
+| --- | --- | --- |
+| 14 | `kStartingPosition` | aufgehobener Stimpak, Silver Shroud Hat |
+| 53 | `kObjectInstance` | T60, Silver Shroud Hat (Modifikationen) |
+| 64 | `kLastFinishedSequence` | Silver Shroud Hat |
+| 72 | `kStartingWorldOrCell` | aufgehobener Stimpak |
+| 136 | `kAliasInstanceArray` | Silver Shroud Hat (Quest-Gegenstand) |
+| 140 | `kPromotedRef` | Silver Shroud Hat |
+| 153 | `kTextDisplayData` | T60 (eigener Name) |
+| 186 | `kInstanceData` | T60, Silver Shroud Hat |
+
+### Was das für den Kern bedeutet
+
+**Solange ein Gegenstand favorisiert ist, ist er sein eigener Merker** — das
+`ExtraFavorite` hängt am richtigen Stapel und bleibt dort. Für die aktive
+Seite braucht es also gar keine eigene Identität.
+
+Die Frage stellt sich nur für **geparkte** Favoriten: Ein `int8` mit zwölf
+gültigen Werten hat keinen Platz für Seite 2. Wer auf einer anderen Seite
+liegt, verliert sein `ExtraFavorite` und damit sein Kennzeichen.
+
+Der Entwurf, der sich daraus anbietet: einen geparkten Favoriten über
+**Basisobjekt plus eine Signatur des Stapels** wiederfinden — die Liste
+seiner Extra-Typen, bei modifizierten Gegenständen dazu die Instanzdaten.
+Findet sich beim Zurückschalten kein passender Stapel, nimmt man den ersten
+derselben Sorte; bei Stimpaks und Munition ist das ohnehin gleichwertig, und
+bei einzigartigen Waffen unterscheiden die Instanzdaten sie.
+
+**Noch nicht gemessen:** was passiert, wenn ein favorisierter Stapel ganz
+aufgebraucht wird, und ob eine Modifikation an der Werkbank die Bindung
+überlebt. Der Lauf vom 2026-09-05 zeigt am T60 keine Veränderung der
+Extra-Liste, aber es ist nicht sicher, ob dabei tatsächlich modifiziert
+wurde.
