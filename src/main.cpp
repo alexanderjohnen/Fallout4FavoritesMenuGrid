@@ -255,6 +255,86 @@ namespace
 		return line;
 	}
 
+	// The real write test. Everything before this wrote the manager's cache
+	// and was ignored; the binding lives on the inventory stack, and the
+	// cache is the engine's note of which kind of item belongs on which key.
+	// So this writes both, exactly as a page switch would have to:
+	//
+	//   - swap quickkeyIndex on the two ExtraFavorite entries with the
+	//     lowest keys,
+	//   - swap the matching entries in storedFavTypes.
+	//
+	// Both are plain data writes; no engine call is involved. Swapping is
+	// its own inverse, so a second press puts everything back, and the two
+	// items keep their favorites either way -- nothing can end up unbound.
+	// Defined further down, with the rest of the inventory reading.
+	void DumpInventoryFavorites();
+
+	void RunFavoriteSwap()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!player || !player->inventoryList || !manager) {
+			logger::warn("swap: no inventory or no singleton");
+			return;
+		}
+
+		struct Bound
+		{
+			RE::ExtraFavorite* favorite;
+			RE::TESBoundObject* object;
+			int index;
+		};
+		std::vector<Bound> bound;
+
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (!a_stack.extra) {
+					return true;
+				}
+				if (auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+					bound.push_back(
+						{ favorite,
+						  a_item.object,
+						  static_cast<int>(favorite->quickkeyIndex) });
+				}
+				return true;
+			});
+
+		if (bound.size() < 2) {
+			logger::warn("swap: fewer than two favorites to swap");
+			return;
+		}
+
+		std::ranges::sort(bound, {}, &Bound::index);
+		auto& first = bound[0];
+		auto& second = bound[1];
+
+		logger::info(
+			"swap: \"{}\" is on key index {}, \"{}\" on {} -- exchanging them",
+			first.object ? RE::TESFullName::GetFullName(*first.object) : "?"sv,
+			first.index,
+			second.object ? RE::TESFullName::GetFullName(*second.object) : "?"sv,
+			second.index);
+
+		// The binding itself.
+		first.favorite->quickkeyIndex = static_cast<std::int8_t>(second.index);
+		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
+
+		// And the engine's note of which kind sits where, so that a later
+		// pickup is not re-bound to the old key.
+		if (first.index >= 0 && first.index < 12 && second.index >= 0 &&
+			second.index < 12) {
+			std::swap(
+				manager->storedFavTypes[first.index],
+				manager->storedFavTypes[second.index]);
+		}
+
+		logger::info("swap: done -- open the cross and try the number keys");
+		DumpInventoryFavorites();
+	}
+
 	void RunWriteTest(bool a_withRefresh)
 	{
 		auto* manager = RE::FavoritesManager::GetSingleton();
@@ -566,7 +646,7 @@ namespace
 
 			const auto* tasks = F4SE::GetTaskInterface();
 			if (tasks && plain && !previousPlain) {
-				tasks->AddUITask([]() { RunWriteTest(false); });
+				tasks->AddUITask([]() { RunFavoriteSwap(); });
 			}
 			if (tasks && display && !previousDisplay) {
 				tasks->AddUITask([]() { DumpMenuStructure(); });
@@ -629,7 +709,7 @@ namespace
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info(
-			"armed: F6 lists the inventory favorites, F7 dumps the {} display list, F8 runs the write test",
+			"armed: F6 lists the inventory favorites, F7 dumps the {} display list, F8 swaps two favorites",
 			kProbeMenu);
 
 		DumpFavorites("game data ready");
