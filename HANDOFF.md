@@ -152,3 +152,39 @@ in CommonLibF4 abgebildet.
 Nicht übernommen wird alles, was mit dem Rad und seinen ActionScript-Haken zu
 tun hat. Wenn das Grid die Oberfläche ist, braucht es die neun Haken nicht:
 Es wechselt die Seite selbst, bevor es die Auswahl auslöst.
+
+---
+
+## 5. Das Umfeld: was andere Mods am Favoritensystem tun
+
+Aus Alexanders Ladeordnung, an den Dateien selbst abgelesen — nicht aus
+Beschreibungen.
+
+**FavoritesMenuEx** ändert die Oberfläche des Menüs. Wird für den ersten Test
+deinstalliert.
+
+**Nested Hotkeys** fasst das Vanilla-Menü nicht an, hängt aber am selben
+System. Die Zeichenketten in `NestedHotkeys.dll` zeigen:
+
+- `BSTEventSink<InventoryInterface::FavoriteChangedEvent>` und eine Klasse
+  `FavoritesChangedHooks` — es lauscht auf Favoritenänderungen und hakt sich
+  ein.
+- `nestedHotkeysHud`, `registerHudMenu`, `root.requestCloseMenu` — es
+  registriert ein **eigenes Menü** mit eigener SWF, statt in `HUDMenu` zu
+  zeichnen.
+- `Quickkey1` bis `Quickkey7` — es löst die Auswahl über dieselben
+  Benutzerereignisse aus, die das Starfield-Grid benutzt.
+
+Drei Schlüsse daraus:
+
+1. **Die Quickkey-Ereignisse heißen in Fallout 4 genauso.** Der Weg, eine
+   Auswahl durch den eigenen Pfad des Menüs zu schicken statt selbst
+   auszurüsten, steht damit offen.
+2. **Ein eigenes Menü ist der Notausgang**, falls die Bühne von `HUDMenu`
+   unseren Sprite nicht annimmt. Das kostet eine eigene SWF — aber eine
+   **neue** Datei, keine ersetzte, also ohne den Konflikt mit FallUI und
+   DEF_UI.
+3. **Verträglichkeit im Auge behalten.** Nested Hotkeys tauscht Favoriten zur
+   Laufzeit aus, das Grid tut dasselbe beim Seitenwechsel. Zwei Schreiber auf
+   denselben zwölf Plätzen können sich in die Quere kommen; das
+   `FavoriteChangedEvent` ist die Stelle, an der man das mitbekommt.
