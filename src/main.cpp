@@ -15,11 +15,12 @@
 
 namespace
 {
-	// Both menus are probed. HUDMenu was the first guess and works; the log
-	// then showed that Fallout 4 has a FavoritesMenu of its own after all,
-	// and that is where the grid belongs -- it lives and dies with the
-	// favorites cross instead of with the HUD.
-	constexpr std::array kProbeMenus{ "FavoritesMenu"sv, "HUDMenu"sv };
+	// HUDMenu was the first guess and it worked, but Fallout 4 has a
+	// FavoritesMenu of its own, and that is where the grid belongs: it
+	// lives and dies with the favorites cross instead of sitting on the HUD
+	// forever. Probing HUDMenu as well left a rectangle on screen for the
+	// whole session, which is exactly the wrong place to leave one.
+	constexpr auto kProbeMenu = "FavoritesMenu"sv;
 	constexpr auto kProbeSprite = "FavoritesMenuGridProbe";
 
 	// Scaleform hands the same number back as a double, an int or an
@@ -86,6 +87,16 @@ namespace
 			ammo += std::format("{} ", value);
 		}
 		logger::info("favorites: loaded ammo [ {}]", ammo);
+
+		// Two more fields from the same struct, as a check on the layout
+		// itself. Twelve empty slots are equally consistent with a correct
+		// read of an empty set and with a read of the wrong address; a
+		// plausible component count and a boolean that is 0 or 1 make the
+		// first reading much more likely.
+		logger::info(
+			"favorites: {} favorited components, allowStimpakUse={}",
+			manager->favoritedComponents.size(),
+			static_cast<int>(manager->allowStimpakUse));
 	}
 
 	// Adds an empty sprite to the menu's stage and fills a rectangle in it.
@@ -210,9 +221,7 @@ namespace
 			// in a known state -- the cheapest safe place to look at both
 			// halves at once.
 			DumpFavorites(a_event.opening ? "menu opened" : "menu closed");
-			for (const auto probe : kProbeMenus) {
-				ProbeStage(probe);
-			}
+			ProbeStage(kProbeMenu);
 
 			return RE::BSEventNotifyControl::kContinue;
 		}
