@@ -48,14 +48,14 @@ namespace
 
 	constexpr std::size_t kSlots = 12;
 
-	// Every cell is a plate of the HUD colour at one of these strengths, so
-	// the panel keeps to a single colour and reads as one thing. Without a
-	// backdrop behind them they have to carry the contrast themselves, which
-	// is why the played page is a good deal stronger than the rest.
-	constexpr double kCellAlpha = 0.10;
-	constexpr double kCellLineAlpha = 0.30;
-	constexpr double kCurrentAlpha = 0.30;
-	constexpr double kCurrentLineAlpha = 0.95;
+	// Fallout 4 draws its panels as thin translucent plates with no border
+	// at all -- look at the cross itself. So the cells are barely there, and
+	// only the page being played is lifted out; an outline is kept for that
+	// one alone, because it is the one thing that has to be unmistakable.
+	constexpr double kCellAlpha = 0.07;
+	constexpr double kCellLineAlpha = 0.0;
+	constexpr double kCurrentAlpha = 0.20;
+	constexpr double kCurrentLineAlpha = 0.45;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
@@ -65,9 +65,12 @@ namespace
 			(a_m.cell + a_m.gap) * static_cast<double>(kSlots) - a_m.gap;
 	}
 
+	// One cell, one gap -- the same gap that separates the cells in a row.
+	// The pages are meant to read as one lattice rather than as three
+	// stacked strips, so the spacing has to be the same in both directions.
 	[[nodiscard]] double RowHeight(const Metrics& a_m)
 	{
-		return a_m.cell + a_m.nameHeight + a_m.gap;
+		return a_m.cell + a_m.gap;
 	}
 
 	RE::Scaleform::GFx::Value g_panel;
@@ -497,16 +500,18 @@ void grid::Draw(
 				taken ? 0.9 : 0.35);
 
 			if (taken) {
+				// Inside the cell, along its bottom edge: a name below the
+				// cell would push the rows apart and break the lattice.
 				Label(
 					a_canvas,
 					a_font,
 					Shorten(cell.name, m.nameRoom),
 					cellLeft,
-					rowTop + m.cell - m.nameHeight,
+					rowTop + m.cell - m.nameHeight - 1.0,
 					m.cell,
 					m.nameSize,
 					a_color,
-					0.95);
+					0.9);
 			}
 		}
 	}
