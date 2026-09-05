@@ -19,6 +19,7 @@
 
 #include "grid.h"
 #include "input.h"
+#include "menu.h"
 #include "peek.h"
 
 namespace
@@ -1546,13 +1547,16 @@ namespace
 				if (!a_event.opening) {
 					ReleaseIndicator();
 					grid::Release();
+					if (g_useGrid) {
+						menu::Hide();
+					}
+				} else if (g_useGrid) {
+					// Our own menu carries the grid. It answers with
+					// SetOnReady once its movie is loaded, which is when
+					// there is something to draw on.
+					menu::Show();
 				} else if (const auto* tasks = F4SE::GetTaskInterface()) {
-					// Not straight away: the menu is still being put
-					// together while this event runs.
-					tasks->AddUITask([]() {
-						ShowPageIndicator();
-						ShowGrid();
-					});
+					tasks->AddUITask([]() { ShowPageIndicator(); });
 				}
 			}
 			return RE::BSEventNotifyControl::kContinue;
@@ -1579,6 +1583,9 @@ namespace
 			MenuWatch::GetSingleton());
 
 		peek::Run(GetSettingsPath());
+
+		menu::Register();
+		menu::SetOnReady([]() { ShowGrid(); });
 
 		input::Install(input::Hooks{ &WatchButton, &WatchMouse });
 

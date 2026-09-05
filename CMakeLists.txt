@@ -44,6 +44,8 @@ add_library(
 	src/grid.h
 	src/input.cpp
 	src/input.h
+	src/menu.cpp
+	src/menu.h
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h
