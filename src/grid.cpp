@@ -39,6 +39,29 @@ namespace
 		return kCellSize + kNameHeight + kCellGap;
 	}
 
+	// Scaleform hands numbers over as Int as often as as Number, so both
+	// have to be accepted or every read comes back as the fallback.
+	[[nodiscard]] double ReadNumber(
+		const RE::Scaleform::GFx::Value& a_object,
+		const char* a_member,
+		double a_fallback)
+	{
+		RE::Scaleform::GFx::Value value;
+		if (!a_object.IsObject() || !a_object.GetMember(a_member, &value)) {
+			return a_fallback;
+		}
+		if (value.IsNumber()) {
+			return value.GetNumber();
+		}
+		if (value.IsInt()) {
+			return static_cast<double>(value.GetInt());
+		}
+		if (value.IsUInt()) {
+			return static_cast<double>(value.GetUInt());
+		}
+		return a_fallback;
+	}
+
 	// ---- Drawing ---------------------------------------------------------
 
 	void Fill(
@@ -208,6 +231,12 @@ void grid::Draw(
 		g_panel = RE::Scaleform::GFx::Value();
 		return;
 	}
+
+	// Across the top of the screen, clear of the cross in the bottom right.
+	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
+	g_panel.SetMember(
+		"x", RE::Scaleform::GFx::Value((stageWidth - PanelWidth()) / 2.0));
+	g_panel.SetMember("y", RE::Scaleform::GFx::Value(40.0));
 
 	RE::Scaleform::GFx::Value graphics;
 	if (!g_panel.GetMember("graphics", &graphics) || !graphics.IsObject()) {

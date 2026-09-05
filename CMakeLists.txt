@@ -40,6 +40,8 @@ find_package(spdlog REQUIRED CONFIG)
 add_library(
 	${PROJECT_NAME}
 	SHARED
+	src/grid.cpp
+	src/grid.h
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h

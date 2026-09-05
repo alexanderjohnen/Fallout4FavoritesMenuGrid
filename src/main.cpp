@@ -17,6 +17,7 @@
 
 #include "PCH.h"
 
+#include "grid.h"
 #include "peek.h"
 
 namespace
@@ -40,6 +41,9 @@ namespace
 	// Whether the "[Tag]" that FIS puts in front of an item name is dropped
 	// before the cross shows it.
 	bool g_stripItemTags = true;
+
+	// The whole set of pages, drawn beside the cross.
+	bool g_useGrid = true;
 
 	// The page marker inside the favorites menu.
 	bool g_showPageIndicator = true;
@@ -229,6 +233,8 @@ namespace
 		// What the cross shows.
 		g_stripItemTags = GetPrivateProfileIntW(
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
+		g_useGrid =
+			GetPrivateProfileIntW(L"Display", L"UseGrid", 1, path.c_str()) != 0;
 		g_showPageIndicator =
 			GetPrivateProfileIntW(
 				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
@@ -795,9 +801,10 @@ namespace
 	std::vector<Page> g_pages;
 	std::size_t g_currentPage = 0;
 
-	// Defined below, with the rest of the page marker: it needs the pages,
-	// and the pages need to announce themselves.
+	// Defined below, with the rest of the page marker: they need the pages,
+	// and the pages need to show themselves.
 	void ShowPageIndicator();
+	void ShowGrid();
 
 	void EnsurePages()
 	{
@@ -849,6 +856,7 @@ namespace
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
 		ShowPageIndicator();
+		ShowGrid();
 		AnnouncePage();
 	}
 
@@ -1115,6 +1123,60 @@ namespace
 		}
 	}
 
+	// ---- The grid --------------------------------------------------------
+	//
+	// The page being played is not read out of the page list -- it lives in
+	// the inventory, where the player may have changed it since. Every other
+	// row comes from the list.
+	[[nodiscard]] std::vector<grid::Page> BuildGridPages()
+	{
+		EnsurePages();
+		const auto live = ReadFavorites();
+
+		std::vector<grid::Page> rows(g_pages.size());
+		for (std::size_t row = 0; row < g_pages.size(); ++row) {
+			for (std::size_t slot = 0; slot < 12; ++slot) {
+				auto* object = row == g_currentPage ? live[slot].object
+													: g_pages[row][slot];
+				rows[row][slot].label = KeyLabel(slot);
+				rows[row][slot].name = object
+					? std::string(WithoutTag(RE::TESFullName::GetFullName(*object)))
+					: std::string{};
+			}
+		}
+		return rows;
+	}
+
+	void ShowGrid()
+	{
+		if (!g_useGrid) {
+			return;
+		}
+		auto* menu = GetFavoritesMenu();
+		if (!menu) {
+			grid::Release();
+			return;
+		}
+		RE::Scaleform::GFx::Value cross;
+		if (!GetCross(menu, cross)) {
+			return;
+		}
+
+		// Whatever the marker measured, or the cross's own font if the
+		// marker is switched off and nothing has been measured yet.
+		auto font = g_indicatorFontInUse;
+		if (font == "?") {
+			font = CrossFont(cross);
+		}
+
+		grid::Draw(
+			menu,
+			font,
+			BuildGridPages(),
+			g_currentPage,
+			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor());
+	}
+
 	// ---- Keeping the pages in the save -----------------------------------
 	//
 	// F4SE has a co-save, which SFSE does not, so the pages travel with the
@@ -1372,10 +1434,14 @@ namespace
 				// is dropped on close and built again on the next open.
 				if (!a_event.opening) {
 					ReleaseIndicator();
+					grid::Release();
 				} else if (const auto* tasks = F4SE::GetTaskInterface()) {
 					// Not straight away: the menu is still being put
 					// together while this event runs.
-					tasks->AddUITask([]() { ShowPageIndicator(); });
+					tasks->AddUITask([]() {
+						ShowPageIndicator();
+						ShowGrid();
+					});
 				}
 			}
 			return RE::BSEventNotifyControl::kContinue;
