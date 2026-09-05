@@ -212,7 +212,8 @@ void grid::Draw(
 	const std::string& a_title,
 	const std::vector<Page>& a_pages,
 	std::size_t a_current,
-	std::uint32_t a_color)
+	std::uint32_t a_color,
+	const Placement& a_where)
 {
 	if (!a_menu || !a_menu->uiMovie || a_pages.empty()) {
 		return;
@@ -235,11 +236,15 @@ void grid::Draw(
 	}
 	g_panel.SetMember("name", RE::Scaleform::GFx::Value("FavoritesMenuGrid"));
 	g_panel.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
-	if (!stage.Invoke("addChild", nullptr, &g_panel, 1)) {
-		logger::warn("grid: the stage would not take the panel");
+
+	auto& parent = a_where.inMenuRoot ? a_menu->menuObj : stage;
+	if (!parent.Invoke("addChild", nullptr, &g_panel, 1)) {
+		logger::warn("grid: the panel was not taken in");
 		g_panel = RE::Scaleform::GFx::Value();
 		return;
 	}
+	logger::info(
+		"grid: hung in {}", a_where.inMenuRoot ? "the menu's root" : "the stage");
 
 	// What the movie is actually allowed to paint on.
 	//
@@ -275,6 +280,36 @@ void grid::Draw(
 		}
 	}
 
+	// What else the menu has, once. The cross is only part of it: the item
+	// name and count are drawn by a clip of their own, and with the grid in
+	// the middle they have to travel too.
+	{
+		static bool listed = false;
+		if (!listed) {
+			listed = true;
+			const auto total =
+				static_cast<int>(ReadNumber(a_menu->menuObj, "numChildren", 0.0));
+			std::string names;
+			for (int index = 0; index < total; ++index) {
+				const RE::Scaleform::GFx::Value at{ index };
+				RE::Scaleform::GFx::Value child;
+				RE::Scaleform::GFx::Value name;
+				if (a_menu->menuObj.Invoke("getChildAt", &child, &at, 1) &&
+					child.IsDisplayObject() &&
+					child.GetMember("name", &name) && name.IsString()) {
+					names += std::format(
+						"{} ({:.0f},{:.0f} {:.0f}x{:.0f})  ",
+						name.GetString(),
+						ReadNumber(child, "x", 0.0),
+						ReadNumber(child, "y", 0.0),
+						ReadNumber(child, "width", 0.0),
+						ReadNumber(child, "height", 0.0));
+				}
+			}
+			logger::info("grid: the menu holds {}", names);
+		}
+	}
+
 	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
 	// and a panel in the middle plus a cross in the corner would be two
 	// readings of the same twelve keys.
@@ -296,12 +331,47 @@ void grid::Draw(
 	const auto height = kPadding * 2.0 + kTitleHeight +
 		RowHeight() * static_cast<double>(a_pages.size());
 
-	// In the middle of the screen, where the eye already is.
+	// In the middle of the screen by default, where the eye already is.
 	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
 	const auto stageHeight = ReadNumber(stage, "stageHeight", 720.0);
-	g_panel.SetMember("x", RE::Scaleform::GFx::Value((stageWidth - width) / 2.0));
-	g_panel.SetMember(
-		"y", RE::Scaleform::GFx::Value((stageHeight - height) / 2.0));
+	const auto left =
+		a_where.x < 0.0 ? (stageWidth - width) / 2.0 : a_where.x;
+	const auto top =
+		a_where.y < 0.0 ? (stageHeight - height) / 2.0 : a_where.y;
+	g_panel.SetMember("x", RE::Scaleform::GFx::Value(left));
+	g_panel.SetMember("y", RE::Scaleform::GFx::Value(top));
+
+	// The stage, outlined. The panel is demonstrably drawn where it should
+	// be and only part of it arrives, so the question is no longer where the
+	// panel is but which parts of the stage reach the screen at all. An
+	// outline all the way round, with a mark in every corner and in the
+	// middle, answers that in one screenshot.
+	if (a_where.probeStage) {
+		Fill(graphics, -left, -top, stageWidth, 2.0, a_color, 1.0);
+		Fill(graphics, -left, -top + stageHeight - 2.0, stageWidth, 2.0, a_color, 1.0);
+		Fill(graphics, -left, -top, 2.0, stageHeight, a_color, 1.0);
+		Fill(graphics, -left + stageWidth - 2.0, -top, 2.0, stageHeight, a_color, 1.0);
+		constexpr double mark = 24.0;
+		Fill(graphics, -left, -top, mark, mark, a_color, 1.0);
+		Fill(graphics, -left + stageWidth - mark, -top, mark, mark, a_color, 1.0);
+		Fill(graphics, -left, -top + stageHeight - mark, mark, mark, a_color, 1.0);
+		Fill(
+			graphics,
+			-left + stageWidth - mark,
+			-top + stageHeight - mark,
+			mark,
+			mark,
+			a_color,
+			1.0);
+		Fill(
+			graphics,
+			-left + stageWidth / 2.0 - mark / 2.0,
+			-top + stageHeight / 2.0 - mark / 2.0,
+			mark,
+			mark,
+			a_color,
+			1.0);
+	}
 
 	// The plate behind everything, dark rather than coloured: the cells and
 	// the text carry the colour, and a coloured plate would fight them.
@@ -322,7 +392,7 @@ void grid::Draw(
 	}
 
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
-		const auto top = kPadding + kTitleHeight +
+		const auto rowTop = kPadding + kTitleHeight +
 			RowHeight() * static_cast<double>(row);
 		const bool playing = row == a_current;
 
@@ -331,30 +401,30 @@ void grid::Draw(
 			a_font,
 			std::to_string(row + 1),
 			kPadding - 4.0,
-			top + kCellSize / 2.0 - kRowLabelSize,
+			rowTop + kCellSize / 2.0 - kRowLabelSize,
 			kRowLabelWidth,
 			kRowLabelSize,
 			a_color,
 			playing ? 1.0 : 0.5);
 
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
-			const auto left = kPadding + kRowLabelWidth +
+			const auto cellLeft = kPadding + kRowLabelWidth +
 				(kCellSize + kCellGap) * static_cast<double>(slot);
 			const auto& cell = a_pages[row][slot];
 			const bool taken = !cell.name.empty();
 
 			Fill(
 				graphics,
-				left,
-				top,
+				cellLeft,
+				rowTop,
 				kCellSize,
 				kCellSize,
 				a_color,
 				playing ? kCurrentAlpha : kCellAlpha);
 			Outline(
 				graphics,
-				left,
-				top,
+				cellLeft,
+				rowTop,
 				kCellSize,
 				kCellSize,
 				a_color,
@@ -366,8 +436,8 @@ void grid::Draw(
 				a_menu,
 				a_font,
 				cell.label,
-				left + 2.0,
-				top + 2.0,
+				cellLeft + 2.0,
+				rowTop + 2.0,
 				kCellSize - 4.0,
 				kKeySize,
 				a_color,
@@ -378,8 +448,8 @@ void grid::Draw(
 					a_menu,
 					a_font,
 					Shorten(cell.name, 13),
-					left,
-					top + kCellSize - kNameHeight,
+					cellLeft,
+					rowTop + kCellSize - kNameHeight,
 					kCellSize,
 					kNameSize,
 					a_color,

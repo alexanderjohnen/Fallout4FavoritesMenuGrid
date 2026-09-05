@@ -30,13 +30,30 @@ namespace grid
 	// `a_font` is a font the menu really has -- which one is settled by
 	// measuring. `a_title` goes above the rows, where the page marker would
 	// otherwise be.
+	struct Placement
+	{
+		// Below zero means "centred on the stage".
+		double x{ -1.0 };
+		double y{ -1.0 };
+		// Outlines the whole stage and its corners, to see which parts of it
+		// reach the screen at all.
+		bool probeStage{ false };
+
+		// Whether the panel hangs in the menu's own root clip rather than
+		// beside it on the stage. The root clip is what the game draws; a
+		// sibling of it only seems to come through where the menu repaints
+		// anyway, which is what cut the panel in half.
+		bool inMenuRoot{ true };
+	};
+
 	void Draw(
 		RE::IMenu* a_menu,
 		const std::string& a_font,
 		const std::string& a_title,
 		const std::vector<Page>& a_pages,
 		std::size_t a_current,
-		std::uint32_t a_color);
+		std::uint32_t a_color,
+		const Placement& a_where);
 
 	// Forgets the panel. The display objects belong to the movie that is
 	// going away, so this runs when the menu closes.

@@ -44,6 +44,7 @@ namespace
 
 	// The whole set of pages, drawn beside the cross.
 	bool g_useGrid = true;
+	grid::Placement g_gridWhere;
 
 	// The page marker inside the favorites menu.
 	bool g_showPageIndicator = true;
@@ -237,6 +238,14 @@ namespace
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
 		g_useGrid =
 			GetPrivateProfileIntW(L"Display", L"UseGrid", 1, path.c_str()) != 0;
+		g_gridWhere.x =
+			GetPrivateProfileIntW(L"Display", L"GridX", -1, path.c_str());
+		g_gridWhere.y =
+			GetPrivateProfileIntW(L"Display", L"GridY", -1, path.c_str());
+		g_gridWhere.probeStage =
+			GetPrivateProfileIntW(L"Display", L"GridProbeStage", 0, path.c_str()) != 0;
+		g_gridWhere.inMenuRoot =
+			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 1, path.c_str()) != 0;
 		g_showPageIndicator =
 			GetPrivateProfileIntW(
 				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
@@ -1200,7 +1209,8 @@ namespace
 			PageWording(g_indicatorText),
 			BuildGridPages(),
 			g_currentPage,
-			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor());
+			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor(),
+			g_gridWhere);
 	}
 
 	// ---- Keeping the pages in the save -----------------------------------
