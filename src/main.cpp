@@ -49,6 +49,8 @@ namespace
 	double g_indicatorSize = 18.0;
 	// Empty means "the one the cross labels its own keys with".
 	std::string g_indicatorFont;
+	// What the measuring settled on, so it is only logged when it changes.
+	std::string g_indicatorFontInUse = "?";
 	// Anything above white means "take the colour the player set for the HUD".
 	std::uint32_t g_indicatorColor = 0x1000000;
 
@@ -904,9 +906,7 @@ namespace
 	}
 
 	// Which font the cross draws its own key labels with. Whatever the menu
-	// already uses is one it certainly has -- a font it does not have comes
-	// out as a row of boxes, which is exactly what the first attempt looked
-	// like on screen.
+	// already uses is one it certainly has.
 	[[nodiscard]] std::string CrossFont(RE::Scaleform::GFx::Value& a_cross)
 	{
 		const RE::Scaleform::GFx::Value first{ 0 };
@@ -921,8 +921,83 @@ namespace
 			format.GetMember("font", &font) && font.IsString()) {
 			return font.GetString();
 		}
-		// The name the game gives its main font in FontConfig.txt.
-		return "$MAIN_Font";
+		return {};
+	}
+
+	// Writes the text and gives it a font that is really there.
+	//
+	// This was learned twice. The Starfield version of this mod has the same
+	// paragraph next to the same code: leaving the font unset falls back to
+	// whatever Scaleform picks, and naming one the movie does not have draws
+	// a row of boxes -- which is exactly what the first attempt looked like
+	// on screen. So the choice is **measured**: a field with a usable font
+	// reports a textWidth for a known string, one without reports nothing.
+	//
+	// The first candidate is the font the cross labels its own keys with,
+	// which is the one answer that stays right when an interface mod brings
+	// its own fonts along.
+	bool DressField(
+		RE::IMenu* a_menu,
+		RE::Scaleform::GFx::Value& a_cross,
+		RE::Scaleform::GFx::Value& a_field,
+		const std::string& a_text)
+	{
+		std::vector<std::string> candidates;
+		if (!g_indicatorFont.empty()) {
+			candidates.push_back(g_indicatorFont);
+		}
+		if (auto own = CrossFont(a_cross); !own.empty()) {
+			candidates.push_back(std::move(own));
+		}
+		// The names the game gives its own fonts in FontConfig.txt.
+		candidates.emplace_back("$MAIN_Font_Bold");
+		candidates.emplace_back("$MAIN_Font");
+		// Last resort: whatever the movie falls back to on its own.
+		candidates.emplace_back();
+
+		for (const auto& font : candidates) {
+			RE::Scaleform::GFx::Value format;
+			a_menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
+			if (!format.IsObject()) {
+				return false;
+			}
+			if (!font.empty()) {
+				format.SetMember("font", RE::Scaleform::GFx::Value(font.c_str()));
+			}
+			format.SetMember("size", RE::Scaleform::GFx::Value(g_indicatorSize));
+			format.SetMember(
+				"color",
+				RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(
+					g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor())));
+			format.SetMember("align", RE::Scaleform::GFx::Value("center"));
+			format.SetMember("bold", RE::Scaleform::GFx::Value(true));
+
+			// The fonts of a menu are embedded in its movie, so a named one
+			// only draws when the field is told to look there.
+			a_field.SetMember(
+				"embedFonts", RE::Scaleform::GFx::Value(!font.empty()));
+			a_field.SetMember("text", RE::Scaleform::GFx::Value(a_text.c_str()));
+			// After the text, not before: defaultTextFormat only reaches
+			// what is typed afterwards.
+			a_field.Invoke("setTextFormat", nullptr, &format, 1);
+
+			const auto width = ReadNumber(a_field, "textWidth", 0.0);
+			if (width > 0.0) {
+				a_field.SetMember("defaultTextFormat", format);
+				if (font != g_indicatorFontInUse) {
+					logger::info(
+						"indicator: drawing with {} ({:.1f} wide)",
+						font.empty() ? "the movie's own fallback" : font,
+						width);
+					g_indicatorFontInUse = font;
+				}
+				return true;
+			}
+			logger::info(
+				"indicator: {} draws nothing here",
+				font.empty() ? "the movie's own fallback" : font);
+		}
+		return false;
 	}
 
 	// Where the cross sits on the stage. Its own x and y are in whatever
@@ -992,25 +1067,6 @@ namespace
 				return;
 			}
 
-			RE::Scaleform::GFx::Value format;
-			menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
-			if (format.IsObject()) {
-				const auto font = g_indicatorFont.empty() ? CrossFont(cross)
-														  : g_indicatorFont;
-				logger::info("indicator: drawing with font {}", font);
-				format.SetMember("font", RE::Scaleform::GFx::Value(font.c_str()));
-				format.SetMember("size", RE::Scaleform::GFx::Value(g_indicatorSize));
-				format.SetMember(
-					"color",
-					RE::Scaleform::GFx::Value(
-						static_cast<std::uint32_t>(
-							g_indicatorColor <= 0xFFFFFF ? g_indicatorColor
-														 : HUDColor())));
-				format.SetMember("align", RE::Scaleform::GFx::Value("center"));
-				format.SetMember("bold", RE::Scaleform::GFx::Value(true));
-				g_indicator.SetMember("defaultTextFormat", format);
-			}
-
 			// It is a label, not a control: nothing about it should react to
 			// the mouse or take focus away from the cross.
 			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
@@ -1037,9 +1093,10 @@ namespace
 		g_indicator.SetMember(
 			"y", RE::Scaleform::GFx::Value(y + g_indicatorY));
 
-		g_indicator.SetMember(
-			"text",
-			RE::Scaleform::GFx::Value(PageWording(g_indicatorText).c_str()));
+		if (!DressField(menu, cross, g_indicator, PageWording(g_indicatorText))) {
+			logger::warn("indicator: no font in this menu draws anything");
+			g_showPageIndicator = false;
+		}
 	}
 
 	// ---- Keeping the pages in the save -----------------------------------
