@@ -37,6 +37,10 @@ namespace
 	// How many pages the twelve keys are shared between.
 	int g_pageCount = 3;
 
+	// Whether the "[Tag]" that FIS puts in front of an item name is dropped
+	// before the cross shows it.
+	bool g_stripItemTags = true;
+
 	// The cross shows no page of its own, so turning one is announced the
 	// way the game announces everything else. The wording is a setting
 	// because the game is not played in English everywhere; the numbers are
@@ -194,6 +198,9 @@ namespace
 		} else {
 			g_pageMessage.clear();
 		}
+
+		g_stripItemTags = GetPrivateProfileIntW(
+							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
 
 		// Not a key, so it is read on its own.
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
@@ -354,6 +361,28 @@ namespace
 		return a_fallback;
 	}
 
+	// FIS (FallUI Item Sorter) renames items to "[Tag] Name" -- square
+	// brackets by its own configuration -- and the menus of FallUI and
+	// DEF_UI turn that tag into an icon from their icon library. The cross
+	// is not one of those menus, so it prints the tag as it stands. Until
+	// the grid can draw the icon itself, the tag is dropped from the name,
+	// which is what the label under the cells is for.
+	[[nodiscard]] std::string_view WithoutTag(std::string_view a_name)
+	{
+		if (!g_stripItemTags || a_name.empty() || a_name.front() != '[') {
+			return a_name;
+		}
+		const auto close = a_name.find(']');
+		if (close == std::string_view::npos) {
+			return a_name;
+		}
+		auto rest = a_name.substr(close + 1);
+		while (!rest.empty() && rest.front() == ' ') {
+			rest.remove_prefix(1);
+		}
+		return rest.empty() ? a_name : rest;
+	}
+
 	// Frame 1 is the empty icon, so an item nobody has seen yet draws a
 	// blank cell rather than the wrong picture.
 	inline constexpr double kEmptyIcon = 1.0;
@@ -449,7 +478,8 @@ namespace
 			const auto found = g_iconOfObject.find(object);
 			const auto frame = found != g_iconOfObject.end() ? found->second
 															 : kEmptyIcon;
-			const auto name = std::string(RE::TESFullName::GetFullName(*object));
+			const auto name =
+				std::string(WithoutTag(RE::TESFullName::GetFullName(*object)));
 
 			RE::Scaleform::GFx::Value entry;
 			menu->uiMovie->CreateObject(&entry);
