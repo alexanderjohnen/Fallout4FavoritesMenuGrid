@@ -252,6 +252,175 @@ namespace
 		}
 	}
 
+	// ---- Making the cross catch up ---------------------------------------
+	//
+	// The cross draws from a copy it is handed when it opens, so a favorite
+	// that moves underneath it changes nothing on screen until the menu is
+	// closed and opened again. A page switch happens with the cross open, so
+	// that is not something the mod can live with.
+	//
+	// FavoritesMenu.swf, decompiled with JPEXS, says where the copy sits:
+	//
+	//     public function set infoArray(a:Array) : *      // on Cross_mc
+	//     {
+	//        this._FavoritesInfoA = a;
+	//        ... SetIsDirty();
+	//     }
+	//
+	//     override public function redrawUIComponent() : void
+	//     {
+	//        ... entry.Icon_mc.gotoAndStop(info.FavIconType);
+	//     }
+	//
+	// The setter is public and triggers the redraw itself. Every earlier
+	// attempt failed because it asked the menu to redraw data nobody had
+	// changed -- the data was missing, not the redraw.
+	//
+	// An entry is { FavIconType, text, count, ammoText, ammoCount }, and an
+	// empty key is a null entry. FavIconType is a frame number in Icon_mc
+	// whose meaning is not in the script. It is therefore never invented:
+	// the frame showing on a cell right now is read off the screen and
+	// remembered for the item standing there, so it can travel with the item
+	// to its new key.
+
+	// Scaleform hands numbers over as Int as often as as Number, so both
+	// have to be accepted or every read comes back as the fallback.
+	[[nodiscard]] double ReadNumber(
+		const RE::Scaleform::GFx::Value& a_object,
+		const char* a_member,
+		double a_fallback)
+	{
+		RE::Scaleform::GFx::Value value;
+		if (!a_object.IsObject() || !a_object.GetMember(a_member, &value)) {
+			return a_fallback;
+		}
+		if (value.IsNumber()) {
+			return value.GetNumber();
+		}
+		if (value.IsInt()) {
+			return static_cast<double>(value.GetInt());
+		}
+		if (value.IsUInt()) {
+			return static_cast<double>(value.GetUInt());
+		}
+		return a_fallback;
+	}
+
+	// Frame 1 is the empty icon, so an item nobody has seen yet draws a
+	// blank cell rather than the wrong picture.
+	inline constexpr double kEmptyIcon = 1.0;
+
+	// What icon an item draws with. Learned from the screen, never guessed,
+	// and kept for the whole session -- an item on another page was on the
+	// cross when that page was showing.
+	std::unordered_map<RE::TESBoundObject*, double> g_iconOfObject;
+
+	// The open cross, or nothing.
+	[[nodiscard]] RE::IMenu* GetFavoritesMenu()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return nullptr;
+		}
+		static const RE::BSFixedString menuName{ "FavoritesMenu" };
+		const auto menu = ui->GetMenu(menuName);
+		if (!menu || !menu->uiMovie || !menu->menuObj.IsObject()) {
+			return nullptr;
+		}
+		return menu.get();
+	}
+
+	[[nodiscard]] bool GetCross(RE::IMenu* a_menu, RE::Scaleform::GFx::Value& a_cross)
+	{
+		return a_menu->menuObj.GetMember("Cross_mc", &a_cross) &&
+			a_cross.IsObject();
+	}
+
+	// Reads the twelve icons off the screen and files them under the items
+	// standing there. Has to run while the display still agrees with the
+	// inventory -- so before a change, not after it.
+	void LearnIcons()
+	{
+		auto* menu = GetFavoritesMenu();
+		if (!menu) {
+			return;
+		}
+		RE::Scaleform::GFx::Value cross;
+		if (!GetCross(menu, cross)) {
+			return;
+		}
+
+		const auto slots = ReadFavorites();
+		for (std::size_t index = 0; index < slots.size(); ++index) {
+			if (!slots[index].object) {
+				continue;
+			}
+			const RE::Scaleform::GFx::Value argument{ static_cast<int>(index) };
+			RE::Scaleform::GFx::Value entry;
+			RE::Scaleform::GFx::Value icon;
+			if (cross.Invoke("GetEntryClip", &entry, &argument, 1) &&
+				entry.IsObject() && entry.GetMember("Icon_mc", &icon)) {
+				const auto frame = ReadNumber(icon, "currentFrame", kEmptyIcon);
+				if (frame != kEmptyIcon) {
+					g_iconOfObject[slots[index].object] = frame;
+				}
+			}
+		}
+	}
+
+	// Hands the cross a fresh list built from the inventory. Quiet when the
+	// menu is closed: then there is nothing to catch up, and the next open
+	// brings the current state anyway.
+	void RefreshCross()
+	{
+		auto* menu = GetFavoritesMenu();
+		if (!menu) {
+			return;
+		}
+		RE::Scaleform::GFx::Value cross;
+		if (!GetCross(menu, cross)) {
+			logger::warn("cross: no Cross_mc");
+			return;
+		}
+
+		const auto slots = ReadFavorites();
+
+		RE::Scaleform::GFx::Value array;
+		menu->uiMovie->CreateArray(&array);
+		std::string written;
+		for (std::size_t index = 0; index < slots.size(); ++index) {
+			auto* object = slots[index].object;
+			if (!object) {
+				// An empty key is a null entry; redrawUIComponent checks
+				// for exactly that and parks the icon on frame 1.
+				array.PushBack(RE::Scaleform::GFx::Value(nullptr));
+				written += std::format("[{}]- ", KeyLabel(index));
+				continue;
+			}
+
+			const auto found = g_iconOfObject.find(object);
+			const auto frame = found != g_iconOfObject.end() ? found->second
+															 : kEmptyIcon;
+			const auto name = std::string(RE::TESFullName::GetFullName(*object));
+
+			RE::Scaleform::GFx::Value entry;
+			menu->uiMovie->CreateObject(&entry);
+			entry.SetMember("FavIconType", RE::Scaleform::GFx::Value(frame));
+			entry.SetMember("text", RE::Scaleform::GFx::Value(name.c_str()));
+			entry.SetMember(
+				"count", RE::Scaleform::GFx::Value(slots[index].count));
+			array.PushBack(entry);
+
+			written += std::format("[{}]{}/{} ", KeyLabel(index), name, frame);
+		}
+
+		if (!cross.SetMember("infoArray", array)) {
+			logger::warn("cross: the infoArray setter was refused");
+			return;
+		}
+		logger::info("cross: rewritten from the inventory -- {}", written);
+	}
+
 	// ---- Writing a favorite, the way the game does -----------------------
 	//
 	// Read out of the running game with tools/f4dis.py, after two attempts
@@ -394,6 +563,9 @@ namespace
 	// arranged differently.
 	void ApplyPage(const PageLayout& a_target)
 	{
+		// While the display still agrees with the inventory.
+		LearnIcons();
+
 		const auto current = ReadFavorites();
 
 		// Which key each slot of the target draws its item from. An item can
@@ -535,6 +707,7 @@ namespace
 			pending.erase(pending.begin());
 		}
 
+		RefreshCross();
 		LogFavorites("after the page");
 	}
 
@@ -593,7 +766,9 @@ namespace
 				return;
 			}
 
+			LearnIcons();
 			MoveFavorite(g_probeObject, g_probeIndex, -1);
+			RefreshCross();
 			logger::info(
 				"round trip: \"{}\" is parked -- press again to give the key back",
 				RE::TESFullName::GetFullName(*g_probeObject));
@@ -601,8 +776,10 @@ namespace
 			return;
 		}
 
+		LearnIcons();
 		WriteFavorite(
 			g_probeObject, kNoKey, static_cast<std::uint8_t>(g_probeIndex));
+		RefreshCross();
 		logger::info(
 			"round trip: \"{}\" is back on [{}]",
 			RE::TESFullName::GetFullName(*g_probeObject),

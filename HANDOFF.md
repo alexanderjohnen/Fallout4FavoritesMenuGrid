@@ -11,11 +11,8 @@ Stand: 2026-09-05. Portierung von
 **Meilenstein 2 steht, im Spiel bestätigt am 2026-09-05 gegen 19:30.** Ein
 Favorit lässt sich parken und wieder auf eine Taste legen, und die Rotation
 setzt alle zwölf Plätze auf einmal. Anzeige, Cache und Tastendruck folgen.
-Offen bleibt eine Sache, und die gehört zum nächsten Schritt: **Das Kreuz
-aktualisiert sich erst, wenn man es schließt und wieder öffnet.** Es zeichnet
-aus einer Kopie, die es beim Öffnen bekommt. Für den Seitenwechsel ist das
-nicht hinnehmbar, denn der passiert bei offenem Kreuz — der Hebel dafür steht
-in Abschnitt 13 (`Cross_mc.infoArray`), der Code in der Historie.
+Das Kreuz zieht seit demselben Abend auch bei offenem Menü nach
+(Abschnitt 17).
 
 **Der Stand vom 2026-09-05, abends:** `ApplyPage` setzt alle zwölf Plätze auf
 einmal (Abschnitt 15) und ist mit der Rotation auf F8 im Spiel bestätigt. Der
@@ -888,11 +885,7 @@ gleich, die Anzeige stimmt, die Taste benutzt den richtigen Gegenstand.
 
 ### Was als Nächstes dran ist
 
-1. **Das Kreuz bei offenem Menü nachziehen.** Es hält eine Kopie, die es beim
-   Öffnen bekommt, und merkt von einem Wechsel darunter nichts. Der Hebel ist
-   `Cross_mc.infoArray` aus Abschnitt 13; der Code dafür steht in der
-   Historie und muss auf die neuen Verhältnisse zurückgeholt werden. Ohne das
-   gibt es keinen Seitenwechsel bei offenem Kreuz — also gar keinen.
+1. ~~Das Kreuz bei offenem Menü nachziehen.~~ **Erledigt, Abschnitt 17.**
 2. **Die Seitenverwaltung:** mehrere Seiten im Speicher, Zustand ins Co-Save
    über die F4SE-Serialisierung, geparkte Favoriten wiederfinden.
 3. **Das Grid** aus dem Starfield-Projekt.
@@ -902,3 +895,39 @@ belegt sind. Dann gibt es keinen Parkplatz, und der Ring wird auf einer
 belegten Taste aufgebrochen. Seit es -1 gibt, ist das aber kein Problem mehr,
 sondern eine Vereinfachung: Der erste Zug parkt einfach auf -1, und schon ist
 eine Taste frei. Das gehört in `ApplyPage`, sobald es angefasst wird.
+
+---
+
+## 17. Das Kreuz zieht nach (2026-09-05, spät)
+
+Der Schreibweg aus Abschnitt 16 stimmt, aber **auf dem Bildschirm passiert
+nichts, solange das Kreuz offen ist**. Es zeichnet aus einer Kopie, die es
+beim Öffnen bekommt, und fragt nicht nach. Für einen Seitenwechsel — der
+findet ja bei offenem Kreuz statt — wäre das das Ende.
+
+Der Hebel steht seit Abschnitt 13 fest: `Cross_mc.infoArray` ist öffentlich,
+und der Setter löst das Neuzeichnen selbst aus. `RefreshCross()` baut die
+Liste aus dem Inventar und schreibt sie dorthin.
+
+**Neu ist, wie die Symbole gefunden werden.** `FavIconType` ist eine
+Bildnummer, deren Bedeutung nicht im Skript steht; erfinden kann man sie
+nicht. Die alte Fassung hat sie zwischen den zwei getauschten Plätzen hin- und
+hergeschoben, was bei zwölf Plätzen auf einmal nicht mehr trägt. Jetzt hängt
+das Symbol **am Gegenstand**:
+
+- `LearnIcons()` liest die zwölf `Icon_mc.currentFrame` vom Bildschirm und
+  legt sie unter dem Gegenstand ab, der gerade dort steht. Das muss laufen,
+  **solange Anzeige und Inventar noch übereinstimmen** — also vor der
+  Änderung, nicht danach.
+- `RefreshCross()` baut die Liste danach neu und gibt jedem Gegenstand sein
+  gemerktes Symbol mit.
+- Was noch nie zu sehen war, bekommt Bild 1 — die leere Zelle. Lieber leer als
+  falsch, und im Log steht es.
+
+Die Merkliste hält die ganze Sitzung. Ein Gegenstand einer anderen Seite war
+auf dem Kreuz, als jene Seite dran war, also ist er bekannt, sobald es darauf
+ankommt.
+
+**Regel, die dabei wieder gilt:** Scaleform nur aus dem richtigen Faden. Beide
+Funktionen laufen ausschließlich in einer UI-Task, wie alles andere, was das
+Spiel anfasst.
