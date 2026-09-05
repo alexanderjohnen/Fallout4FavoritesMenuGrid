@@ -746,9 +746,26 @@ namespace
 		first.favorite->quickkeyIndex = static_cast<std::int8_t>(second.index);
 		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
 
-		logger::info("swap: bindings changed, cache deliberately left stale");
+		// And the cache, because there are two paths to a favorite and they
+		// read different tables:
+		//
+		//   cross open   -> ProcessUserEvent -> useQuickkey(index), and the
+		//                   engine looks the item up in storedFavTypes
+		//   cross closed -> the number key uses the binding on the stack
+		//
+		// Leaving the cache stale for the notification test showed that as
+		// plainly as it can be shown: with the cross open the old item was
+		// used, with it closed the new one. A page switch writes both.
+		if (first.index >= 0 && first.index < 12 && second.index >= 0 &&
+			second.index < 12) {
+			std::swap(
+				manager->storedFavTypes[first.index],
+				manager->storedFavTypes[second.index]);
+		}
+
+		logger::info("swap: bindings and cache both written");
 		RefreshCross(first.index, second.index);
-		logger::info("swap: cache still says [ {}]", DescribeSlots(*manager));
+		logger::info("swap: cache now says [ {}]", DescribeSlots(*manager));
 		DumpInventoryFavorites();
 	}
 
