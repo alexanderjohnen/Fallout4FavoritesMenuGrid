@@ -479,7 +479,10 @@ namespace
 		}
 		const RE::BSFixedString menuName{ a_name };
 		const auto menu = ui->GetMenu(menuName);
-		if (!menu || !menu->uiMovie || !menu->menuObj.IsObject()) {
+		// A movie is enough. Our own menu has no named clip -- there is
+		// nothing in its movie to name -- so requiring menuObj here is what
+		// made it look shut while it was open.
+		if (!menu || !menu->uiMovie) {
 			return nullptr;
 		}
 		return menu.get();

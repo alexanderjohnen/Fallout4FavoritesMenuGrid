@@ -256,9 +256,20 @@ void grid::Draw(
 	if (!a_canvas || !a_canvas->uiMovie || !a_favorites || a_pages.empty()) {
 		return;
 	}
+	// A menu that was loaded without a named clip has no menuObj at all --
+	// ours is an empty movie, so there is nothing to name. Its root answers
+	// just as well, and that is what carries the stage.
 	RE::Scaleform::GFx::Value stage;
-	if (!a_canvas->menuObj.GetMember("stage", &stage) || !stage.IsDisplayObject()) {
-		logger::warn("grid: the menu has no stage");
+	if (!a_canvas->menuObj.IsObject() ||
+		!a_canvas->menuObj.GetMember("stage", &stage) ||
+		!stage.IsDisplayObject()) {
+		RE::Scaleform::GFx::Value root;
+		if (a_canvas->uiMovie->GetVariable(&root, "root") && root.IsObject()) {
+			root.GetMember("stage", &stage);
+		}
+	}
+	if (!stage.IsDisplayObject()) {
+		logger::warn("grid: the canvas has no stage");
 		return;
 	}
 
