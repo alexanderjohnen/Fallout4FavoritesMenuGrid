@@ -72,6 +72,25 @@ void input::Install(const Hooks& a_hooks)
 		logger::info(
 			"input: its input handling is {}",
 			manager->inputEventHandlingEnabled ? "on" : "off");
+
+		// One vtable pointer per base that has virtuals, and the object
+		// carries them at different offsets. The one with the nine input
+		// handlers has to be found among them rather than assumed to be
+		// first: what sits at offset 0 has a single entry.
+		const auto* words = reinterpret_cast<const std::uintptr_t*>(manager);
+		std::string layout;
+		for (std::size_t index = 0; index < 8; ++index) {
+			const auto word = words[index];
+			const auto rdata = REL::Module::get().segment(REL::Segment::rdata);
+			const bool looksLikeVTable = word >= rdata.address() &&
+				word < rdata.address() + rdata.size();
+			layout += std::format(
+				"+{:#04x}={:#x}{}  ",
+				index * sizeof(std::uintptr_t),
+				looksLikeVTable ? word - base : word,
+				looksLikeVTable ? " (vtable)" : "");
+		}
+		logger::info("input: the manager begins with {}", layout);
 	}
 
 	REL::Relocation<std::uintptr_t> vtable{ REL::ID(kInputVTable) };

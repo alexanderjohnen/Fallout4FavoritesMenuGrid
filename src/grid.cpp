@@ -508,14 +508,29 @@ void grid::Draw(
 			const auto& cell = a_pages[row][slot];
 			const bool taken = !cell.name.empty();
 
-			Fill(
-				graphics,
-				cellLeft,
-				rowTop,
-				m.cell,
-				m.cell,
-				kPlate,
-				playing ? kCurrentAlpha : kCellAlpha);
+			// An empty key gets no plate at all. Two pages of nothing were
+			// two dark slabs across the middle of the screen, and the game
+			// draws no such thing: what is there is drawn, what is not is
+			// not.
+			if (taken) {
+				Fill(
+					graphics,
+					cellLeft,
+					rowTop,
+					m.cell,
+					m.cell,
+					kPlate,
+					playing ? kCurrentAlpha : kCellAlpha);
+			} else {
+				Outline(
+					graphics,
+					cellLeft,
+					rowTop,
+					m.cell,
+					m.cell,
+					kPlate,
+					playing ? 0.22 : 0.10);
+			}
 
 			// The key, top left, small -- where the cross puts it. A cell of
 			// this game holds its key and its icon and nothing else; the
@@ -530,7 +545,7 @@ void grid::Draw(
 				m.cell * 0.5,
 				m.keySize,
 				kPlate,
-				taken ? 0.85 : 0.3,
+				taken ? 0.85 : 0.25,
 				"left");
 		}
 	}
