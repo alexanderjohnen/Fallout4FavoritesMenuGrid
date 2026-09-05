@@ -23,11 +23,17 @@ namespace grid
 
 	using Page = std::array<Cell, 12>;
 
-	// Draws or redraws the panel. `a_font` is a font the menu really has --
-	// which one is settled by measuring, next to the page marker.
+	// Draws or redraws the panel, in the middle of the screen, and puts the
+	// cross out of sight while it is up: two ways to read the same twelve
+	// keys, in two corners, is one too many.
+	//
+	// `a_font` is a font the menu really has -- which one is settled by
+	// measuring. `a_title` goes above the rows, where the page marker would
+	// otherwise be.
 	void Draw(
 		RE::IMenu* a_menu,
 		const std::string& a_font,
+		const std::string& a_title,
 		const std::vector<Page>& a_pages,
 		std::size_t a_current,
 		std::uint32_t a_color);

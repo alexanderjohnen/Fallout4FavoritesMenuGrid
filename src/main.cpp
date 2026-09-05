@@ -1063,7 +1063,9 @@ namespace
 	// to stage coordinates, so it still follows wherever the cross sits.
 	void ShowPageIndicator()
 	{
-		if (!g_showPageIndicator || g_pages.empty()) {
+		// With the grid up the page stands in its title, and the cross it
+		// would be measured against is hidden anyway.
+		if (!g_showPageIndicator || g_useGrid || g_pages.empty()) {
 			return;
 		}
 		auto* menu = GetFavoritesMenu();
@@ -1195,6 +1197,7 @@ namespace
 		grid::Draw(
 			menu,
 			font,
+			PageWording(g_indicatorText),
 			BuildGridPages(),
 			g_currentPage,
 			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor());

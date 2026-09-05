@@ -15,6 +15,8 @@ namespace
 	constexpr double kNameSize = 9.0;
 	constexpr double kKeySize = 10.0;
 	constexpr double kRowLabelSize = 12.0;
+	constexpr double kTitleSize = 15.0;
+	constexpr double kTitleHeight = 22.0;
 
 	constexpr std::size_t kSlots = 12;
 
@@ -27,6 +29,8 @@ namespace
 	constexpr double kCurrentLineAlpha = 1.0;
 
 	RE::Scaleform::GFx::Value g_panel;
+	// Kept so the cross can be put back the way it was found.
+	RE::Scaleform::GFx::Value g_hiddenCross;
 
 	[[nodiscard]] double PanelWidth()
 	{
@@ -189,6 +193,10 @@ namespace
 
 void grid::Release()
 {
+	if (g_hiddenCross.IsDisplayObject()) {
+		g_hiddenCross.SetMember("visible", RE::Scaleform::GFx::Value(true));
+		g_hiddenCross = RE::Scaleform::GFx::Value();
+	}
 	if (g_panel.IsDisplayObject()) {
 		RE::Scaleform::GFx::Value parent;
 		if (g_panel.GetMember("parent", &parent) && parent.IsDisplayObject()) {
@@ -201,6 +209,7 @@ void grid::Release()
 void grid::Draw(
 	RE::IMenu* a_menu,
 	const std::string& a_font,
+	const std::string& a_title,
 	const std::vector<Page>& a_pages,
 	std::size_t a_current,
 	std::uint32_t a_color)
@@ -232,11 +241,15 @@ void grid::Draw(
 		return;
 	}
 
-	// Across the top of the screen, clear of the cross in the bottom right.
-	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
-	g_panel.SetMember(
-		"x", RE::Scaleform::GFx::Value((stageWidth - PanelWidth()) / 2.0));
-	g_panel.SetMember("y", RE::Scaleform::GFx::Value(40.0));
+	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
+	// and a panel in the middle plus a cross in the corner would be two
+	// readings of the same twelve keys.
+	if (a_menu->menuObj.GetMember("Cross_mc", &g_hiddenCross) &&
+		g_hiddenCross.IsDisplayObject()) {
+		g_hiddenCross.SetMember("visible", RE::Scaleform::GFx::Value(false));
+	} else {
+		g_hiddenCross = RE::Scaleform::GFx::Value();
+	}
 
 	RE::Scaleform::GFx::Value graphics;
 	if (!g_panel.GetMember("graphics", &graphics) || !graphics.IsObject()) {
@@ -246,16 +259,37 @@ void grid::Draw(
 	}
 
 	const auto width = PanelWidth();
-	const auto height =
-		kPadding * 2.0 + RowHeight() * static_cast<double>(a_pages.size());
+	const auto height = kPadding * 2.0 + kTitleHeight +
+		RowHeight() * static_cast<double>(a_pages.size());
+
+	// In the middle of the screen, where the eye already is.
+	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
+	const auto stageHeight = ReadNumber(stage, "stageHeight", 720.0);
+	g_panel.SetMember("x", RE::Scaleform::GFx::Value((stageWidth - width) / 2.0));
+	g_panel.SetMember(
+		"y", RE::Scaleform::GFx::Value((stageHeight - height) / 2.0));
 
 	// The plate behind everything, dark rather than coloured: the cells and
 	// the text carry the colour, and a coloured plate would fight them.
 	Fill(graphics, 0.0, 0.0, width, height, 0x000000, kPanelAlpha);
 	Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
 
+	if (!a_title.empty()) {
+		Label(
+			a_menu,
+			a_font,
+			a_title,
+			0.0,
+			kPadding,
+			width,
+			kTitleSize,
+			a_color,
+			1.0);
+	}
+
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
-		const auto top = kPadding + RowHeight() * static_cast<double>(row);
+		const auto top = kPadding + kTitleHeight +
+			RowHeight() * static_cast<double>(row);
 		const bool playing = row == a_current;
 
 		Label(
