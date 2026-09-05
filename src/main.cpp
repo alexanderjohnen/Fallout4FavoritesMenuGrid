@@ -37,6 +37,12 @@ namespace
 	// How many pages the twelve keys are shared between.
 	int g_pageCount = 3;
 
+	// The cross shows no page of its own, so turning one is announced the
+	// way the game announces everything else. The wording is a setting
+	// because the game is not played in English everywhere; the numbers are
+	// appended to it.
+	std::string g_pageMessage = "Favorites";
+
 	// Writes the pieces of engine code named in the INI next to the log --
 	// see peek.h. The settings are read at that moment, so a new question
 	// needs no restart of the game.
@@ -166,6 +172,28 @@ namespace
 		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
 		read(L"Debug", L"RotateFavoritesKey", g_rotateKey);
 		read(L"Debug", L"PeekKey", g_peekKey);
+
+		std::wstring message(128, L'#');
+		message.resize(GetPrivateProfileStringW(
+			L"Pages",
+			L"PageMessage",
+			L"Favorites",
+			message.data(),
+			static_cast<DWORD>(message.size()),
+			path.c_str()));
+		// The INI is wide, the HUD wants bytes, and the wording may well
+		// carry an umlaut -- so it goes through UTF-8 rather than through a
+		// cast that would drop half of it.
+		if (const auto needed = WideCharToMultiByte(
+				CP_UTF8, 0, message.c_str(), -1, nullptr, 0, nullptr, nullptr);
+			needed > 1) {
+			std::string narrow(static_cast<std::size_t>(needed) - 1, '\0');
+			WideCharToMultiByte(
+				CP_UTF8, 0, message.c_str(), -1, narrow.data(), needed, nullptr, nullptr);
+			g_pageMessage = narrow;
+		} else {
+			g_pageMessage.clear();
+		}
 
 		// Not a key, so it is read on its own.
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
@@ -711,6 +739,17 @@ namespace
 		}
 	}
 
+	// Says which page is being played, in the game's own corner message.
+	void AnnouncePage()
+	{
+		if (g_pageMessage.empty()) {
+			return;
+		}
+		const auto line = std::format(
+			"{} {} / {}", g_pageMessage, g_currentPage + 1, g_pages.size());
+		RE::SendHUDMessage::ShowHUDMessage(line.c_str(), nullptr, false, false);
+	}
+
 	void GoToPage(std::size_t a_page)
 	{
 		EnsurePages();
@@ -728,6 +767,7 @@ namespace
 
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
+		AnnouncePage();
 	}
 
 	void TurnPage(int a_by)
