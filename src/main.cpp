@@ -49,7 +49,7 @@ namespace
 	bool g_showPageIndicator = true;
 	std::string g_indicatorText = "Favorites";
 	double g_indicatorX = 0.0;
-	double g_indicatorY = 96.0;
+	double g_indicatorY = 4.0;
 	double g_indicatorSize = 18.0;
 	// Wide enough for any wording anyone is likely to put in the INI; the
 	// text is centred in it, so what is not used costs nothing.
@@ -59,6 +59,8 @@ namespace
 	std::string g_indicatorFont;
 	// What the measuring settled on, so it is only logged when it changes.
 	std::string g_indicatorFontInUse = "?";
+	// The cross is measured on every draw but only reported once.
+	bool g_boundsLogged = false;
 	// Anything above white means "take the colour the player set for the HUD".
 	std::uint32_t g_indicatorColor = 0x1000000;
 
@@ -241,7 +243,7 @@ namespace
 		g_indicatorX = GetPrivateProfileIntW(
 			L"Display", L"PageIndicatorX", 0, path.c_str());
 		g_indicatorY = GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorY", 96, path.c_str());
+			L"Display", L"PageIndicatorY", 4, path.c_str());
 		g_indicatorSize = GetPrivateProfileIntW(
 			L"Display", L"PageIndicatorSize", 18, path.c_str());
 		g_indicatorColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
@@ -1012,33 +1014,43 @@ namespace
 		return false;
 	}
 
-	// Where the cross sits on the stage. Its own x and y are in whatever
-	// space its parent uses, so the point is converted rather than assumed.
-	void CrossOnStage(
-		RE::IMenu* a_menu,
-		RE::Scaleform::GFx::Value& a_cross,
-		double& a_x,
-		double& a_y)
+	// What the cross actually covers on the stage.
+	//
+	// Its own x and y are the origin of its coordinate space, and that origin
+	// is not the middle of what you see -- measured in game it sits well
+	// above the drawn cross, which is why the marker first landed beside the
+	// upper cells instead of under them. getBounds answers where the thing
+	// really is, whatever the symbol was built like.
+	struct Bounds
 	{
-		a_x = ReadNumber(a_cross, "x", 0.0);
-		a_y = ReadNumber(a_cross, "y", 0.0);
+		double x{ 0.0 };
+		double y{ 0.0 };
+		double width{ 0.0 };
+		double height{ 0.0 };
+	};
 
-		const std::array<RE::Scaleform::GFx::Value, 2> origin{
-			RE::Scaleform::GFx::Value(0.0), RE::Scaleform::GFx::Value(0.0)
-		};
-		RE::Scaleform::GFx::Value point;
-		a_menu->uiMovie->CreateObject(
-			&point, "flash.geom.Point", origin.data(), 2);
-		if (!point.IsObject()) {
-			return;
+	[[nodiscard]] Bounds CrossBounds(
+		RE::Scaleform::GFx::Value& a_cross,
+		RE::Scaleform::GFx::Value& a_stage)
+	{
+		Bounds bounds;
+
+		RE::Scaleform::GFx::Value rect;
+		if (a_cross.Invoke("getBounds", &rect, &a_stage, 1) && rect.IsObject()) {
+			bounds.x = ReadNumber(rect, "x", 0.0);
+			bounds.y = ReadNumber(rect, "y", 0.0);
+			bounds.width = ReadNumber(rect, "width", 0.0);
+			bounds.height = ReadNumber(rect, "height", 0.0);
+		}
+		if (bounds.width > 0.0 && bounds.height > 0.0) {
+			return bounds;
 		}
 
-		RE::Scaleform::GFx::Value onStage;
-		if (a_cross.Invoke("localToGlobal", &onStage, &point, 1) &&
-			onStage.IsObject()) {
-			a_x = ReadNumber(onStage, "x", a_x);
-			a_y = ReadNumber(onStage, "y", a_y);
-		}
+		// Nothing drawn yet, or a build that will not answer: the origin is
+		// at least in the right corner of the screen.
+		bounds.x = ReadNumber(a_cross, "x", 0.0);
+		bounds.y = ReadNumber(a_cross, "y", 0.0);
+		return bounds;
 	}
 
 	// Builds the field the first time and writes the page every time. Quiet
@@ -1107,15 +1119,26 @@ namespace
 			logger::info("indicator: added to the stage");
 		}
 
-		double x = 0.0;
-		double y = 0.0;
-		CrossOnStage(menu, cross, x, y);
-		// The box is centred on the cross, so half of it goes to the left.
+		const auto bounds = CrossBounds(cross, stage);
+		if (!g_boundsLogged) {
+			logger::info(
+				"indicator: the cross covers {:.0f},{:.0f} to {:.0f},{:.0f}",
+				bounds.x,
+				bounds.y,
+				bounds.x + bounds.width,
+				bounds.y + bounds.height);
+			g_boundsLogged = true;
+		}
+
+		// Centred on the cross and, by default, just below it.
 		g_indicator.SetMember(
 			"x",
-			RE::Scaleform::GFx::Value(x + g_indicatorX - kIndicatorWidth / 2.0));
+			RE::Scaleform::GFx::Value(
+				bounds.x + bounds.width / 2.0 - kIndicatorWidth / 2.0 +
+				g_indicatorX));
 		g_indicator.SetMember(
-			"y", RE::Scaleform::GFx::Value(y + g_indicatorY));
+			"y",
+			RE::Scaleform::GFx::Value(bounds.y + bounds.height + g_indicatorY));
 
 		if (!DressField(menu, cross, g_indicator, PageWording(g_indicatorText))) {
 			logger::warn("indicator: no font in this menu draws anything");
