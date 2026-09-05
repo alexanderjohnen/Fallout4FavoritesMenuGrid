@@ -92,25 +92,37 @@ def format_address(rva: int, names: dict[int, int]) -> str:
     return f"{rva:#x}" + (f" [ID {identifier}]" if identifier else "")
 
 
-def disassemble(image: Image, rva: int, count: int, names: dict[int, int]) -> None:
+def engine():
     import capstone
 
-    engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-    engine.detail = False
+    return capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
 
+
+def show(instruction, names: dict[int, int]) -> None:
+    """One line, with the target spelled out where there is one.
+
+    Calls and jumps carry an absolute address already; a `lea reg, [rip + x]`
+    is how the code points at a vtable or a string, so that one is worth
+    resolving too -- it is what the vtable search keys on.
+    """
+    note = ""
+    operands = instruction.op_str
+    if instruction.mnemonic in ("call", "jmp") and operands.startswith("0x"):
+        note = "   -> " + format_address(int(operands, 16), names)
+    elif instruction.mnemonic == "lea" and "rip + " in operands:
+        displacement = operands.split("rip + ")[1].split("]")[0]
+        target = instruction.address + instruction.size + int(displacement, 16)
+        note = "   = " + format_address(target, names)
+    print(f"  {instruction.address:#010x}  {instruction.mnemonic:<7} "
+          f"{operands}{note}")
+
+
+def disassemble(image: Image, rva: int, count: int, names: dict[int, int]) -> None:
     code = image.read(rva, max(count * 15, 64))
-    shown = 0
-    for instruction in engine.disasm(code, rva):
-        target = ""
-        if instruction.mnemonic in ("call", "jmp") and \
-                instruction.op_str.startswith("0x"):
-            target = "   -> " + format_address(
-                int(instruction.op_str, 16), names)
-        print(f"  {instruction.address:#010x}  {instruction.mnemonic:<7} "
-              f"{instruction.op_str}{target}")
-        shown += 1
+    for shown, instruction in enumerate(engine().disasm(code, rva)):
         if shown >= count:
             break
+        show(instruction, names)
         if instruction.mnemonic in ("ret", "int3"):
             break
 
@@ -121,9 +133,6 @@ def show_peek(path: Path, names: dict[int, int], count: int) -> None:
     Each block is a comment line naming what it is and where it came from,
     followed by its bytes in hex.
     """
-    import capstone
-
-    engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     state = {"label": "", "rva": 0, "hex": []}
 
     def flush() -> None:
@@ -134,17 +143,11 @@ def show_peek(path: Path, names: dict[int, int], count: int) -> None:
         print()
         print(f"=== {state['label']} at {format_address(rva, names)} "
               f"({len(code)} bytes) ===")
-        for shown, instruction in enumerate(engine.disasm(code, rva)):
+        for shown, instruction in enumerate(engine().disasm(code, rva)):
             if shown >= count:
                 print("  ...")
                 break
-            target = ""
-            if instruction.mnemonic in ("call", "jmp"):
-                if instruction.op_str.startswith("0x"):
-                    target = "   -> " + format_address(
-                        int(instruction.op_str, 16), names)
-            print(f"  {instruction.address:#010x}  {instruction.mnemonic:<7} "
-                  f"{instruction.op_str}{target}")
+            show(instruction, names)
 
     for line in path.read_text().splitlines():
         if line.startswith("# base"):

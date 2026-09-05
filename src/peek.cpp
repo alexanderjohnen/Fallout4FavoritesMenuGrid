@@ -19,6 +19,14 @@ namespace
 		std::uintptr_t end{ 0 };
 	};
 
+	// A place to look at: a number, and how much of it to copy. Zero length
+	// means "the function around it".
+	struct Request
+	{
+		std::uint64_t value{ 0 };
+		std::size_t length{ 0 };
+	};
+
 	[[nodiscard]] bool InSegment(std::uintptr_t a_address, REL::Segment::Name a_name)
 	{
 		const auto segment = REL::Module::get().segment(a_name);
@@ -29,6 +37,8 @@ namespace
 	// The exception directory lists where every function begins and ends. It
 	// is plain data, so it survives what the packer does to the code, and it
 	// turns an address in the middle of a function into the whole of it.
+	// Beware: a function built from separate chunks has one entry per chunk,
+	// so the answer can be a piece rather than the whole thing.
 	[[nodiscard]] std::optional<Range> FunctionAround(std::uintptr_t a_address)
 	{
 		const auto base = REL::Module::get().base();
@@ -62,25 +72,51 @@ namespace
 		return std::nullopt;
 	}
 
-	[[nodiscard]] std::vector<std::uint64_t> ParseList(const std::wstring& a_raw)
+	// "534268" or "0x1a7210:0x200" -- the number, and after a colon how much
+	// to copy.
+	[[nodiscard]] std::vector<Request> ParseList(const std::wstring& a_raw)
 	{
-		std::vector<std::uint64_t> values;
+		std::vector<Request> requests;
 		std::size_t at = 0;
-		while (at < a_raw.size()) {
+		while (at <= a_raw.size()) {
 			const auto comma = a_raw.find(L',', at);
-			auto piece = a_raw.substr(
+			const auto piece = a_raw.substr(
 				at, comma == std::wstring::npos ? std::wstring::npos : comma - at);
-			wchar_t* end = nullptr;
-			const auto value = std::wcstoull(piece.c_str(), &end, 10);
-			if (value != 0) {
-				values.push_back(value);
+
+			const auto colon = piece.find(L':');
+			const auto number = std::wcstoull(
+				piece.substr(0, colon).c_str(), nullptr, 0);
+			if (number != 0) {
+				Request request{ number, 0 };
+				if (colon != std::wstring::npos) {
+					request.length = static_cast<std::size_t>(
+						std::wcstoull(piece.c_str() + colon + 1, nullptr, 0));
+				}
+				requests.push_back(request);
 			}
+
 			if (comma == std::wstring::npos) {
 				break;
 			}
 			at = comma + 1;
 		}
-		return values;
+		return requests;
+	}
+
+	[[nodiscard]] std::wstring ReadSetting(
+		const std::filesystem::path& a_settings,
+		const wchar_t* a_key)
+	{
+		std::wstring value(1024, L'\0');
+		const auto length = GetPrivateProfileStringW(
+			L"Debug",
+			a_key,
+			L"",
+			value.data(),
+			static_cast<DWORD>(value.size()),
+			a_settings.c_str());
+		value.resize(length);
+		return value;
 	}
 
 	// The address library answers a wrong ID with a neighbour's offset
@@ -124,13 +160,18 @@ namespace
 		}
 	}
 
-	// One address, written out as the whole function it sits in when that
-	// can be found.
-	void WriteFunction(
+	// One address, written out as the whole function it sits in unless a
+	// length was asked for.
+	void WritePlace(
 		std::ostream& a_out,
 		std::string_view a_label,
-		std::uintptr_t a_address)
+		std::uintptr_t a_address,
+		std::size_t a_length)
 	{
+		if (a_length != 0) {
+			WriteBlock(a_out, a_label, a_address, a_length);
+			return;
+		}
 		if (const auto range = FunctionAround(a_address)) {
 			const auto length = range->end - range->begin;
 			if (length <= kFunctionLimit) {
@@ -174,11 +215,12 @@ namespace
 	}
 }
 
-void peek::Run(const std::wstring& a_ids, const std::wstring& a_vtableRefs)
+void peek::Run(const std::filesystem::path& a_settings)
 {
-	const auto ids = ParseList(a_ids);
-	const auto vtables = ParseList(a_vtableRefs);
-	if (ids.empty() && vtables.empty()) {
+	const auto ids = ParseList(ReadSetting(a_settings, L"PeekIDs"));
+	const auto offsets = ParseList(ReadSetting(a_settings, L"PeekRVAs"));
+	const auto vtables = ParseList(ReadSetting(a_settings, L"PeekVtableRefs"));
+	if (ids.empty() && offsets.empty() && vtables.empty()) {
 		return;
 	}
 
@@ -193,24 +235,43 @@ void peek::Run(const std::wstring& a_ids, const std::wstring& a_vtableRefs)
 		logger::error("peek: could not write next to the log");
 		return;
 	}
-	out << std::format("# base {:#x}\n", REL::Module::get().base());
 
-	for (const auto id : ids) {
-		if (const auto address = Resolve(id, REL::Segment::text)) {
-			WriteFunction(out, std::format("id {}", id), *address);
+	const auto base = REL::Module::get().base();
+	out << std::format("# base {:#x}\n", base);
+
+	for (const auto& request : ids) {
+		if (const auto address = Resolve(request.value, REL::Segment::text)) {
+			WritePlace(
+				out, std::format("id {}", request.value), *address, request.length);
 		}
 	}
 
-	for (const auto id : vtables) {
-		const auto address = Resolve(id, REL::Segment::rdata);
+	for (const auto& request : offsets) {
+		const auto address = base + request.value;
+		if (!InSegment(address, REL::Segment::text)) {
+			logger::warn("peek: {:#x} is not in the code section", request.value);
+			continue;
+		}
+		WritePlace(
+			out, std::format("rva {:#x}", request.value), address, request.length);
+	}
+
+	for (const auto& request : vtables) {
+		const auto address = Resolve(request.value, REL::Segment::rdata);
 		if (!address) {
 			continue;
 		}
 		const auto hits = FindReferences(*address);
 		logger::info(
-			"peek: vtable {} is mentioned {} time(s) in the code", id, hits.size());
+			"peek: vtable {} is mentioned {} time(s) in the code",
+			request.value,
+			hits.size());
 		for (const auto hit : hits) {
-			WriteFunction(out, std::format("vtable {} used at", id), hit);
+			WritePlace(
+				out,
+				std::format("vtable {} used at", request.value),
+				hit,
+				request.length);
 		}
 	}
 

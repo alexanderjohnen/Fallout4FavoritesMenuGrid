@@ -34,9 +34,10 @@ namespace
 	int g_roundTripKey = 0;
 	int g_rotateKey = VK_F8;
 
-	// Address Library IDs to copy out of the running game -- see peek.h.
-	std::wstring g_peekIDs;
-	std::wstring g_peekVtableRefs;
+	// Writes the pieces of engine code named in the INI next to the log --
+	// see peek.h. The settings are read at that moment, so a new question
+	// needs no restart of the game.
+	int g_peekKey = VK_F10;
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
@@ -151,24 +152,10 @@ namespace
 			}
 		};
 
-		const auto readText = [&](const wchar_t* a_key, std::wstring& a_target) {
-			std::wstring value(512, L'\0');
-			const auto length = GetPrivateProfileStringW(
-				L"Debug",
-				a_key,
-				L"",
-				value.data(),
-				static_cast<DWORD>(value.size()),
-				path.c_str());
-			value.resize(length);
-			a_target = value;
-		};
-
 		read(L"InventoryProbeKey", g_inventoryKey);
 		read(L"FavoriteRoundTripKey", g_roundTripKey);
 		read(L"RotateFavoritesKey", g_rotateKey);
-		readText(L"PeekIDs", g_peekIDs);
-		readText(L"PeekVtableRefs", g_peekVtableRefs);
+		read(L"PeekKey", g_peekKey);
 
 		logger::info(
 			"settings: keys are {:#04x} (inventory), {:#04x} (round trip) and "
@@ -670,6 +657,7 @@ namespace
 		bool previousInventory = false;
 		bool previousRoundTrip = false;
 		bool previousRotate = false;
+		bool previousPeek = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -678,12 +666,14 @@ namespace
 				previousInventory = false;
 				previousRoundTrip = false;
 				previousRotate = false;
+				previousPeek = false;
 				continue;
 			}
 
 			const auto inventory = IsKeyDown(g_inventoryKey);
 			const auto roundTrip = IsKeyDown(g_roundTripKey);
 			const auto rotate = IsKeyDown(g_rotateKey);
+			const auto peekNow = IsKeyDown(g_peekKey);
 			const auto* tasks = F4SE::GetTaskInterface();
 
 			if (tasks && inventory && !previousInventory) {
@@ -695,10 +685,15 @@ namespace
 			if (tasks && rotate && !previousRotate) {
 				tasks->AddUITask([]() { RotateFavorites(); });
 			}
+			// Reading memory only, so this one needs no UI task.
+			if (peekNow && !previousPeek) {
+				peek::Run(GetSettingsPath());
+			}
 
 			previousInventory = inventory;
 			previousRoundTrip = roundTrip;
 			previousRotate = rotate;
+			previousPeek = peekNow;
 		}
 	}
 
@@ -745,7 +740,7 @@ namespace
 		ui->GetEventSource<RE::MenuOpenCloseEvent>()->RegisterSink(
 			MenuWatch::GetSingleton());
 
-		peek::Run(g_peekIDs, g_peekVtableRefs);
+		peek::Run(GetSettingsPath());
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info("ready -- the keys are in FavoritesMenuGrid.ini");

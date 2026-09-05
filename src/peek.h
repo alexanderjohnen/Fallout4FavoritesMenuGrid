@@ -7,17 +7,22 @@
 // Only the running process has it in the clear, and a plugin is already in
 // there. So the bytes are copied out here and read outside:
 //
-//     PeekIDs=779526,1291190          in FavoritesMenuGrid.ini
+//     PeekIDs=534268:0x120            in FavoritesMenuGrid.ini
+//     PeekRVAs=0x1a7210:0x200
 //     PeekVtableRefs=1064496
 //     py -3 tools/f4dis.py peek "...\FavoritesMenuGrid.peek.txt"
+//
+// The settings are read every time, not once at startup, so a new question
+// costs an edit and a key press rather than a restart of the game.
 //
 // Reading only. Nothing in here writes to the game.
 namespace peek
 {
-	// Both arguments are comma-separated lists of Address Library IDs, as
-	// they come out of the INI. IDs are dumped as whole functions; vtable
-	// IDs are looked for in the code section, and every function that
-	// mentions one is dumped -- that is how the engine's own users of a
-	// functor are found.
-	void Run(const std::wstring& a_ids, const std::wstring& a_vtableRefs);
+	// PeekIDs and PeekRVAs name a place, either by Address Library ID or as
+	// an offset from the start of the module, and optionally how much to
+	// copy: `534268:0x120`. Without a length, the function around the
+	// address is written out. PeekVtableRefs takes IDs of vtables and finds
+	// every place in the code that points at one -- that is where the engine
+	// builds such an object for itself.
+	void Run(const std::filesystem::path& a_settings);
 }
