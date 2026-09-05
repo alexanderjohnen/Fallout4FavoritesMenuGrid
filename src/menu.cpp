@@ -37,12 +37,14 @@ namespace
 			// menu is to be quick, and a paused game behind it would be a
 			// different thing entirely. kUsesMenuContext is what takes the
 			// mouse off the camera and gives it to the menu.
+			// No kCustomRendering. It says the menu paints itself, and the
+			// game then leaves it out of its own pass -- the grid was drawn,
+			// forty children and all, onto a movie nobody rendered.
 			menuFlags.set(
 				RE::UI_MENU_FLAGS::kUsesCursor,
 				RE::UI_MENU_FLAGS::kUsesMenuContext,
-				RE::UI_MENU_FLAGS::kTopmostRenderedMenu,
 				RE::UI_MENU_FLAGS::kUpdateUsesCursor,
-				RE::UI_MENU_FLAGS::kCustomRendering);
+				RE::UI_MENU_FLAGS::kRequiresUpdate);
 
 			// Above the HUD, below anything the player opens on purpose.
 			depthPriority = RE::UI_DEPTH_PRIORITY::kStandard;
