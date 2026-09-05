@@ -25,7 +25,11 @@ namespace
 	// quicksave, F9 is quickload, and Special K sits on F8 and F9 here.
 
 	int g_inventoryKey = VK_F6;
-	int g_roundTripKey = VK_F7;
+	// Off by default: the round trip took favorites away for good. Removing
+	// the ExtraFavorite by hand is a write past the engine, exactly the kind
+	// that section 14 of the HANDOFF warns about -- the item stays
+	// unfavoritable afterwards. It stays here for the engine-path attempt.
+	int g_roundTripKey = 0;
 	int g_rotateKey = VK_F8;
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
