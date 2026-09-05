@@ -8,6 +8,12 @@ Stand: 2026-09-05. Portierung von
 
 ## 0. Aktueller Stand
 
+**Der Stand vom 2026-09-05:** Der Seitenwechsel funktioniert über die Engine
+(Abschnitt 14), und daraus ist mit `ApplyPage` die Grundoperation für alle
+zwölf Plätze geworden (Abschnitt 15). Getestet wird über drei Tasten aus der
+INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um einen Platz weiter,
+F7 nimmt einem Favoriten die Taste und gibt sie beim zweiten Druck zurück.
+
 **Meilenstein 0 steht: ein Plugin, das nichts verändert.** Es liest die zwölf
 Favoritenplätze, protokolliert jedes Öffnen und Schließen eines Menüs und
 versucht ein Rechteck in die Bühne von `HUDMenu` zu zeichnen. Mehr nicht.
@@ -33,12 +39,6 @@ Abschnitt 2 sind beantwortet:
   Spielstand ohne gesetzte Favoriten verträglich, beweist das Layout aber
   nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
   im Log auftaucht.**
-
-**Der Stand vom 2026-09-05:** Der Seitenwechsel funktioniert über die Engine
-(Abschnitt 14), und daraus ist mit `ApplyPage` die Grundoperation für alle
-zwölf Plätze geworden (Abschnitt 15). Getestet wird über drei Tasten aus der
-INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um einen Platz weiter,
-F7 nimmt einem Favoriten die Taste und gibt sie beim zweiten Druck zurück.
 
 **Zweiter Lauf, 23:43 Uhr — die Oberflächenfrage ist ganz beantwortet.**
 `FavoritesMenu` nimmt den Sprite ebenfalls an, seine Bühne ist 1280 x 720,
