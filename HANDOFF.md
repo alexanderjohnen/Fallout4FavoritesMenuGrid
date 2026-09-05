@@ -8,11 +8,17 @@ Stand: 2026-09-05. Portierung von
 
 ## 0. Aktueller Stand
 
-**Der Stand vom 2026-09-05:** Der Seitenwechsel funktioniert über die Engine
-(Abschnitt 14), und daraus ist mit `ApplyPage` die Grundoperation für alle
-zwölf Plätze geworden (Abschnitt 15). Getestet wird über drei Tasten aus der
-INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um einen Platz weiter,
-F7 nimmt einem Favoriten die Taste und gibt sie beim zweiten Druck zurück.
+**Der Stand vom 2026-09-05, abends:** `ApplyPage` setzt alle zwölf Plätze auf
+einmal (Abschnitt 15) und ist mit der Rotation auf F8 im Spiel bestätigt. Der
+Schreibvorgang darunter ist am selben Abend noch einmal ersetzt worden: Er
+geht jetzt über **`BGSInventoryItem::SetFavoriteIndex`**, die Funktion, die
+das Spiel selbst benutzt (Abschnitt 16). Der Weg dahin führte durch den
+Maschinencode der Engine, weil zwei geratene Versuche je einen Gegenstand im
+Spielstand gekostet haben.
+
+Vier Tasten aus der INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um
+einen Platz weiter, F7 parkt einen Favoriten und gibt ihm die Taste zurück,
+F10 kopiert Engine-Code neben das Log.
 
 **Meilenstein 0 steht: ein Plugin, das nichts verändert.** Es liest die zwölf
 Favoritenplätze, protokolliert jedes Öffnen und Schließen eines Menüs und
@@ -749,3 +755,106 @@ werden. Das Log sagt es, weil die Favoritenliste danach unverändert bleibt.
 2. Die Seitenverwaltung: mehrere Seiten im Speicher, Zustand ins Co-Save über
    die F4SE-Serialisierung.
 3. Das Grid aus dem Starfield-Projekt (`favorites_grid.cpp`).
+
+---
+
+## 16. Wie das Spiel selbst einen Favoriten setzt (2026-09-05, abends)
+
+Der Rundlauf aus Abschnitt 15 ist im Spiel gescheitert, und zwar dreifach: Der
+Favorit war weg, der Gegenstand ließ sich **auch im Pip-Boy nicht mehr
+favorisieren**, und mehrfaches Drücken bei offenem Kreuz stürzte ab. Statt
+weiter zu probieren — jeder Versuch kostete einen Gegenstand im Spielstand —
+ist der Code der Engine nachgelesen worden.
+
+### Das Werkzeug: Peek und f4dis
+
+`Fallout4.exe` ist auf der Platte **verpackt** (Steam, die `.bind`-Sektion).
+Ein Disassembler an der Datei liest im Codebereich nur Rauschen. Im Klartext
+steht er nur im laufenden Prozess — und dort sitzt das Plugin ohnehin.
+
+- **`src/peek.cpp`** kopiert beim Start oder auf **F10** die gewünschten
+  Stellen als Hex neben das Log. Die Funktionsgrenzen kommen aus dem
+  **Exception-Verzeichnis** der EXE; das sind reine Daten und vom Packer
+  unberührt. Zusätzlich durchsucht es den Code nach `lea reg, [rip + x]` auf
+  eine Vtable — so findet man die Stellen, an denen die Engine so ein Objekt
+  selbst baut.
+- **`tools/f4dis.py`** löst IDs über die Address Library auf, disassembliert
+  den Auszug und hängt an jeden Sprung und jedes `lea` die ID des Ziels. Damit
+  liest man sich von einer Funktion zur nächsten weiter. Vtables und andere
+  Daten liest es direkt aus der EXE — nur der Code ist verpackt.
+- Die Einstellungen werden **beim Auslösen** gelesen, nicht beim Laden. Eine
+  neue Frage kostet eine Zeile in der INI und einen Tastendruck.
+
+Nebenbei bestätigt: Die Address Library beantwortet eine **unbekannte ID mit
+dem Offset des Nachbarn** statt mit einem Fehler (`lower_bound` ohne Prüfung).
+Jede aufgelöste Adresse wird deshalb gegen die Sektion geprüft, in der sie
+liegen muss.
+
+### Der Fund
+
+```
+BGSInventoryItem::SetFavoriteIndex(stackIndex, favoriteIndex)   REL::ID(1349090)
+    rcx = das Inventar-Item, edx = der wievielte Stapel, r8b = der Index
+```
+
+Die Funktion tut fünf Dinge nacheinander:
+
+1. den passenden Stapel suchen (Vergleichsfunktor nach Stapelnummer),
+2. `BGSInventoryItem::WriteStackData` (`REL::ID(224388)`) — führt den
+   Schreibfunktor **unter der Inventarsperre** aus, teilt und kopiert dabei
+   Stapel nach Bedarf,
+3. die Stapel wieder zusammenlegen (`REL::ID(1132179)`),
+4. prüfen, ob sich überhaupt etwas geändert hat,
+5. und dann **eine Benachrichtigung verschicken** (`REL::ID(178578)`).
+
+**Schritt 5 ist die ganze Geschichte.** Jeder handgeschriebene Versuch hat ihn
+ausgelassen. Deshalb blieb ein Gegenstand, dem man den Favoriten von Hand
+wegnahm, in einem Zustand hängen, den es im Spiel nicht gibt — die Engine
+wusste nichts davon.
+
+### Der zweite Fund: −1 ist ein gültiger Zustand
+
+Der Schreibfunktor darunter ist drei Zeilen lang und ruft
+`ExtraDataList::SetFavorite` (`REL::ID(534268)`) auf. Die liest sich so:
+
+| Index | Wirkung |
+| --- | --- |
+| `0xFE` | das `ExtraFavorite` wird **entfernt** — kein Favorit mehr |
+| alles andere | `quickkeyIndex` setzen, das `ExtraFavorite` bei Bedarf **anlegen** |
+
+`0xFF` ist also nicht „kein Favorit", sondern **„Favorit ohne Taste"**. Und
+genau diesen Wert schreibt das Spiel selbst, wenn man etwas favorisiert, das
+noch keine Taste hat (gefunden im Umschalter, `REL::ID(1508612)`).
+
+**Für die Mod ist das der eigentliche Gewinn:** Ein Seitenwechsel muss nie
+etwas löschen. Die Gegenstände der ausgehenden Seite gehen auf −1 und bleiben
+Favoriten, die der eingehenden bekommen ihre Taste. Ein abgebrochener Wechsel
+hinterlässt schlimmstenfalls einen Favoriten ohne Taste, nie einen kaputten
+Gegenstand.
+
+### Was daraus im Code wurde
+
+`SetQuickkeyFunctor`, `MatchQuickkeyFunctor`, `ClearFavoriteFunctor`,
+`AddFavoriteFunctor` und `MatchPlainStackFunctor` sind alle weg. Übrig bleibt
+**ein** Aufruf:
+
+```cpp
+SetFavoriteIndex(item, stackIndex, index);   // 0..11, kNoKey (0xFF), kNotAFavorite (0xFE)
+```
+
+Zwei Folgen für den Rest:
+
+- **Der Stapel wird jetzt über seine Nummer adressiert**, nicht über einen
+  Vergleichsfunktor. `ReadFavorites` zählt sie beim Durchlaufen mit, und
+  `FindStack(object, index)` findet einen geparkten Favoriten wieder.
+- **Vor jedem Zug wird neu gelesen.** Schritt 3 oben legt Stapel zusammen und
+  kann sie dabei umnummerieren; eine gespeicherte Nummer ist nach einem
+  Schreibvorgang nicht mehr verlässlich.
+
+`ApplyPage` bleibt, wie es war — nur der Zug darunter ist ein anderer.
+
+### Was noch zu messen ist
+
+Der Rundlauf auf F7, jetzt in seiner richtigen Fassung: parken und
+zurückgeben. Geht das durch, ist der Seitenwechsel vollständig entworfen und
+es fehlt nur noch die Buchhaltung mehrerer Seiten.
