@@ -31,6 +31,11 @@ namespace
 	// favorite at -1 and gives the key back, both through the engine.
 	int g_roundTripKey = VK_F7;
 	int g_rotateKey = VK_F8;
+	int g_nextPageKey = VK_NEXT;
+	int g_previousPageKey = VK_PRIOR;
+
+	// How many pages the twelve keys are shared between.
+	int g_pageCount = 3;
 
 	// Writes the pieces of engine code named in the INI next to the log --
 	// see peek.h. The settings are read at that moment, so a new question
@@ -130,10 +135,14 @@ namespace
 			return;
 		}
 
-		const auto read = [&](const wchar_t* a_key, int& a_target) {
+		// The section matters: a key written under the wrong heading is
+		// read as absent and the default quietly wins.
+		const auto read = [&](const wchar_t* a_section,
+							   const wchar_t* a_key,
+							   int& a_target) {
 			std::wstring value(64, L'\0');
 			const auto length = GetPrivateProfileStringW(
-				L"Debug",
+				a_section,
 				a_key,
 				L"",
 				value.data(),
@@ -150,14 +159,25 @@ namespace
 			}
 		};
 
-		read(L"InventoryProbeKey", g_inventoryKey);
-		read(L"FavoriteRoundTripKey", g_roundTripKey);
-		read(L"RotateFavoritesKey", g_rotateKey);
-		read(L"PeekKey", g_peekKey);
+		read(L"Pages", L"NextPageKey", g_nextPageKey);
+		read(L"Pages", L"PreviousPageKey", g_previousPageKey);
+
+		read(L"Debug", L"InventoryProbeKey", g_inventoryKey);
+		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
+		read(L"Debug", L"RotateFavoritesKey", g_rotateKey);
+		read(L"Debug", L"PeekKey", g_peekKey);
+
+		// Not a key, so it is read on its own.
+		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
+			L"Pages", L"PageCount", g_pageCount, path.c_str()));
+		g_pageCount = std::clamp(g_pageCount, 1, 32);
 
 		logger::info(
-			"settings: keys are {:#04x} (inventory), {:#04x} (round trip) and "
-			"{:#04x} (rotate)",
+			"settings: {} pages on {:#04x} and {:#04x}; keys {:#04x} "
+			"(inventory), {:#04x} (round trip), {:#04x} (rotate)",
+			g_pageCount,
+			g_nextPageKey,
+			g_previousPageKey,
 			g_inventoryKey,
 			g_roundTripKey,
 			g_rotateKey);
@@ -548,163 +568,85 @@ namespace
 	}
 
 	// ---- Setting all twelve keys at once ---------------------------------
+	//
+	// Since -1 turned out to be a state of its own (section 16), a page
+	// switch has no puzzle left in it. The first pass parks all twelve
+	// favorites, which frees every key without anything losing its favorite
+	// status; the second hands the keys to the items of the new page. No
+	// rings to break, no parking spot to find, and an interrupted switch
+	// leaves favorites without keys rather than anything broken.
+	//
+	// What came before this -- ordering the moves so that a key is only ever
+	// written when nobody needs it any more -- is in the history, and in
+	// section 15 of the HANDOFF. It worked, but it could only rearrange what
+	// was already on the twelve keys, and a page holds items that are not.
 
-	using PageLayout = std::array<RE::TESBoundObject*, 12>;
+	using Page = std::array<RE::TESBoundObject*, 12>;
+
+	// Does this item have a stack carrying that index?
+	[[nodiscard]] bool Carries(RE::TESBoundObject* a_object, std::uint8_t a_index)
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList || !a_object) {
+			return false;
+		}
+
+		bool found = false;
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
+			[&](RE::BGSInventoryItem&, RE::BGSInventoryItem::Stack& a_stack) {
+				if (FavoriteOf(a_stack) != a_index) {
+					return true;
+				}
+				found = true;
+				return false;
+			});
+		return found;
+	}
+
+	// Which stack of this item can be given a key: a parked one first, then
+	// one that is no favorite at all. Nothing means the item is not in the
+	// inventory any more.
+	[[nodiscard]] std::optional<std::uint8_t> FindFree(RE::TESBoundObject* a_object)
+	{
+		for (const auto carried : { kNoKey, kNotAFavorite }) {
+			if (Carries(a_object, carried)) {
+				return carried;
+			}
+		}
+		return std::nullopt;
+	}
 
 	// Applies a whole arrangement: afterwards the item named in slot i holds
-	// key i.
-	//
-	// The target may only name items that hold a key right now. Giving a key
-	// to an item that has none is a different operation -- it has to create
-	// the ExtraFavorite -- and that is what the round trip further down
-	// measures. Favorites the target does not mention keep a key: they stay
-	// where they are if the target leaves that slot open, otherwise they take
-	// the next free one. So the same items are favorited afterwards, only
-	// arranged differently.
-	void ApplyPage(const PageLayout& a_target)
+	// key i. Items the target does not name keep their favorite and lose
+	// their key -- which is exactly what the items of the outgoing page are
+	// supposed to do.
+	void ApplyPage(const Page& a_target)
 	{
 		// While the display still agrees with the inventory.
 		LearnIcons();
 
 		const auto current = ReadFavorites();
+		for (std::size_t key = 0; key < current.size(); ++key) {
+			if (current[key].object) {
+				MoveFavorite(current[key].object, static_cast<int>(key), -1);
+			}
+		}
 
-		// Which key each slot of the target draws its item from. An item can
-		// hold two keys with two stacks; the first match wins and the second
-		// stack keeps its own key.
-		std::array<int, 12> source;
-		source.fill(-1);
-		std::array<bool, 12> claimed{};
-
-		for (std::size_t slot = 0; slot < 12; ++slot) {
-			auto* wanted = a_target[slot];
-			if (!wanted) {
+		for (std::size_t slot = 0; slot < a_target.size(); ++slot) {
+			auto* object = a_target[slot];
+			if (!object) {
 				continue;
 			}
-			for (std::size_t key = 0; key < 12; ++key) {
-				if (!claimed[key] && current[key].object == wanted) {
-					claimed[key] = true;
-					source[slot] = static_cast<int>(key);
-					break;
-				}
-			}
-			if (source[slot] < 0) {
+			const auto from = FindFree(object);
+			if (!from) {
 				logger::warn(
-					"page: \"{}\" holds no key -- [{}] takes whatever is left",
-					RE::TESFullName::GetFullName(*wanted),
+					"page: \"{}\" is not in the inventory any more -- [{}] stays empty",
+					RE::TESFullName::GetFullName(*object),
 					KeyLabel(slot));
-			}
-		}
-
-		// Everything the target does not mention keeps a key. Standing still
-		// is the cheapest move, so that pass comes first.
-		for (std::size_t key = 0; key < 12; ++key) {
-			if (current[key].object && !claimed[key] && source[key] < 0) {
-				claimed[key] = true;
-				source[key] = static_cast<int>(key);
-			}
-		}
-		for (std::size_t key = 0; key < 12; ++key) {
-			if (!current[key].object || claimed[key]) {
 				continue;
 			}
-			for (std::size_t slot = 0; slot < 12; ++slot) {
-				if (source[slot] < 0) {
-					claimed[key] = true;
-					source[slot] = static_cast<int>(key);
-					break;
-				}
-			}
-		}
-
-		// Turned around: where each key's item is headed.
-		struct Move
-		{
-			int from;
-			int to;
-			RE::TESBoundObject* object;
-		};
-
-		std::vector<Move> pending;
-		for (std::size_t slot = 0; slot < 12; ++slot) {
-			const auto key = source[slot];
-			if (key >= 0 && key != static_cast<int>(slot)) {
-				pending.push_back(
-					Move{ key,
-						static_cast<int>(slot),
-						current[static_cast<std::size_t>(key)].object });
-			}
-		}
-		if (pending.empty()) {
-			logger::info("page: everything is already where it belongs");
-			return;
-		}
-
-		// The rule the loop follows: only write into a key that nobody needs
-		// any more. `occupant` is who sits where while the moves run, and
-		// `settled` marks the keys that already hold their final item.
-		std::array<RE::TESBoundObject*, 12> occupant{};
-		std::array<bool, 12> settled{};
-		for (std::size_t key = 0; key < 12; ++key) {
-			occupant[key] = current[key].object;
-		}
-
-		const auto leave = [&](int a_key) {
-			if (!settled[static_cast<std::size_t>(a_key)]) {
-				occupant[static_cast<std::size_t>(a_key)] = nullptr;
-			}
-		};
-
-		while (!pending.empty()) {
-			bool moved = false;
-			for (auto move = pending.begin(); move != pending.end();) {
-				if (occupant[static_cast<std::size_t>(move->to)]) {
-					++move;
-					continue;
-				}
-				MoveFavorite(move->object, move->from, move->to);
-				leave(move->from);
-				occupant[static_cast<std::size_t>(move->to)] = move->object;
-				settled[static_cast<std::size_t>(move->to)] = true;
-				move = pending.erase(move);
-				moved = true;
-			}
-			if (moved) {
-				continue;
-			}
-
-			// Nothing could move, so what is left is a ring: every key in it
-			// waits for the next one. Breaking it takes a free key to park
-			// on -- the same detour the two-key swap needed.
-			int park = -1;
-			for (std::size_t key = 0; key < 12; ++key) {
-				if (!occupant[key] && !settled[key]) {
-					park = static_cast<int>(key);
-					break;
-				}
-			}
-
-			auto& move = pending.front();
-			if (park >= 0) {
-				MoveFavorite(move.object, move.from, park);
-				leave(move.from);
-				occupant[static_cast<std::size_t>(park)] = move.object;
-				move.from = park;
-				continue;
-			}
-
-			// All twelve keys are taken, so the ring has to be broken on an
-			// occupied one: for a moment two items carry the same index. Our
-			// own compare functor is not confused by that -- it matches item
-			// and index together -- but whether the engine's own copy
-			// survives it has not been measured. If the log below is followed
-			// by a cache that disagrees with the inventory, this is the spot.
-			logger::warn(
-				"page: all twelve keys are taken -- breaking the ring on an "
-				"occupied key, which is the untested path");
-			MoveFavorite(move.object, move.from, move.to);
-			leave(move.from);
-			settled[static_cast<std::size_t>(move.to)] = true;
-			pending.erase(pending.begin());
+			WriteFavorite(object, *from, static_cast<std::uint8_t>(slot));
 		}
 
 		RefreshCross();
@@ -712,8 +654,8 @@ namespace
 	}
 
 	// The test bench: every favorite moves up one key and the topmost one
-	// wraps around. That is a single long ring, so it puts all of ApplyPage
-	// to work, and enough presses bring everything back.
+	// wraps around. Nothing a page switch needs, but it exercises the whole
+	// of ApplyPage in one press and enough presses bring everything back.
 	void RotateFavorites()
 	{
 		const auto current = ReadFavorites();
@@ -729,12 +671,175 @@ namespace
 			return;
 		}
 
-		PageLayout target{};
+		Page target{};
 		for (std::size_t index = 0; index < occupied.size(); ++index) {
 			target[occupied[(index + 1) % occupied.size()]] =
 				current[occupied[index]].object;
 		}
 		ApplyPage(target);
+	}
+
+	// ---- The pages themselves --------------------------------------------
+	//
+	// A page is twelve items. The one being played is not kept in the list
+	// while it is in use -- the inventory holds it, and the player can
+	// change it at any time through the Pip-Boy -- so it is read back from
+	// the twelve keys before the page is left. That way a favorite assigned
+	// by hand belongs to the page it was assigned on.
+
+	std::vector<Page> g_pages;
+	std::size_t g_currentPage = 0;
+
+	void EnsurePages()
+	{
+		if (g_pages.size() != static_cast<std::size_t>(g_pageCount)) {
+			g_pages.resize(static_cast<std::size_t>(g_pageCount));
+		}
+		if (g_currentPage >= g_pages.size()) {
+			g_currentPage = 0;
+		}
+	}
+
+	// Writes the twelve keys as they are now into the page being played.
+	void RememberCurrentPage()
+	{
+		EnsurePages();
+		const auto current = ReadFavorites();
+		auto& page = g_pages[g_currentPage];
+		for (std::size_t key = 0; key < current.size(); ++key) {
+			page[key] = current[key].object;
+		}
+	}
+
+	void GoToPage(std::size_t a_page)
+	{
+		EnsurePages();
+		if (a_page >= g_pages.size()) {
+			return;
+		}
+		if (a_page == g_currentPage) {
+			logger::info("page {} is already the one being played", a_page + 1);
+			return;
+		}
+
+		RememberCurrentPage();
+		const auto target = g_pages[a_page];
+		g_currentPage = a_page;
+
+		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
+		ApplyPage(target);
+	}
+
+	void TurnPage(int a_by)
+	{
+		EnsurePages();
+		const auto count = static_cast<int>(g_pages.size());
+		if (count < 2) {
+			logger::warn("page: there is only one page");
+			return;
+		}
+		const auto next = (static_cast<int>(g_currentPage) + a_by % count + count) % count;
+		GoToPage(static_cast<std::size_t>(next));
+	}
+
+	// ---- Keeping the pages in the save -----------------------------------
+	//
+	// F4SE has a co-save, which SFSE does not, so the pages travel with the
+	// save game instead of lying in a file beside it. Form IDs are written
+	// as they are and resolved on the way back in, which is what survives a
+	// changed load order.
+
+	constexpr std::uint32_t kSaveUniqueID = 'FMGD';
+	constexpr std::uint32_t kPagesRecord = 'PAGE';
+	constexpr std::uint32_t kSaveVersion = 1;
+
+	void SaveCallback(const F4SE::SerializationInterface* a_intfc)
+	{
+		RememberCurrentPage();
+
+		if (!a_intfc->OpenRecord(kPagesRecord, kSaveVersion)) {
+			logger::error("save: could not open the record");
+			return;
+		}
+
+		const auto count = static_cast<std::uint32_t>(g_pages.size());
+		const auto current = static_cast<std::uint32_t>(g_currentPage);
+		a_intfc->WriteRecordData(&count, sizeof(count));
+		a_intfc->WriteRecordData(&current, sizeof(current));
+
+		for (const auto& page : g_pages) {
+			for (const auto* object : page) {
+				const std::uint32_t formID = object ? object->formID : 0;
+				a_intfc->WriteRecordData(&formID, sizeof(formID));
+			}
+		}
+		logger::info("save: {} pages, playing {}", count, current + 1);
+	}
+
+	void LoadCallback(const F4SE::SerializationInterface* a_intfc)
+	{
+		std::uint32_t type = 0;
+		std::uint32_t version = 0;
+		std::uint32_t length = 0;
+
+		while (a_intfc->GetNextRecordInfo(type, version, length)) {
+			if (type != kPagesRecord) {
+				continue;
+			}
+			if (version != kSaveVersion) {
+				logger::warn("load: a record of version {} is not read", version);
+				continue;
+			}
+
+			std::uint32_t count = 0;
+			std::uint32_t current = 0;
+			a_intfc->ReadRecordData(&count, sizeof(count));
+			a_intfc->ReadRecordData(&current, sizeof(current));
+			if (count == 0 || count > 32) {
+				logger::warn("load: {} pages is not a number to trust", count);
+				return;
+			}
+
+			g_pages.assign(count, Page{});
+			g_currentPage = current < count ? current : 0;
+
+			std::size_t restored = 0;
+			for (auto& page : g_pages) {
+				for (auto& entry : page) {
+					std::uint32_t formID = 0;
+					a_intfc->ReadRecordData(&formID, sizeof(formID));
+					if (formID == 0) {
+						continue;
+					}
+					// A changed load order moves form IDs; the co-save knows
+					// where they went.
+					const auto resolved = a_intfc->ResolveFormID(formID);
+					if (!resolved) {
+						continue;
+					}
+					entry = RE::TESForm::GetFormByID<RE::TESBoundObject>(*resolved);
+					if (entry) {
+						++restored;
+					}
+				}
+			}
+
+			logger::info(
+				"load: {} pages, playing {}, {} entries found again",
+				count,
+				g_currentPage + 1,
+				restored);
+		}
+	}
+
+	// A new game, or another save loaded over this one: everything the old
+	// one knew is gone.
+	void RevertCallback(const F4SE::SerializationInterface*)
+	{
+		g_pages.clear();
+		g_currentPage = 0;
+		g_iconOfObject.clear();
+		logger::info("revert: the pages are cleared");
 	}
 
 	// ---- Taking a key away and giving it back ----------------------------
@@ -817,6 +922,8 @@ namespace
 		bool previousRoundTrip = false;
 		bool previousRotate = false;
 		bool previousPeek = false;
+		bool previousNext = false;
+		bool previousBack = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -826,6 +933,8 @@ namespace
 				previousRoundTrip = false;
 				previousRotate = false;
 				previousPeek = false;
+				previousNext = false;
+				previousBack = false;
 				continue;
 			}
 
@@ -833,6 +942,8 @@ namespace
 			const auto roundTrip = IsKeyDown(g_roundTripKey);
 			const auto rotate = IsKeyDown(g_rotateKey);
 			const auto peekNow = IsKeyDown(g_peekKey);
+			const auto nextPage = IsKeyDown(g_nextPageKey);
+			const auto previousPage = IsKeyDown(g_previousPageKey);
 			const auto* tasks = F4SE::GetTaskInterface();
 
 			if (tasks && inventory && !previousInventory) {
@@ -844,6 +955,12 @@ namespace
 			if (tasks && rotate && !previousRotate) {
 				tasks->AddUITask([]() { RotateFavorites(); });
 			}
+			if (tasks && nextPage && !previousNext) {
+				tasks->AddUITask([]() { TurnPage(1); });
+			}
+			if (tasks && previousPage && !previousBack) {
+				tasks->AddUITask([]() { TurnPage(-1); });
+			}
 			// Reading memory only, so this one needs no UI task.
 			if (peekNow && !previousPeek) {
 				peek::Run(GetSettingsPath());
@@ -853,6 +970,8 @@ namespace
 			previousRoundTrip = roundTrip;
 			previousRotate = rotate;
 			previousPeek = peekNow;
+			previousNext = nextPage;
+			previousBack = previousPage;
 		}
 	}
 
@@ -966,6 +1085,17 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f
 	if (!messaging || !messaging->RegisterListener(OnMessage)) {
 		logger::critical("could not register the message listener");
 		return false;
+	}
+
+	// The pages live in the co-save. Registering has to happen here, in
+	// Load, not later.
+	if (const auto serialization = F4SE::GetSerializationInterface()) {
+		serialization->SetUniqueID(kSaveUniqueID);
+		serialization->SetSaveCallback(SaveCallback);
+		serialization->SetLoadCallback(LoadCallback);
+		serialization->SetRevertCallback(RevertCallback);
+	} else {
+		logger::error("no serialization interface -- the pages will not be kept");
 	}
 
 	logger::info("loaded");

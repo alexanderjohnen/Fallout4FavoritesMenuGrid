@@ -886,15 +886,8 @@ gleich, die Anzeige stimmt, die Taste benutzt den richtigen Gegenstand.
 ### Was als Nächstes dran ist
 
 1. ~~Das Kreuz bei offenem Menü nachziehen.~~ **Erledigt, Abschnitt 17.**
-2. **Die Seitenverwaltung:** mehrere Seiten im Speicher, Zustand ins Co-Save
-   über die F4SE-Serialisierung, geparkte Favoriten wiederfinden.
+2. ~~Die Seitenverwaltung.~~ **Erledigt, Abschnitt 18** — noch ungetestet.
 3. **Das Grid** aus dem Starfield-Projekt.
-
-Und ein Fall ist weiterhin ungemessen: `ApplyPage`, wenn **alle zwölf** Tasten
-belegt sind. Dann gibt es keinen Parkplatz, und der Ring wird auf einer
-belegten Taste aufgebrochen. Seit es -1 gibt, ist das aber kein Problem mehr,
-sondern eine Vereinfachung: Der erste Zug parkt einfach auf -1, und schon ist
-eine Taste frei. Das gehört in `ApplyPage`, sobald es angefasst wird.
 
 ---
 
@@ -931,3 +924,62 @@ ankommt.
 **Regel, die dabei wieder gilt:** Scaleform nur aus dem richtigen Faden. Beide
 Funktionen laufen ausschließlich in einer UI-Task, wie alles andere, was das
 Spiel anfasst.
+
+---
+
+## 18. Die Seiten (2026-09-05, spät)
+
+### Der Seitenwechsel ist zwei Durchgänge geworden
+
+Abschnitt 15 hatte eine Maschinerie, die die Züge so ordnete, dass nur auf
+eine Taste geschrieben wird, die niemand mehr braucht — mit Ringen,
+Parkplätzen und einem ungemessenen Sonderfall, wenn alle zwölf Tasten belegt
+sind. **Das ist alles weg.** Seit -1 ein eigener Zustand ist (Abschnitt 16),
+geht es geradeaus:
+
+1. **Alle zwölf parken.** Jeder Favorit geht auf -1. Damit ist jede Taste
+   frei, und kein Gegenstand hat dabei etwas verloren außer seiner Taste.
+2. **Die Tasten der neuen Seite vergeben.** Für jeden Eintrag den Stapel
+   suchen, der geparkt ist (oder gar kein Favorit ist), und ihm die Taste
+   geben.
+
+Keine Ringe, kein Parkplatzproblem, und der Fall „alle zwölf belegt" ist keiner
+mehr. Ein abgebrochener Wechsel hinterlässt Favoriten ohne Taste — im Pip-Boy
+sichtbar, mit einem Handgriff wieder zuzuweisen, nie kaputt.
+
+Der zweite Gewinn: Der alte Weg konnte nur umsortieren, was schon auf den
+zwölf Tasten lag. Eine Seite enthält aber Gegenstände, die gerade **nicht**
+darauf liegen. Erst damit ist es ein Seitenwechsel.
+
+### Was eine Seite ist
+
+Zwölf Gegenstände. Die Seite, die gerade gespielt wird, steht **nicht** in der
+Liste — sie steht im Inventar, und der Spieler darf sie jederzeit über den
+Pip-Boy ändern. Deshalb wird sie vor dem Verlassen zurückgelesen
+(`RememberCurrentPage`). So gehört ein von Hand vergebener Favorit zu der
+Seite, auf der er vergeben wurde.
+
+`PAGEDOWN` und `PAGEUP` blättern, `PageCount` in der neuen `[Pages]`-Sektion
+sagt wie viele (1 bis 32, Standard 3). Seite 1 ist das, was der Charakter
+hatte, als die Seiten das erste Mal benutzt wurden.
+
+### Die Seiten reisen im Spielstand
+
+F4SE hat ein Co-Save, SFSE nicht — das ist der eine Punkt, an dem die
+Fallout-4-Fassung es leichter hat als das Original. Registriert wird in
+`F4SEPlugin_Load` (später geht es nicht), gespeichert werden Anzahl, die
+gespielte Seite und 12 Form-IDs je Seite. Beim Laden geht jede Form-ID durch
+`ResolveFormID`, was einen veränderten Ladeauftrag übersteht; was sich nicht
+mehr auflösen lässt, fällt still weg. `RevertCallback` räumt alles ab, denn
+ein anderer Spielstand hat andere Seiten.
+
+**Eine Falle, die dabei auffiel:** Die Tasten stehen jetzt in zwei
+verschiedenen Sektionen. Eine Einstellung unter der falschen Überschrift wird
+als „nicht vorhanden" gelesen, und der Standard gewinnt stillschweigend —
+deshalb nimmt der Leser die Sektion als Argument.
+
+### Was noch zu messen ist
+
+Alles davon. Zu prüfen sind: blättern hin und zurück, ein Favorit von Hand
+gesetzt und dann geblättert, Spielstand speichern und laden, und was passiert,
+wenn ein Gegenstand einer anderen Seite nicht mehr im Inventar ist.
