@@ -25,6 +25,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>

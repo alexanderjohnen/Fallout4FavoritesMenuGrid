@@ -42,6 +42,8 @@ add_library(
 	SHARED
 	src/grid.cpp
 	src/grid.h
+	src/input.cpp
+	src/input.h
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h

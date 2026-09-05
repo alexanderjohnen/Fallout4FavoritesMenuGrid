@@ -18,6 +18,7 @@
 #include "PCH.h"
 
 #include "grid.h"
+#include "input.h"
 #include "peek.h"
 
 namespace
@@ -1394,6 +1395,52 @@ namespace
 		g_probeIndex = -1;
 	}
 
+	// ---- What the cross's own keys are called ----------------------------
+	//
+	// Listening before taking over. The names come from the player's own
+	// bindings, so reading them off the events is the only way to know which
+	// ones to claim -- guessing "W" would break for anyone who moved their
+	// keys, and it would miss the gamepad entirely.
+	//
+	// Reported once per name, with the key that produced it, and nothing is
+	// swallowed yet.
+	std::mutex g_seenLock;
+	std::set<std::string> g_seenEvents;
+
+	bool WatchButton(const RE::ButtonEvent& a_event)
+	{
+		if (!GetFavoritesMenu()) {
+			return false;
+		}
+
+		auto name = std::string(a_event.QUserEvent());
+		{
+			const std::scoped_lock guard{ g_seenLock };
+			if (!g_seenEvents.insert(name).second) {
+				return false;
+			}
+		}
+		logger::info(
+			"input: \"{}\" from key {:#x} on device {}",
+			name,
+			a_event.idCode,
+			static_cast<int>(a_event.device.get()));
+		return false;
+	}
+
+	std::atomic_int g_mouseEvents{ 0 };
+
+	void WatchMouse(std::int32_t a_deltaX, std::int32_t a_deltaY)
+	{
+		if (!GetFavoritesMenu()) {
+			return;
+		}
+		// Only the first few, or the log becomes a mouse trail.
+		if (g_mouseEvents.fetch_add(1) < 3) {
+			logger::info("input: the mouse moves by {},{}", a_deltaX, a_deltaY);
+		}
+	}
+
 	// ---- Input -----------------------------------------------------------
 
 	[[nodiscard]] bool IsGameForeground()
@@ -1532,6 +1579,8 @@ namespace
 			MenuWatch::GetSingleton());
 
 		peek::Run(GetSettingsPath());
+
+		input::Install(input::Hooks{ &WatchButton, &WatchMouse });
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info("ready -- the keys are in FavoritesMenuGrid.ini");
