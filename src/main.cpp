@@ -238,10 +238,14 @@ namespace
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
 		g_useGrid =
 			GetPrivateProfileIntW(L"Display", L"UseGrid", 1, path.c_str()) != 0;
-		g_gridWhere.x =
-			GetPrivateProfileIntW(L"Display", L"GridX", -1, path.c_str());
-		g_gridWhere.y =
-			GetPrivateProfileIntW(L"Display", L"GridY", -1, path.c_str());
+		// GetPrivateProfileIntW answers with a UINT, so a -1 that means
+		// "centred" comes back as 4294967295 and puts the panel four billion
+		// units off screen. The cast is the whole fix, and it cost an
+		// evening's worth of wrong conclusions.
+		g_gridWhere.x = static_cast<int>(
+			GetPrivateProfileIntW(L"Display", L"GridX", -1, path.c_str()));
+		g_gridWhere.y = static_cast<int>(
+			GetPrivateProfileIntW(L"Display", L"GridY", -1, path.c_str()));
 		g_gridWhere.probeStage =
 			GetPrivateProfileIntW(L"Display", L"GridProbeStage", 0, path.c_str()) != 0;
 		g_gridWhere.inMenuRoot =
@@ -250,12 +254,12 @@ namespace
 		g_showPageIndicator =
 			GetPrivateProfileIntW(
 				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
-		g_indicatorX = GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorX", 0, path.c_str());
-		g_indicatorY = GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorY", 4, path.c_str());
-		g_indicatorSize = GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorSize", 18, path.c_str());
+		g_indicatorX = static_cast<int>(GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorX", 0, path.c_str()));
+		g_indicatorY = static_cast<int>(GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorY", 4, path.c_str()));
+		g_indicatorSize = static_cast<int>(GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorSize", 18, path.c_str()));
 		g_indicatorColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
 			L"Display", L"PageIndicatorColor", 0x1000000, path.c_str()));
 		g_indicatorText =
