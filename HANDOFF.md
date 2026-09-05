@@ -1036,8 +1036,9 @@ Logs, ohne dass es jemandem aufgefallen wäre — ein Beleg, der schon vorlag.
 `Antibiotics`.
 
 **Der eigentliche Plan fürs Grid:** die Symbolbibliothek laden und das Symbol
-zum Tag selbst zeichnen — dasselbe, was FallUI tut. Offene Fragen, alle
-beantwortbar ohne Ratespiel:
+zum Tag selbst zeichnen — dasselbe, was FallUI tut. **Die Zuordnung ist
+inzwischen vollständig aufgeklärt, siehe Abschnitt 20.** Die Fragen von
+vorhin, der Vollständigkeit halber:
 
 1. Wie heißen die Symbole in `FallUI_IconLib.swf`? Mit JPEXS nachsehen, dem
    Werkzeug, mit dem schon `FavoritesMenu.swf` gelesen wurde. Wenn die
@@ -1052,3 +1053,58 @@ beantwortbar ohne Ratespiel:
 
 Punkt 3 wäre der Fund: FIS-Symbole im normalen Favoritenmenü, was es bisher
 nirgends gibt.
+
+---
+
+## 20. Die FIS-Symbole sind vollständig aufgeklärt (2026-09-05, nachts)
+
+Kein Ratespiel nötig — die ganze Kette steht in Dateien, die im Spielordner
+liegen, und `tools/swfnames.py` liest sie nach.
+
+### Die Kette
+
+```
+Gegenstand   "[Stimpak] Stimpak"          -- so benennt FIS ihn um
+   |
+Tag          Stimpak                       -- eckige Klammern, tagWrapper="SQUARE_BRACKET"
+   |
+<tag keyword="Stimpak" icon="M8r.Repo.MedSyringe" colorname="MedicLightRed" />
+   |                                       in ItemSorter\FIS (FallUI Item Sorter).xml
+Symbol       m_M8r.Repo.MedSyringe         -- Klammer-Präfix "m_" davor
+   |
+Bibliothek   Interface\FallUI_IconLib.swf  -- 209 Symbole
+```
+
+**Geprüft: 241 von 241 Tags finden ihr Symbol.** Das Präfix `m_` vor dem Wert
+aus `icon=` ist die einzige Übersetzung, die dazwischen steht.
+
+```
+py -3 tools/swfnames.py tags "ItemSorter/FIS (FallUI Item Sorter).xml"
+py -3 tools/swfnames.py names FallUI_IconLib.swf --filter Syringe
+```
+
+Nebenbei: `iconlibs2.swf` ist eine zweite Bibliothek (294 Symbole, Rüstungen
+von `abc`), aber keiner der FIS-Tags zeigt darauf. Für den Anfang reicht
+`FallUI_IconLib.swf`.
+
+Ein `colorname` steht bei jedem Tag mit dabei, aufgelöst über
+`ItemSorter\ColorSets\`. Farbe ist Kür; erst kommen die Symbole.
+
+### Was das für das Grid heißt
+
+Beim Start einmal die Tag-Konfiguration lesen (welcher Sorter installiert ist,
+sagt `ItemSorter\Auto-detect.xml`), daraus Tag → Symbolname bauen, die
+Bibliothek in die Bühne laden und pro Zelle das passende Symbol anhängen.
+Genau das tut FallUI in seinen eigenen Menüs.
+
+**Was noch offen ist** — aber nur noch Handwerk, keine Erkenntnis:
+
+1. Eine fremde SWF in die Bühne von `FavoritesMenu` laden. Scaleform kann das;
+   der Weg ist derselbe, den DEF_UI geht.
+2. Ein Symbol daraus an einen Clip hängen.
+3. Ob das auch für die zwölf `Icon_mc` des **Vanilla-Kreuzes** geht. Wenn ja,
+   bekämen auch Spieler ohne Grid die FIS-Symbole — das wäre der eigentliche
+   Fund, denn bisher zeigt das Favoritenmenü sie nirgends.
+4. Ohne FIS gibt es keine Tags; dann bleibt alles bei `FavIconType` aus dem
+   Spiel. Der Fall muss sauber durchfallen, nicht auffallen.
+
