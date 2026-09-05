@@ -52,6 +52,12 @@ namespace grid
 		// what makes an addition look like an addition.
 		bool backdrop{ false };
 
+		// The one number the whole layout is built from. Starfield's grid
+		// uses 66 on the same 1280x720 stage both games author their menus
+		// on, and comes out wider than this one -- its cells hold icons,
+		// where ours still hold a cut-off name.
+		double cellSize{ 48.0 };
+
 		// Which menu the panel is drawn on. The favorites menu paints only a
 		// strip around its own cross, so anything of ours outside that never
 		// arrives; the HUD covers the whole screen and is repainted all over.

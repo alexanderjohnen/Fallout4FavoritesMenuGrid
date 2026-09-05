@@ -251,6 +251,11 @@ namespace
 		g_gridWhere.inMenuRoot =
 			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
 		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
+		g_gridWhere.cellSize = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Display", L"GridCellSize", 48, path.c_str())),
+			24,
+			96);
 		g_gridWhere.backdrop =
 			GetPrivateProfileIntW(L"Display", L"GridBackdrop", 0, path.c_str()) != 0;
 		g_showPageIndicator =

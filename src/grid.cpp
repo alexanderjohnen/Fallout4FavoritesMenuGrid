@@ -4,19 +4,47 @@
 
 namespace
 {
-	// Sized for a square cell that will hold an icon once the icons are
-	// there, with the name on a line underneath. The numbers are the whole
-	// layout: everything else is derived from them.
-	constexpr double kCellSize = 64.0;
-	constexpr double kCellGap = 3.0;
-	constexpr double kRowLabelWidth = 30.0;
-	constexpr double kPadding = 10.0;
-	constexpr double kNameHeight = 14.0;
-	constexpr double kNameSize = 9.0;
-	constexpr double kKeySize = 10.0;
-	constexpr double kRowLabelSize = 12.0;
-	constexpr double kTitleSize = 15.0;
-	constexpr double kTitleHeight = 22.0;
+	// Everything is derived from the cell, so one number in the INI moves
+	// the whole panel without any of it going out of proportion. Text is
+	// kept above a floor: a grid too small to read is worse than one that
+	// takes up room.
+	struct Metrics
+	{
+		double cell{ 48.0 };
+		double gap{ 3.0 };
+		double rowLabelWidth{ 30.0 };
+		double padding{ 10.0 };
+		double nameHeight{ 11.0 };
+		double nameSize{ 9.0 };
+		double keySize{ 9.0 };
+		double rowLabelSize{ 11.0 };
+		double titleSize{ 13.0 };
+		double titleHeight{ 18.0 };
+		std::size_t nameRoom{ 10 };
+	};
+
+	[[nodiscard]] Metrics MetricsFor(double a_cell)
+	{
+		const auto floorAt = [](double a_value, double a_least) {
+			return a_value < a_least ? a_least : a_value;
+		};
+
+		Metrics m;
+		m.cell = a_cell;
+		m.gap = floorAt(a_cell * 0.06, 2.0);
+		m.rowLabelWidth = a_cell * 0.55;
+		m.padding = a_cell * 0.2;
+		m.nameSize = floorAt(a_cell * 0.19, 8.0);
+		m.nameHeight = m.nameSize + 2.0;
+		m.keySize = floorAt(a_cell * 0.19, 8.0);
+		m.rowLabelSize = floorAt(a_cell * 0.23, 9.0);
+		m.titleSize = floorAt(a_cell * 0.27, 10.0);
+		m.titleHeight = m.titleSize + 5.0;
+		// Roughly what fits at this size in a condensed face.
+		m.nameRoom = static_cast<std::size_t>(
+			std::max(4.0, a_cell / (m.nameSize * 0.48)));
+		return m;
+	}
 
 	constexpr std::size_t kSlots = 12;
 
@@ -31,20 +59,20 @@ namespace
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
+	[[nodiscard]] double PanelWidth(const Metrics& a_m)
+	{
+		return a_m.padding * 2.0 + a_m.rowLabelWidth +
+			(a_m.cell + a_m.gap) * static_cast<double>(kSlots) - a_m.gap;
+	}
+
+	[[nodiscard]] double RowHeight(const Metrics& a_m)
+	{
+		return a_m.cell + a_m.nameHeight + a_m.gap;
+	}
+
 	RE::Scaleform::GFx::Value g_panel;
 	// Kept so the cross can be put back the way it was found.
 	RE::Scaleform::GFx::Value g_hiddenCross;
-
-	[[nodiscard]] double PanelWidth()
-	{
-		return kPadding * 2.0 + kRowLabelWidth +
-			(kCellSize + kCellGap) * static_cast<double>(kSlots) - kCellGap;
-	}
-
-	[[nodiscard]] double RowHeight()
-	{
-		return kCellSize + kNameHeight + kCellGap;
-	}
 
 	// Scaleform hands numbers over as Int as often as as Number, so both
 	// have to be accepted or every read comes back as the fallback.
@@ -331,9 +359,10 @@ void grid::Draw(
 		return;
 	}
 
-	const auto width = PanelWidth();
-	const auto height = kPadding * 2.0 + kTitleHeight +
-		RowHeight() * static_cast<double>(a_pages.size());
+	const auto m = MetricsFor(a_where.cellSize);
+	const auto width = PanelWidth(m);
+	const auto height = m.padding * 2.0 + m.titleHeight +
+		RowHeight(m) * static_cast<double>(a_pages.size());
 
 	// In the middle of the screen by default, where the eye already is.
 	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
@@ -408,32 +437,32 @@ void grid::Draw(
 			a_font,
 			a_title,
 			0.0,
-			kPadding,
+			m.padding,
 			width,
-			kTitleSize,
+			m.titleSize,
 			a_color,
 			1.0);
 	}
 
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
-		const auto rowTop = kPadding + kTitleHeight +
-			RowHeight() * static_cast<double>(row);
+		const auto rowTop = m.padding + m.titleHeight +
+			RowHeight(m) * static_cast<double>(row);
 		const bool playing = row == a_current;
 
 		Label(
 			a_canvas,
 			a_font,
 			std::to_string(row + 1),
-			kPadding - 4.0,
-			rowTop + kCellSize / 2.0 - kRowLabelSize,
-			kRowLabelWidth,
-			kRowLabelSize,
+			m.padding - 4.0,
+			rowTop + m.cell / 2.0 - m.rowLabelSize,
+			m.rowLabelWidth,
+			m.rowLabelSize,
 			a_color,
 			playing ? 1.0 : 0.5);
 
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
-			const auto cellLeft = kPadding + kRowLabelWidth +
-				(kCellSize + kCellGap) * static_cast<double>(slot);
+			const auto cellLeft = m.padding + m.rowLabelWidth +
+				(m.cell + m.gap) * static_cast<double>(slot);
 			const auto& cell = a_pages[row][slot];
 			const bool taken = !cell.name.empty();
 
@@ -441,16 +470,16 @@ void grid::Draw(
 				graphics,
 				cellLeft,
 				rowTop,
-				kCellSize,
-				kCellSize,
+				m.cell,
+				m.cell,
 				a_color,
 				playing ? kCurrentAlpha : kCellAlpha);
 			Outline(
 				graphics,
 				cellLeft,
 				rowTop,
-				kCellSize,
-				kCellSize,
+				m.cell,
+				m.cell,
 				a_color,
 				playing ? kCurrentLineAlpha : kCellLineAlpha);
 
@@ -462,8 +491,8 @@ void grid::Draw(
 				cell.label,
 				cellLeft + 2.0,
 				rowTop + 2.0,
-				kCellSize - 4.0,
-				kKeySize,
+				m.cell - 4.0,
+				m.keySize,
 				a_color,
 				taken ? 0.9 : 0.35);
 
@@ -471,11 +500,11 @@ void grid::Draw(
 				Label(
 					a_canvas,
 					a_font,
-					Shorten(cell.name, 13),
+					Shorten(cell.name, m.nameRoom),
 					cellLeft,
-					rowTop + kCellSize - kNameHeight,
-					kCellSize,
-					kNameSize,
+					rowTop + m.cell - m.nameHeight,
+					m.cell,
+					m.nameSize,
 					a_color,
 					0.95);
 			}
