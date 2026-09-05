@@ -176,16 +176,24 @@ namespace
 		return a_index == 9 ? "0" : a_index == 10 ? "-" : "=";
 	}
 
+	inline constexpr std::uint8_t kNoKey = 0xFF;
+	inline constexpr std::uint8_t kNotAFavorite = 0xFE;
+
+	// What a stack carries: its key, kNoKey when it is favorited without
+	// one, kNotAFavorite when it is no favorite at all.
+	[[nodiscard]] std::uint8_t FavoriteOf(const RE::BGSInventoryItem::Stack& a_stack)
+	{
+		if (a_stack.extra) {
+			if (const auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+				return static_cast<std::uint8_t>(favorite->quickkeyIndex);
+			}
+		}
+		return kNotAFavorite;
+	}
+
 	struct FavoriteSlot
 	{
 		RE::TESBoundObject* object{ nullptr };
-
-		// Where the favorite sits in the inventory. The engine addresses a
-		// stack as "the nth one of this item", so both halves are needed to
-		// write to it.
-		RE::BGSInventoryItem* item{ nullptr };
-		std::int32_t stackIndex{ 0 };
-
 		std::uint32_t count{ 0 };
 	};
 
@@ -199,33 +207,13 @@ namespace
 			return slots;
 		}
 
-		RE::BGSInventoryItem* walked = nullptr;
-		std::int32_t stackIndex = 0;
-
 		// ForEachStack does not lock, so every caller runs as a UI task.
 		player->inventoryList->ForEachStack(
 			[](RE::BGSInventoryItem&) { return true; },
 			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
-				// The stacks of an item come in order, so counting them
-				// gives the number the engine wants.
-				if (&a_item != walked) {
-					walked = &a_item;
-					stackIndex = 0;
-				} else {
-					++stackIndex;
-				}
-
-				if (!a_stack.extra) {
-					return true;
-				}
-				const auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>();
-				if (!favorite) {
-					return true;
-				}
-				const auto index = static_cast<int>(favorite->quickkeyIndex);
-				if (index >= 0 && index < 12) {
-					slots[static_cast<std::size_t>(index)] =
-						FavoriteSlot{ a_item.object, &a_item, stackIndex, a_stack.count };
+				const auto carried = FavoriteOf(a_stack);
+				if (carried < 12) {
+					slots[carried] = FavoriteSlot{ a_item.object, a_stack.count };
 				}
 				return true;
 			});
@@ -267,67 +255,126 @@ namespace
 	// ---- Writing a favorite, the way the game does -----------------------
 	//
 	// Read out of the running game with tools/f4dis.py, after two attempts
-	// that wrote past the engine and cost an item each. What the engine does
-	// when it puts an item on a key is one function:
+	// that wrote past the engine and cost an item each.
 	//
-	//     BGSInventoryItem::SetFavoriteIndex(stackIndex, favoriteIndex)
+	// The engine's own write is three instructions: take the index out of
+	// the functor, take the ExtraDataList off the stack, and hand both to
 	//
-	// and it does five things in a row -- find the stack, run the write
-	// under the inventory lock, merge the stacks again, and, if anything
-	// changed, send a notification. That last step is what every
-	// hand-written version left out, and why an item that lost its key
-	// could not be favorited again.
+	//     ExtraDataList::SetFavorite(list, index)      REL::ID(534268)
 	//
-	// Underneath sits ExtraDataList::SetFavorite, which reads:
+	// which reads:
 	//
 	//     0xFE          take the ExtraFavorite away -- not a favorite at all
 	//     anything else set quickkeyIndex, creating the ExtraFavorite if the
 	//                   stack has none
 	//
-	// So 0xFF is not "no favorite" but "a favorite without a key" -- and
-	// that is the state the game itself writes when you favorite something
-	// that has no key yet. A page switch therefore never has to delete
-	// anything: the outgoing page goes to -1 and stays favorited.
+	// So 0xFF is not "no favorite" but "a favorite without a key", and that
+	// is the state the game itself writes when you favorite something that
+	// has no key yet. A page switch therefore never has to delete anything:
+	// the outgoing page parks at -1 and stays favorited.
+	//
+	// The other half is who does the writing. BGSInventoryItem::SetFavoriteIndex
+	// (REL::ID(1349090)) is the game's own caller, and it was tried first --
+	// it writes correctly, but the display and FavoritesManager::storedFavTypes
+	// stayed on the old state, because it only notifies when the write
+	// changed the shape of the stacks. What does reach everyone is the path
+	// through the list:
+	//
+	//     BGSInventoryList::FindAndWriteStackDataForItem(object, compare, write)
+	//
+	// which dispatches the inventory's own event afterwards. That is what
+	// made moving work in the first place, so the write goes through it and
+	// only the functor underneath is the engine's.
 
-	inline constexpr std::uint8_t kNoKey = 0xFF;
-	inline constexpr std::uint8_t kNotAFavorite = 0xFE;
-
-	void SetFavoriteIndex(
-		RE::BGSInventoryItem* a_item,
-		std::int32_t a_stackIndex,
-		std::uint8_t a_favoriteIndex)
+	class SetFavoriteFunctor : public RE::BGSInventoryItem::StackDataWriteFunctor
 	{
-		using func_t = void (*)(RE::BGSInventoryItem*, std::int32_t, std::uint8_t);
-		static REL::Relocation<func_t> func{ REL::ID(1349090) };
-		func(a_item, a_stackIndex, a_favoriteIndex);
+	public:
+		explicit SetFavoriteFunctor(std::uint8_t a_index) noexcept :
+			index(a_index)
+		{
+			// The engine's own functor sets both of these to false in its
+			// constructor: the whole stack moves, nothing is split off.
+			shouldSplitStacks = false;
+			transferEquippedToSplitStack = false;
+		}
+
+		void WriteDataImpl(
+			RE::TESBoundObject&,
+			RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			if (!a_stack.extra) {
+				return;
+			}
+			using func_t = void (*)(RE::ExtraDataList*, std::uint8_t);
+			static REL::Relocation<func_t> setFavorite{ REL::ID(534268) };
+			setFavorite(a_stack.extra.get(), index);
+		}
+
+		std::uint8_t index;
+	};
+
+	class MatchFavoriteFunctor :
+		public RE::BGSInventoryItem::StackDataCompareFunctor
+	{
+	public:
+		explicit MatchFavoriteFunctor(std::uint8_t a_index) noexcept :
+			index(a_index)
+		{}
+
+		bool CompareData(const RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			return FavoriteOf(a_stack) == index;
+		}
+
+		std::uint8_t index;
+	};
+
+	// Writes one favorite: the stack of a_object that carries a_from ends up
+	// carrying a_to. Both are keys 0..11, kNoKey for a parked favorite or
+	// kNotAFavorite for a stack that has none.
+	bool WriteFavorite(
+		RE::TESBoundObject* a_object,
+		std::uint8_t a_from,
+		std::uint8_t a_to)
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList || !a_object) {
+			return false;
+		}
+
+		MatchFavoriteFunctor compare{ a_from };
+		SetFavoriteFunctor write{ a_to };
+		player->inventoryList->FindAndWriteStackDataForItem(
+			a_object, compare, write);
+		return true;
+	}
+
+	[[nodiscard]] std::string KeyName(std::uint8_t a_index)
+	{
+		if (a_index < 12) {
+			return KeyLabel(a_index);
+		}
+		return a_index == kNoKey ? "no key" : "not a favorite";
 	}
 
 	// Moves the favorite on one key to another, or off the keys entirely
-	// when a_to is negative. The inventory is read again for every move,
-	// because merging stacks after a write can renumber them.
-	bool MoveFavorite(int a_from, int a_to)
+	// when a_to is negative.
+	bool MoveFavorite(RE::TESBoundObject* a_object, int a_from, int a_to)
 	{
-		if (a_from < 0 || a_from >= 12) {
+		if (a_from < 0 || a_from >= 12 || !a_object) {
 			return false;
 		}
 
-		const auto slots = ReadFavorites();
-		const auto& slot = slots[static_cast<std::size_t>(a_from)];
-		if (!slot.item) {
-			logger::warn("move: [{}] holds nothing", KeyLabel(static_cast<std::size_t>(a_from)));
+		const auto to = a_to < 0 ? kNoKey : static_cast<std::uint8_t>(a_to);
+		if (!WriteFavorite(a_object, static_cast<std::uint8_t>(a_from), to)) {
 			return false;
 		}
-
-		SetFavoriteIndex(
-			slot.item,
-			slot.stackIndex,
-			a_to < 0 ? kNoKey : static_cast<std::uint8_t>(a_to));
 
 		logger::info(
 			"move: \"{}\" {} -> {}",
-			RE::TESFullName::GetFullName(*slot.object),
+			RE::TESFullName::GetFullName(*a_object),
 			KeyLabel(static_cast<std::size_t>(a_from)),
-			a_to < 0 ? std::string("no key") : KeyLabel(static_cast<std::size_t>(a_to)));
+			KeyName(to));
 		return true;
 	}
 
@@ -442,7 +489,7 @@ namespace
 					++move;
 					continue;
 				}
-				MoveFavorite(move->from, move->to);
+				MoveFavorite(move->object, move->from, move->to);
 				leave(move->from);
 				occupant[static_cast<std::size_t>(move->to)] = move->object;
 				settled[static_cast<std::size_t>(move->to)] = true;
@@ -466,7 +513,7 @@ namespace
 
 			auto& move = pending.front();
 			if (park >= 0) {
-				MoveFavorite(move.from, park);
+				MoveFavorite(move.object, move.from, park);
 				leave(move.from);
 				occupant[static_cast<std::size_t>(park)] = move.object;
 				move.from = park;
@@ -482,7 +529,7 @@ namespace
 			logger::warn(
 				"page: all twelve keys are taken -- breaking the ring on an "
 				"occupied key, which is the untested path");
-			MoveFavorite(move.from, move.to);
+			MoveFavorite(move.object, move.from, move.to);
 			leave(move.from);
 			settled[static_cast<std::size_t>(move.to)] = true;
 			pending.erase(pending.begin());
@@ -527,58 +574,6 @@ namespace
 	// The probe is a round trip on one key: the first press takes the lowest
 	// favorite off its key, the second gives it back.
 
-	struct StackAddress
-	{
-		RE::BGSInventoryItem* item{ nullptr };
-		std::int32_t index{ -1 };
-	};
-
-	// The stack of an item that carries a given favorite index. kNoKey finds
-	// one that is favorited but on no key -- a parked favorite -- and
-	// kNotAFavorite one that carries no favorite at all.
-	[[nodiscard]] StackAddress FindStack(
-		RE::TESBoundObject* a_object,
-		std::uint8_t a_favoriteIndex)
-	{
-		StackAddress found;
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (!player || !player->inventoryList || !a_object) {
-			return found;
-		}
-
-		RE::BGSInventoryItem* walked = nullptr;
-		std::int32_t stackIndex = 0;
-
-		player->inventoryList->ForEachStack(
-			[](RE::BGSInventoryItem&) { return true; },
-			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
-				if (&a_item != walked) {
-					walked = &a_item;
-					stackIndex = 0;
-				} else {
-					++stackIndex;
-				}
-				if (a_item.object != a_object) {
-					return true;
-				}
-
-				auto carried = kNotAFavorite;
-				if (a_stack.extra) {
-					if (const auto* favorite =
-							a_stack.extra->GetByType<RE::ExtraFavorite>()) {
-						carried = static_cast<std::uint8_t>(favorite->quickkeyIndex);
-					}
-				}
-				if (carried != a_favoriteIndex) {
-					return true;
-				}
-
-				found = StackAddress{ &a_item, stackIndex };
-				return false;
-			});
-		return found;
-	}
-
 	RE::TESBoundObject* g_probeObject = nullptr;
 	int g_probeIndex = -1;
 
@@ -598,7 +593,7 @@ namespace
 				return;
 			}
 
-			MoveFavorite(g_probeIndex, -1);
+			MoveFavorite(g_probeObject, g_probeIndex, -1);
 			logger::info(
 				"round trip: \"{}\" is parked -- press again to give the key back",
 				RE::TESFullName::GetFullName(*g_probeObject));
@@ -606,18 +601,8 @@ namespace
 			return;
 		}
 
-		const auto parked = FindStack(g_probeObject, kNoKey);
-		if (!parked.item) {
-			logger::warn(
-				"round trip: \"{}\" is on no key and not parked either",
-				RE::TESFullName::GetFullName(*g_probeObject));
-			g_probeObject = nullptr;
-			g_probeIndex = -1;
-			return;
-		}
-
-		SetFavoriteIndex(
-			parked.item, parked.index, static_cast<std::uint8_t>(g_probeIndex));
+		WriteFavorite(
+			g_probeObject, kNoKey, static_cast<std::uint8_t>(g_probeIndex));
 		logger::info(
 			"round trip: \"{}\" is back on [{}]",
 			RE::TESFullName::GetFullName(*g_probeObject),
