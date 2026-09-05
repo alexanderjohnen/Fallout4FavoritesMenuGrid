@@ -1,6 +1,6 @@
 # Favorites Menu Grid (Fallout 4) — Arbeitsstand
 
-Stand: 2026-09-04. Portierung von
+Stand: 2026-09-05. Portierung von
 [Favorites Menu Grid für Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid).
 **Abschnitt 0 ist der Einstieg** — dort steht, was gilt und was offen ist.
 
@@ -33,6 +33,12 @@ Abschnitt 2 sind beantwortet:
   Spielstand ohne gesetzte Favoriten verträglich, beweist das Layout aber
   nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
   im Log auftaucht.**
+
+**Der Stand vom 2026-09-05:** Der Seitenwechsel funktioniert über die Engine
+(Abschnitt 14), und daraus ist mit `ApplyPage` die Grundoperation für alle
+zwölf Plätze geworden (Abschnitt 15). Getestet wird über drei Tasten aus der
+INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um einen Platz weiter,
+F7 nimmt einem Favoriten die Taste und gibt sie beim zweiten Druck zurück.
 
 **Zweiter Lauf, 23:43 Uhr — die Oberflächenfrage ist ganz beantwortet.**
 `FavoritesMenu` nimmt den Sprite ebenfalls an, seine Bühne ist 1280 x 720,
@@ -72,12 +78,12 @@ nachmessen.
 ### Was offen ist
 
 1. ~~Die drei Fragen aus Abschnitt 2.~~ **Alle drei beantwortet** (siehe
-   oben). Der nächste Schritt ist Meilenstein 1: schreiben statt nur lesen —
-   einen Platz belegen und nachsehen, ob die Oberfläche das mitbekommt oder
-   ob es eine Benachrichtigung braucht.
-2. **Der Kern.** `favorites_core.cpp` aus dem Starfield-Projekt wird nicht
-   portiert, sondern neu geschrieben. Der größere Teil davon entfällt
-   allerdings — siehe Abschnitt 3.
+   oben). ~~Meilenstein 1: schreiben statt nur lesen.~~ **Gelöst** — der
+   Seitenwechsel läuft über die Engine, Abschnitt 14.
+2. **Der Kern.** Die Grundoperation steht: `ApplyPage` setzt alle zwölf
+   Plätze auf einmal, Abschnitt 15. Offen ist davon der Fall, dass ein
+   Gegenstand einen Platz bekommt, der vorher keinen hatte — dafür gibt es
+   den Rundlauf auf F7, und er ist als Nächstes im Spiel zu messen.
 3. **Spielversionen.** Nur 1.10.163 (OG). 1.10.980 und später brauchen eine
    zweite Adress-Datenbank; F4SE sieht das ausdrücklich vor, aber prüfen kann
    es nur jemand mit der Version.
@@ -668,3 +674,78 @@ Ein Seitenwechsel ist: für jeden der zwölf Plätze den Favoriten über
 `FindAndWriteStackDataForItem` umhängen. Was bleibt, ist Buchhaltung —
 mehrere Seiten verwalten, geparkte Favoriten wiederfinden (Abschnitt 8),
 Zustand ins Co-Save — und danach die Oberfläche aus dem Starfield-Projekt.
+
+---
+
+## 15. Die Grundoperation: `ApplyPage` (2026-09-05)
+
+Aus dem Zwei-Platz-Tausch ist die ganze Seite geworden. `ApplyPage(target)`
+bekommt zwölf Plätze und sorgt dafür, dass danach in jedem Platz der Gegenstand
+liegt, der dort stehen soll. Der Tausch von zwei Plätzen und das Umhängen eines
+einzelnen sind darin nur Sonderfälle und stehen nicht mehr eigens im Code.
+
+**Die Regel, nach der die Züge geordnet werden:** Es wird nur auf einen Platz
+geschrieben, den niemand mehr braucht. Das ist der Grund für die ganze
+Buchhaltung in der Funktion — `occupant` sagt, wer während der Züge wo sitzt,
+`settled` sagt, welche Plätze ihren Endstand schon haben. In jedem Durchlauf
+werden alle Züge ausgeführt, deren Ziel frei ist; kommt kein Zug mehr durch,
+ist ein **Ring** übrig, in dem jeder Platz auf den nächsten wartet.
+
+**Ein Ring wird auf einem freien Platz aufgebrochen** — derselbe Parkplatz wie
+beim Zwei-Platz-Tausch, nur an genau der einen Stelle, an der er nötig ist.
+
+**Sind alle zwölf Plätze belegt, gibt es keinen Parkplatz.** Dann bricht die
+Funktion den Ring auf einem belegten Platz auf: für einen Moment tragen zwei
+Gegenstände denselben Index. Der eigene Vergleichsfunktor stört sich nicht
+daran, weil er Gegenstand *und* Index zusammen prüft — ob der Cache der Engine
+das übersteht, ist **nicht gemessen**. Der Fall schreibt eine Warnung ins Log;
+weicht danach der Cache vom Inventar ab, steht die Stelle fest.
+
+**Was `ApplyPage` noch nicht kann:** einem Gegenstand einen Platz geben, der
+gerade keinen hat. Genau das braucht ein Seitenwechsel mit mehr als zwölf
+Gegenständen, und genau danach fragt der Rundlauf unten. Bis dahin gilt: Ein
+Ziel darf nur Gegenstände nennen, die schon einen Platz haben; Favoriten, die
+das Ziel nicht nennt, behalten einen — sie bleiben liegen, wenn das Ziel ihren
+Platz frei lässt, sonst rücken sie auf den nächsten freien.
+
+### Der Prüfstand: Rotation (F8)
+
+Jeder Favorit rückt einen Platz weiter, der oberste kommt nach unten. Das ist
+**ein einziger langer Ring** und nimmt damit die ganze Funktion in Betrieb;
+nach genug Drücken steht alles wieder wie vorher. Mit weniger als zwölf
+Favoriten läuft die Parkplatz-Variante, mit genau zwölf die ungemessene.
+
+### Der Rundlauf: Platz wegnehmen und zurückgeben (F7)
+
+Die letzte offene Frage vor dem echten Seitenwechsel. In Fallout 4 ist ein
+Favorit nichts als das `ExtraFavorite` auf dem Inventarstapel — es gibt keinen
+Zustand „favorisiert, aber ohne Taste". Ein Seitenwechsel über zwölf
+Gegenstände hinaus muss also **Favoriten löschen und anlegen**, nicht nur
+verschieben.
+
+Beides geht über denselben Schreibweg wie ein Zug, nur mit anderem Funktor:
+
+- **Wegnehmen:** `a_stack.extra->RemoveExtra<RE::ExtraFavorite>()`.
+  `ExtraDataList::ClearFavorite` (`REL::ID(254434)`) wäre der Weg der Engine,
+  falls das schlichte Entfernen etwas stehen lässt.
+- **Zurückgeben:** ein neues `ExtraFavorite`, Typ und Vtable von Hand gesetzt
+  (`stl::emplace_vtable`), dann `AddExtra`. Nötig, weil `ExtraFavorite` keinen
+  eigenen Konstruktor hat.
+
+Der Rundlauf nimmt beim ersten Druck dem untersten Favoriten seine Taste und
+gibt sie beim zweiten zurück. **Vorher speichern.** Zu prüfen ist im Log und
+im Spiel: Verschwindet der Eintrag aus dem Kreuz und aus dem Cache? Und kommt
+er beim zweiten Druck vollständig zurück — Kreuz, Cache und die Taste, die
+danach den richtigen Gegenstand benutzt?
+
+Findet der zweite Druck keinen Stapel ohne Favorit, hat das Entfernen die
+`ExtraDataList` mitgenommen; dann muss die Liste beim Anlegen erst erzeugt
+werden. Das Log sagt es, weil die Favoritenliste danach unverändert bleibt.
+
+### Was danach dran ist
+
+1. Den Rundlauf im Spiel messen — er entscheidet, ob ein Seitenwechsel mit
+   fremden Gegenständen überhaupt über diesen Weg geht.
+2. Die Seitenverwaltung: mehrere Seiten im Speicher, Zustand ins Co-Save über
+   die F4SE-Serialisierung.
+3. Das Grid aus dem Starfield-Projekt (`favorites_grid.cpp`).

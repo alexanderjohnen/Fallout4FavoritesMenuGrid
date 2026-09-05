@@ -25,7 +25,8 @@ namespace
 	// quicksave, F9 is quickload, and Special K sits on F8 and F9 here.
 
 	int g_inventoryKey = VK_F6;
-	int g_swapKey = VK_F8;
+	int g_roundTripKey = VK_F7;
+	int g_rotateKey = VK_F8;
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
@@ -141,12 +142,15 @@ namespace
 		};
 
 		read(L"InventoryProbeKey", g_inventoryKey);
-		read(L"SwapFavoritesKey", g_swapKey);
+		read(L"FavoriteRoundTripKey", g_roundTripKey);
+		read(L"RotateFavoritesKey", g_rotateKey);
 
 		logger::info(
-			"settings: keys are {:#04x} (inventory) and {:#04x} (swap)",
+			"settings: keys are {:#04x} (inventory), {:#04x} (round trip) and "
+			"{:#04x} (rotate)",
 			g_inventoryKey,
-			g_swapKey);
+			g_roundTripKey,
+			g_rotateKey);
 	}
 
 	// ---- Reading the favorites -------------------------------------------
@@ -306,63 +310,313 @@ namespace
 		return true;
 	}
 
-	// Exchanges two keys. The detour over a free slot matters: written
-	// straight across, the compare functor would match the stack that was
-	// just moved.
-	void SwapFavorites(int a_first, int a_second)
+	// ---- Setting all twelve keys at once ---------------------------------
+
+	using PageLayout = std::array<RE::TESBoundObject*, 12>;
+
+	// Applies a whole arrangement: afterwards the item named in slot i holds
+	// key i.
+	//
+	// The target may only name items that hold a key right now. Giving a key
+	// to an item that has none is a different operation -- it has to create
+	// the ExtraFavorite -- and that is what the round trip further down
+	// measures. Favorites the target does not mention keep a key: they stay
+	// where they are if the target leaves that slot open, otherwise they take
+	// the next free one. So the same items are favorited afterwards, only
+	// arranged differently.
+	void ApplyPage(const PageLayout& a_target)
 	{
-		if (a_first == a_second || a_first < 0 || a_second < 0 ||
-			a_first >= 12 || a_second >= 12) {
+		const auto current = ReadFavorites();
+
+		// Which key each slot of the target draws its item from. An item can
+		// hold two keys with two stacks; the first match wins and the second
+		// stack keeps its own key.
+		std::array<int, 12> source;
+		source.fill(-1);
+		std::array<bool, 12> claimed{};
+
+		for (std::size_t slot = 0; slot < 12; ++slot) {
+			auto* wanted = a_target[slot];
+			if (!wanted) {
+				continue;
+			}
+			for (std::size_t key = 0; key < 12; ++key) {
+				if (!claimed[key] && current[key].object == wanted) {
+					claimed[key] = true;
+					source[slot] = static_cast<int>(key);
+					break;
+				}
+			}
+			if (source[slot] < 0) {
+				logger::warn(
+					"page: \"{}\" holds no key -- [{}] takes whatever is left",
+					RE::TESFullName::GetFullName(*wanted),
+					KeyLabel(slot));
+			}
+		}
+
+		// Everything the target does not mention keeps a key. Standing still
+		// is the cheapest move, so that pass comes first.
+		for (std::size_t key = 0; key < 12; ++key) {
+			if (current[key].object && !claimed[key] && source[key] < 0) {
+				claimed[key] = true;
+				source[key] = static_cast<int>(key);
+			}
+		}
+		for (std::size_t key = 0; key < 12; ++key) {
+			if (!current[key].object || claimed[key]) {
+				continue;
+			}
+			for (std::size_t slot = 0; slot < 12; ++slot) {
+				if (source[slot] < 0) {
+					claimed[key] = true;
+					source[slot] = static_cast<int>(key);
+					break;
+				}
+			}
+		}
+
+		// Turned around: where each key's item is headed.
+		struct Move
+		{
+			int from;
+			int to;
+			RE::TESBoundObject* object;
+		};
+
+		std::vector<Move> pending;
+		for (std::size_t slot = 0; slot < 12; ++slot) {
+			const auto key = source[slot];
+			if (key >= 0 && key != static_cast<int>(slot)) {
+				pending.push_back(
+					Move{ key,
+						static_cast<int>(slot),
+						current[static_cast<std::size_t>(key)].object });
+			}
+		}
+		if (pending.empty()) {
+			logger::info("page: everything is already where it belongs");
 			return;
 		}
 
-		const auto slots = ReadFavorites();
-		auto* firstObject = slots[static_cast<std::size_t>(a_first)].object;
-		auto* secondObject = slots[static_cast<std::size_t>(a_second)].object;
-
-		// A free key to park in. With all twelve taken the swap needs a
-		// different shape, which is a question for the page switch.
-		int park = -1;
-		for (std::size_t index = 0; index < slots.size(); ++index) {
-			if (!slots[index].object) {
-				park = static_cast<int>(index);
-				break;
-			}
+		// The rule the loop follows: only write into a key that nobody needs
+		// any more. `occupant` is who sits where while the moves run, and
+		// `settled` marks the keys that already hold their final item.
+		std::array<RE::TESBoundObject*, 12> occupant{};
+		std::array<bool, 12> settled{};
+		for (std::size_t key = 0; key < 12; ++key) {
+			occupant[key] = current[key].object;
 		}
 
-		if (firstObject && secondObject) {
-			if (park < 0) {
-				logger::warn("swap: all twelve keys are taken, nowhere to park");
-				return;
+		const auto leave = [&](int a_key) {
+			if (!settled[static_cast<std::size_t>(a_key)]) {
+				occupant[static_cast<std::size_t>(a_key)] = nullptr;
 			}
-			MoveFavorite(firstObject, a_first, park);
-			MoveFavorite(secondObject, a_second, a_first);
-			MoveFavorite(firstObject, park, a_second);
-		} else if (firstObject) {
-			MoveFavorite(firstObject, a_first, a_second);
-		} else if (secondObject) {
-			MoveFavorite(secondObject, a_second, a_first);
+		};
+
+		while (!pending.empty()) {
+			bool moved = false;
+			for (auto move = pending.begin(); move != pending.end();) {
+				if (occupant[static_cast<std::size_t>(move->to)]) {
+					++move;
+					continue;
+				}
+				MoveFavorite(move->object, move->from, move->to);
+				leave(move->from);
+				occupant[static_cast<std::size_t>(move->to)] = move->object;
+				settled[static_cast<std::size_t>(move->to)] = true;
+				move = pending.erase(move);
+				moved = true;
+			}
+			if (moved) {
+				continue;
+			}
+
+			// Nothing could move, so what is left is a ring: every key in it
+			// waits for the next one. Breaking it takes a free key to park
+			// on -- the same detour the two-key swap needed.
+			int park = -1;
+			for (std::size_t key = 0; key < 12; ++key) {
+				if (!occupant[key] && !settled[key]) {
+					park = static_cast<int>(key);
+					break;
+				}
+			}
+
+			auto& move = pending.front();
+			if (park >= 0) {
+				MoveFavorite(move.object, move.from, park);
+				leave(move.from);
+				occupant[static_cast<std::size_t>(park)] = move.object;
+				move.from = park;
+				continue;
+			}
+
+			// All twelve keys are taken, so the ring has to be broken on an
+			// occupied one: for a moment two items carry the same index. Our
+			// own compare functor is not confused by that -- it matches item
+			// and index together -- but whether the engine's own copy
+			// survives it has not been measured. If the log below is followed
+			// by a cache that disagrees with the inventory, this is the spot.
+			logger::warn(
+				"page: all twelve keys are taken -- breaking the ring on an "
+				"occupied key, which is the untested path");
+			MoveFavorite(move.object, move.from, move.to);
+			leave(move.from);
+			settled[static_cast<std::size_t>(move.to)] = true;
+			pending.erase(pending.begin());
 		}
 
-		LogFavorites("after the swap");
+		LogFavorites("after the page");
 	}
 
-	// The test bench for now: exchange the two lowest occupied keys. It is
-	// the page switch in miniature and it is its own inverse.
-	void SwapTwoLowest()
+	// The test bench: every favorite moves up one key and the topmost one
+	// wraps around. That is a single long ring, so it puts all of ApplyPage
+	// to work, and enough presses bring everything back.
+	void RotateFavorites()
 	{
-		const auto slots = ReadFavorites();
-		std::vector<int> occupied;
-		for (std::size_t index = 0; index < slots.size(); ++index) {
-			if (slots[index].object) {
-				occupied.push_back(static_cast<int>(index));
+		const auto current = ReadFavorites();
+
+		std::vector<std::size_t> occupied;
+		for (std::size_t key = 0; key < current.size(); ++key) {
+			if (current[key].object) {
+				occupied.push_back(key);
 			}
 		}
 		if (occupied.size() < 2) {
-			logger::warn("swap: fewer than two favorites");
+			logger::warn("rotate: fewer than two favorites");
 			return;
 		}
-		SwapFavorites(occupied[0], occupied[1]);
+
+		PageLayout target{};
+		for (std::size_t index = 0; index < occupied.size(); ++index) {
+			target[occupied[(index + 1) % occupied.size()]] =
+				current[occupied[index]].object;
+		}
+		ApplyPage(target);
+	}
+
+	// ---- Taking a key away and giving it back ----------------------------
+	//
+	// A page holding more than twelve items needs this: items of the outgoing
+	// page lose their key, items of the incoming page get one. In Fallout 4 a
+	// favorite is nothing but the ExtraFavorite on its inventory stack, so the
+	// question is whether the engine follows when that one comes and goes --
+	// through the same write path that carries a move.
+	//
+	// The probe is a round trip on one key: the first press takes the lowest
+	// favorite away, the second gives it back.
+
+	class ClearFavoriteFunctor : public RE::BGSInventoryItem::StackDataWriteFunctor
+	{
+	public:
+		ClearFavoriteFunctor() noexcept { shouldSplitStacks = false; }
+
+		void WriteDataImpl(
+			RE::TESBoundObject&,
+			RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			// ExtraDataList::ClearFavorite (REL::ID(254434)) does the same
+			// from the engine's side, if plain removal turns out to leave
+			// something behind.
+			if (a_stack.extra) {
+				a_stack.extra->RemoveExtra<RE::ExtraFavorite>();
+			}
+		}
+	};
+
+	class AddFavoriteFunctor : public RE::BGSInventoryItem::StackDataWriteFunctor
+	{
+	public:
+		explicit AddFavoriteFunctor(std::int8_t a_index) noexcept :
+			index(a_index)
+		{
+			shouldSplitStacks = false;
+		}
+
+		void WriteDataImpl(
+			RE::TESBoundObject&,
+			RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			if (!a_stack.extra || a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+				return;
+			}
+
+			// ExtraFavorite carries no constructor of its own, so type and
+			// vtable are set the way CommonLibF4 sets them for every other
+			// piece of extra data.
+			auto* favorite = new RE::ExtraFavorite();
+			RE::stl::emplace_vtable(favorite);
+			favorite->type = RE::EXTRA_DATA_TYPE::kFavorite;
+			favorite->quickkeyIndex = index;
+			a_stack.extra->AddExtra(favorite);
+		}
+
+		std::int8_t index;
+	};
+
+	// A stack of the item that carries no favorite -- where a key can go.
+	class MatchPlainStackFunctor :
+		public RE::BGSInventoryItem::StackDataCompareFunctor
+	{
+	public:
+		bool CompareData(const RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			return a_stack.extra &&
+				!a_stack.extra->GetByType<RE::ExtraFavorite>();
+		}
+	};
+
+	RE::TESBoundObject* g_probeObject = nullptr;
+	int g_probeIndex = -1;
+
+	void FavoriteRoundTrip()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList) {
+			return;
+		}
+
+		if (g_probeIndex < 0) {
+			const auto current = ReadFavorites();
+			for (std::size_t key = 0; key < current.size(); ++key) {
+				if (current[key].object) {
+					g_probeObject = current[key].object;
+					g_probeIndex = static_cast<int>(key);
+					break;
+				}
+			}
+			if (g_probeIndex < 0) {
+				logger::warn("round trip: there is no favorite to take away");
+				return;
+			}
+
+			MatchQuickkeyFunctor compare{ static_cast<std::int8_t>(g_probeIndex) };
+			ClearFavoriteFunctor clear;
+			player->inventoryList->FindAndWriteStackDataForItem(
+				g_probeObject, compare, clear);
+
+			logger::info(
+				"round trip: took \"{}\" off [{}] -- press again to give it back",
+				RE::TESFullName::GetFullName(*g_probeObject),
+				KeyLabel(static_cast<std::size_t>(g_probeIndex)));
+			LogFavorites("after taking a key away");
+			return;
+		}
+
+		MatchPlainStackFunctor compare;
+		AddFavoriteFunctor add{ static_cast<std::int8_t>(g_probeIndex) };
+		player->inventoryList->FindAndWriteStackDataForItem(
+			g_probeObject, compare, add);
+
+		logger::info(
+			"round trip: gave \"{}\" back to [{}]",
+			RE::TESFullName::GetFullName(*g_probeObject),
+			KeyLabel(static_cast<std::size_t>(g_probeIndex)));
+		LogFavorites("after giving the key back");
+
+		g_probeObject = nullptr;
+		g_probeIndex = -1;
 	}
 
 	// ---- Input -----------------------------------------------------------
@@ -389,30 +643,37 @@ namespace
 	void KeyboardPollingLoop()
 	{
 		bool previousInventory = false;
-		bool previousSwap = false;
+		bool previousRoundTrip = false;
+		bool previousRotate = false;
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 
 			if (!IsGameForeground()) {
 				previousInventory = false;
-				previousSwap = false;
+				previousRoundTrip = false;
+				previousRotate = false;
 				continue;
 			}
 
 			const auto inventory = IsKeyDown(g_inventoryKey);
-			const auto swap = IsKeyDown(g_swapKey);
+			const auto roundTrip = IsKeyDown(g_roundTripKey);
+			const auto rotate = IsKeyDown(g_rotateKey);
 			const auto* tasks = F4SE::GetTaskInterface();
 
 			if (tasks && inventory && !previousInventory) {
 				tasks->AddUITask([]() { LogFavorites("probe"); });
 			}
-			if (tasks && swap && !previousSwap) {
-				tasks->AddUITask([]() { SwapTwoLowest(); });
+			if (tasks && roundTrip && !previousRoundTrip) {
+				tasks->AddUITask([]() { FavoriteRoundTrip(); });
+			}
+			if (tasks && rotate && !previousRotate) {
+				tasks->AddUITask([]() { RotateFavorites(); });
 			}
 
 			previousInventory = inventory;
-			previousSwap = swap;
+			previousRoundTrip = roundTrip;
+			previousRotate = rotate;
 		}
 	}
 
