@@ -53,10 +53,15 @@ namespace
 	// strength, which over a night scene comes out as dark boxes -- the
 	// opposite effect, and the main reason the grid looked foreign. So the
 	// plates are white and only their strength changes.
+	// Read out of the vanilla movie rather than matched by eye: the cell in
+	// FavoritesMenu.swf is a solid fill of ff ff ff 33 -- white at 0x33 of
+	// 255, so a fifth. That is the plate the game draws, and it is what the
+	// played page gets. The other pages are the same plate at half strength,
+	// which is a decision of ours: the game has only ever had one page.
 	constexpr std::uint32_t kPlate = 0xFFFFFF;
+	constexpr double kCurrentAlpha = 0.20;
 	constexpr double kCellAlpha = 0.10;
 	constexpr double kCellLineAlpha = 0.0;
-	constexpr double kCurrentAlpha = 0.26;
 	constexpr double kCurrentLineAlpha = 0.0;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;

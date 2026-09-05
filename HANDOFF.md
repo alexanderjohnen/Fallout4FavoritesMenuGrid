@@ -8,6 +8,13 @@ Stand: 2026-09-05. Portierung von
 
 ## 0. Aktueller Stand
 
+**Meilenstein 3 steht, in der Nacht zum 2026-09-06:** Das Grid hat ein
+**eigenes Menü** mit eigener Bühne, mittig auf dem Bildschirm, mit
+**Mauszeiger statt Kamerasteuerung** — und die Zifferntasten des Spiels
+funktionieren weiter. **Abschnitt 21 ist der Einstieg für die nächste
+Sitzung:** dort steht, was steht, was offen ist und welche Fallstricke
+Stunden gekostet haben.
+
 **Meilenstein 2 steht, im Spiel bestätigt am 2026-09-05 gegen 19:30.** Ein
 Favorit lässt sich parken und wieder auf eine Taste legen, und die Rotation
 setzt alle zwölf Plätze auf einmal. Anzeige, Cache und Tastendruck folgen.
@@ -887,8 +894,9 @@ gleich, die Anzeige stimmt, die Taste benutzt den richtigen Gegenstand.
 
 1. ~~Das Kreuz bei offenem Menü nachziehen.~~ **Erledigt, Abschnitt 17.**
 2. ~~Die Seitenverwaltung.~~ **Erledigt und im Spiel bestätigt, Abschnitt 18.**
-3. **Das Grid** aus dem Starfield-Projekt — und mit ihm die FIS-Symbole,
-   Abschnitt 19.
+3. ~~Das Grid.~~ **Es steht, auf eigenem Menü — Abschnitt 21.** Offen sind
+   dort: Tastensteuerung, Zeigerauswahl, das Item-Label über dem Grid, die
+   FIS-Symbole (Abschnitt 20) und der Pip-Boy.
 4. **Für eine Veröffentlichung** (Abschnitt 19): Tasten über den Weg des
    Spiels statt `GetAsyncKeyState` — Controller, die Belegung des Spielers,
    und keine Auslösung, während jemand in der Konsole tippt. Dazu die Frage
@@ -1108,3 +1116,125 @@ Genau das tut FallUI in seinen eigenen Menüs.
 4. Ohne FIS gibt es keine Tags; dann bleibt alles bei `FavIconType` aus dem
    Spiel. Der Fall muss sauber durchfallen, nicht auffallen.
 
+---
+
+## 21. Das Grid bekommt ein eigenes Menü (2026-09-05, Nacht)
+
+**Der Stand:** Das Grid steht mittig auf dem Bildschirm, auf einer **eigenen
+Bühne**, mit **Mauszeiger statt Kamerasteuerung**, und die Zifferntasten des
+Spiels funktionieren unverändert weiter. Das ist der Punkt, an dem diese
+Sitzung endet.
+
+### Warum ein eigenes Menü
+
+Drei Anläufe auf fremder Leinwand, alle mit derselben Ursache — das Grid war
+**Gast**:
+
+| Leinwand | Ergebnis |
+| --- | --- |
+| Bühne von `FavoritesMenu` | Nur der Streifen sichtbar, den das Kreuz ohnehin neu malt |
+| Wurzelclip von `FavoritesMenu` | **Das ganze Menü verschwand**, Panel meldete Position `-107374182` |
+| `HUDMenu` | Zeichnet sauber, aber der HUD nimmt keine Eingabe — ein Zeiger dort hieße, der Spielersteuerung die Maus zu entreißen |
+
+Dazu kam die Erkenntnis aus dem Spiel: **Die Maus bewegte weiterhin die
+Kamera.** Ein Zeiger auf dem HUD wäre also ein zweiter Eingriff an einer
+Stelle gewesen, die mit Favoriten nichts zu tun hat.
+
+Ein Menü ist das, was das Spiel für all das schon hat: Es bekommt die
+Eingabe, es kann einen Cursor führen, und es besitzt seine eigene Bühne.
+**FavoritesMenuEx** (im Ordner entpackt, siehe unten) macht genau das, und
+deshalb reicht ihr F4SE als Anforderung.
+
+### Wie es gebaut ist
+
+- **`tools/build_swf.py`** schreibt `Interface/FavoritesMenuGrid.swf`: **36
+  Bytes**, Header plus vier Tags, kein Zeitstrahl, kein ActionScript. Nur
+  `FileAttributes` mit dem AS3-Bit (sonst gilt das Movie als AS2 und die
+  Anzeigeklassen, die das Plugin über ihren Namen erzeugt, gibt es nicht).
+  JPEXS liest die Datei gegen.
+- **`src/menu.cpp`** registriert das Menü (`UI::RegisterMenu`), lädt die SWF
+  mit `LoadMovieEx` und Hintergrundalpha 0 und meldet über `SetOnReady`, wenn
+  gezeichnet werden kann — das Menü taucht erst **nach** seinem Konstruktor
+  in der Menüliste des Spiels auf.
+- Es öffnet und schließt mit `FavoritesMenu`; das Kreuz wird dabei versteckt.
+
+**Die Flags sind der Kern und waren zweimal falsch:**
+
+```cpp
+menuFlags.set(
+    kUsesCursor,        // der Zeiger
+    kUsesMenuContext,   // nimmt der Kamera die Maus -- das ist die Zeile,
+                        // die den ganzen Umbau gerechtfertigt hat
+    kUpdateUsesCursor,
+    kRequiresUpdate);
+```
+
+- **Kein `kPausesGame`:** Ein Favoritenmenü soll schnell sein, nicht das
+  Spiel anhalten.
+- **Kein `kCustomRendering`.** Das war der Fehler, der eine Runde gekostet
+  hat: Es sagt „dieses Menü malt sich selbst", woraufhin das Spiel es aus
+  seinem Renderdurchgang auslässt. Das Grid wurde gezeichnet — 40 Kinder,
+  richtige Größe, richtige Position, alles im Log — und niemand hat es
+  gerendert.
+
+**Zwei Fallstricke, die Zeit gekostet haben:**
+
+1. **Ein Menü ohne benannten Clip hat kein `menuObj`.** Unsere SWF ist leer,
+   es gibt nichts zu benennen. Die Bühne hängt an der Wurzel:
+   `uiMovie->GetVariable(&root, "root")`, dann `root.stage`. Wer `menuObj`
+   verlangt, hält ein offenes Menü für geschlossen.
+2. **`GetPrivateProfileIntW` liefert `UINT`.** `GridX=-1` („mittig") kam als
+   **4294967295** an, und das Panel stand vier Milliarden Einheiten neben dem
+   Bildschirm. Das hat zwei Messrunden entwertet — der HUD war nie das
+   Problem. Jede vorzeichenbehaftete Einstellung braucht den Cast.
+
+### Was offen ist
+
+1. **`w`/`a`/`s`/`d` tun im neuen Menü nichts.** Sie gingen vorher an die
+   Kreuzlogik; jetzt gehen sie ins Leere. Gewünscht: `w`/`s` blättert Seiten,
+   `a`/`d` wandert zwischen den Tasten einer Seite. Das Menü bekommt die
+   Eingabe selbst — `IMenu` hat `ProcessMessage`, und für Tasten gibt es den
+   Weg über einen eigenen `BSInputEventUser`.
+2. **Der Zeiger wählt noch nichts aus.** Mausposition auf Zellen abbilden,
+   die getroffene hervorheben, Klick benutzt sie. Zum Benutzen gibt es
+   `FavoritesManager::UseQuickkeyItem` (aus den Zeichenketten von
+   FavoritesMenuEx). Liegt die getroffene Zelle auf einer anderen Seite,
+   erst blättern.
+3. **Das Item-Label ist verschwunden.** `ItemName_tf` und `ItemAmmo_tf`
+   gehören dem Favoritenmenü, dessen Kreuz jetzt versteckt ist. Sie sollen
+   **mittig über dem Grid** stehen, wie in der Starfield-Fassung. Entweder
+   die Felder des Spiels weiterverwenden (sie liegen auf dessen Bühne, nicht
+   auf unserer) oder ein eigenes Label auf unserer Bühne, gespeist aus dem,
+   was der Zeiger gerade trifft. **Das eigene Label ist der bessere Weg** —
+   es gehört zur Auswahl, und die machen künftig wir.
+4. **Das Design.** Die Zellenfarbe ist inzwischen **aus der Vanilla-SWF
+   gelesen**: `FavoritesMenu.swf`, erste `DefineShape4`, Füllung
+   `ff ff ff 33` — Weiß mit Alpha 0x33, also ein Fünftel. Das ist der Wert
+   der gespielten Seite; die anderen laufen auf der Hälfte. Weiter zu holen
+   wäre der Rahmen (eine `LINESTYLE2` in derselben Form) und die
+   Textformate. Die entpackte Vanilla-SWF liegt unter
+   `Claude Code/FavoritesMenu-vanilla/`.
+5. **Die Symbole**, unverändert wie in Abschnitt 20 beschrieben. Auf eigener
+   Bühne ist das Laden der Bibliothek jetzt einfacher, weil niemand
+   dazwischenfunkt.
+6. **Der Pip-Boy.** Das „ASSIGN FAVORITE"-Kreuz ist ein eigenes Menü und
+   zeigt noch gar nichts von uns. Beim Zuweisen will man sehen, auf welche
+   **Seite** man legt.
+
+### Was nicht mehr gebraucht wird
+
+Der Eingabe-Haken auf `FavoritesManager` (`src/input.cpp`) hat nie ein
+Ereignis geliefert. Die Vtable war **richtig** — sie sitzt an Objekt-Offset
+`0x10`, nicht vorn, das zeigt der Speicherauszug im Log — die Ereignisse
+gehen also woanders lang. Mit eigenem Menü ist die Frage hinfällig; die Datei
+bleibt vorerst liegen, weil ihre Messungen dokumentiert sind, und fliegt
+raus, sobald die Eingabe über das Menü läuft.
+
+### Werkzeuge, die in dieser Nacht dazugekommen sind
+
+| Werkzeug | wofür |
+| --- | --- |
+| `tools/f4dis.py` | IDs auflösen, Vtables lesen, Engine-Code disassemblieren |
+| `tools/swfnames.py` | Symbole einer SWF auflisten, Sorter-Tags dagegen prüfen |
+| `tools/build_swf.py` | die leere Bühne des eigenen Menüs schreiben |
+| `src/peek.cpp` | Maschinencode aus dem laufenden Spiel kopieren (F10) |
