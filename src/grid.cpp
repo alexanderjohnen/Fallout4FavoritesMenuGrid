@@ -48,14 +48,16 @@ namespace
 
 	constexpr std::size_t kSlots = 12;
 
-	// Fallout 4 draws its panels as thin translucent plates with no border
-	// at all -- look at the cross itself. So the cells are barely there, and
-	// only the page being played is lifted out; an outline is kept for that
-	// one alone, because it is the one thing that has to be unmistakable.
-	constexpr double kCellAlpha = 0.07;
+	// Fallout 4's own cells are thin sheets of light with no border: they
+	// brighten what is behind them. Ours were the HUD colour at a low
+	// strength, which over a night scene comes out as dark boxes -- the
+	// opposite effect, and the main reason the grid looked foreign. So the
+	// plates are white and only their strength changes.
+	constexpr std::uint32_t kPlate = 0xFFFFFF;
+	constexpr double kCellAlpha = 0.10;
 	constexpr double kCellLineAlpha = 0.0;
-	constexpr double kCurrentAlpha = 0.20;
-	constexpr double kCurrentLineAlpha = 0.45;
+	constexpr double kCurrentAlpha = 0.26;
+	constexpr double kCurrentLineAlpha = 0.0;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
@@ -179,7 +181,8 @@ namespace
 		double a_width,
 		double a_size,
 		std::uint32_t a_color,
-		double a_alpha)
+		double a_alpha,
+		const char* a_align = "center")
 	{
 		RE::Scaleform::GFx::Value field;
 		a_canvas->uiMovie->CreateObject(&field, "flash.text.TextField");
@@ -209,7 +212,7 @@ namespace
 			format.SetMember(
 				"color",
 				RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(a_color)));
-			format.SetMember("align", RE::Scaleform::GFx::Value("center"));
+			format.SetMember("align", RE::Scaleform::GFx::Value(a_align));
 			field.SetMember("defaultTextFormat", format);
 		}
 
@@ -345,6 +348,42 @@ void grid::Draw(
 		}
 	}
 
+	// The name and the ammo count are the menu's own fields, and they stay
+	// the menu's: the game keeps writing them, we only say where. They sit
+	// where the cross used to be, which with the grid in the middle is
+	// nowhere useful, so they move under the panel.
+	//
+	// Their coordinates are the menu's, not the stage's -- its children run
+	// from around -400,-560 -- so the menu is asked where its own origin
+	// lands and the difference is subtracted.
+	const auto moveLabel = [&](const char* a_name, double a_stageX, double a_stageY) {
+		RE::Scaleform::GFx::Value field;
+		if (!a_favorites->menuObj.GetMember(a_name, &field) ||
+			!field.IsDisplayObject()) {
+			return;
+		}
+
+		const std::array<RE::Scaleform::GFx::Value, 2> zero{
+			RE::Scaleform::GFx::Value(0.0), RE::Scaleform::GFx::Value(0.0)
+		};
+		RE::Scaleform::GFx::Value point;
+		a_favorites->uiMovie->CreateObject(
+			&point, "flash.geom.Point", zero.data(), 2);
+		RE::Scaleform::GFx::Value origin;
+		if (!point.IsObject() ||
+			!a_favorites->menuObj.Invoke("localToGlobal", &origin, &point, 1) ||
+			!origin.IsObject()) {
+			return;
+		}
+
+		field.SetMember(
+			"x",
+			RE::Scaleform::GFx::Value(a_stageX - ReadNumber(origin, "x", 0.0)));
+		field.SetMember(
+			"y",
+			RE::Scaleform::GFx::Value(a_stageY - ReadNumber(origin, "y", 0.0)));
+	};
+
 	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
 	// and a panel in the middle plus a cross in the corner would be two
 	// readings of the same twelve keys.
@@ -475,49 +514,35 @@ void grid::Draw(
 				rowTop,
 				m.cell,
 				m.cell,
-				a_color,
+				kPlate,
 				playing ? kCurrentAlpha : kCellAlpha);
-			Outline(
-				graphics,
-				cellLeft,
-				rowTop,
-				m.cell,
-				m.cell,
-				a_color,
-				playing ? kCurrentLineAlpha : kCellLineAlpha);
 
-			// The key it sits on, in the corner, so the panel can be read
-			// against the cross without counting.
+			// The key, top left, small -- where the cross puts it. A cell of
+			// this game holds its key and its icon and nothing else; the
+			// name of whatever is picked belongs in one place below, the way
+			// the cross has always shown it.
 			Label(
 				a_canvas,
 				a_font,
 				cell.label,
-				cellLeft + 2.0,
-				rowTop + 2.0,
-				m.cell - 4.0,
+				cellLeft + m.cell * 0.08,
+				rowTop + m.cell * 0.06,
+				m.cell * 0.5,
 				m.keySize,
-				a_color,
-				taken ? 0.9 : 0.35);
-
-			if (taken) {
-				// Inside the cell, along its bottom edge: a name below the
-				// cell would push the rows apart and break the lattice.
-				Label(
-					a_canvas,
-					a_font,
-					Shorten(cell.name, m.nameRoom),
-					cellLeft,
-					rowTop + m.cell - m.nameHeight - 1.0,
-					m.cell,
-					m.nameSize,
-					a_color,
-					0.9);
-			}
+				kPlate,
+				taken ? 0.85 : 0.3,
+				"left");
 		}
 	}
 
 	// What was asked for, and what the movie made of it. The two drifting
 	// apart is the only way to tell a layout mistake from a drawing one.
+	// Centred under the panel, the name above the ammo line. The fields are
+	// 400 and 300 wide, so half of each comes off the middle.
+	moveLabel("ItemName_tf", left + width / 2.0 - 200.0, top + height + m.gap);
+	moveLabel(
+		"ItemAmmo_tf", left + width / 2.0 - 150.0, top + height + m.gap + 26.0);
+
 	logger::info(
 		"grid: {} pages, playing {}; stage {:.0f}x{:.0f}, panel asked for "
 		"{:.0f}x{:.0f} at {:.0f},{:.0f}, reports {:.0f}x{:.0f} at {:.0f},{:.0f} "
