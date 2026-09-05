@@ -47,6 +47,10 @@ namespace
 	double g_indicatorX = 0.0;
 	double g_indicatorY = 96.0;
 	double g_indicatorSize = 18.0;
+	// Wide enough for any wording anyone is likely to put in the INI; the
+	// text is centred in it, so what is not used costs nothing.
+	constexpr double kIndicatorWidth = 320.0;
+
 	// Empty means "the one the cross labels its own keys with".
 	std::string g_indicatorFont;
 	// What the measuring settled on, so it is only logged when it changes.
@@ -1071,7 +1075,17 @@ namespace
 			// the mouse or take focus away from the cross.
 			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
 			g_indicator.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
-			g_indicator.SetMember("autoSize", RE::Scaleform::GFx::Value("center"));
+			g_indicator.SetMember("multiline", RE::Scaleform::GFx::Value(false));
+			g_indicator.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
+
+			// A fixed, generous box with the text centred in it, rather than
+			// autoSize. Left to size itself the field came up cut off on the
+			// first draw and only sorted itself out on the second, because
+			// the box was still the default width when the text arrived.
+			g_indicator.SetMember(
+				"width", RE::Scaleform::GFx::Value(kIndicatorWidth));
+			g_indicator.SetMember(
+				"height", RE::Scaleform::GFx::Value(g_indicatorSize + 8.0));
 			// The fonts of a menu are embedded in its movie, so the field
 			// has to be told to use them rather than one from the system.
 			g_indicator.SetMember("embedFonts", RE::Scaleform::GFx::Value(true));
@@ -1088,8 +1102,10 @@ namespace
 		double x = 0.0;
 		double y = 0.0;
 		CrossOnStage(menu, cross, x, y);
+		// The box is centred on the cross, so half of it goes to the left.
 		g_indicator.SetMember(
-			"x", RE::Scaleform::GFx::Value(x + g_indicatorX));
+			"x",
+			RE::Scaleform::GFx::Value(x + g_indicatorX - kIndicatorWidth / 2.0));
 		g_indicator.SetMember(
 			"y", RE::Scaleform::GFx::Value(y + g_indicatorY));
 
