@@ -47,6 +47,8 @@ namespace
 	double g_indicatorX = 0.0;
 	double g_indicatorY = 96.0;
 	double g_indicatorSize = 18.0;
+	// Empty means "the one the cross labels its own keys with".
+	std::string g_indicatorFont;
 	// Anything above white means "take the colour the player set for the HUD".
 	std::uint32_t g_indicatorColor = 0x1000000;
 
@@ -234,6 +236,7 @@ namespace
 			L"Display", L"PageIndicatorColor", 0x1000000, path.c_str()));
 		g_indicatorText =
 			ReadText(path, L"Display", L"PageIndicatorText", L"Favorites");
+		g_indicatorFont = ReadText(path, L"Display", L"PageIndicatorFont", L"");
 
 		// Off unless someone asks for it: the corner message lands wherever
 		// the player's HUD mods put it, which is why the page is written
@@ -900,6 +903,28 @@ namespace
 		g_indicator = RE::Scaleform::GFx::Value();
 	}
 
+	// Which font the cross draws its own key labels with. Whatever the menu
+	// already uses is one it certainly has -- a font it does not have comes
+	// out as a row of boxes, which is exactly what the first attempt looked
+	// like on screen.
+	[[nodiscard]] std::string CrossFont(RE::Scaleform::GFx::Value& a_cross)
+	{
+		const RE::Scaleform::GFx::Value first{ 0 };
+		RE::Scaleform::GFx::Value entry;
+		RE::Scaleform::GFx::Value label;
+		RE::Scaleform::GFx::Value format;
+		RE::Scaleform::GFx::Value font;
+
+		if (a_cross.Invoke("GetEntryClip", &entry, &first, 1) && entry.IsObject() &&
+			entry.GetMember("Quickkey_tf", &label) && label.IsObject() &&
+			label.Invoke("getTextFormat", &format) && format.IsObject() &&
+			format.GetMember("font", &font) && font.IsString()) {
+			return font.GetString();
+		}
+		// The name the game gives its main font in FontConfig.txt.
+		return "$MAIN_Font";
+	}
+
 	// Where the cross sits on the stage. Its own x and y are in whatever
 	// space its parent uses, so the point is converted rather than assumed.
 	void CrossOnStage(
@@ -970,6 +995,10 @@ namespace
 			RE::Scaleform::GFx::Value format;
 			menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
 			if (format.IsObject()) {
+				const auto font = g_indicatorFont.empty() ? CrossFont(cross)
+														  : g_indicatorFont;
+				logger::info("indicator: drawing with font {}", font);
+				format.SetMember("font", RE::Scaleform::GFx::Value(font.c_str()));
 				format.SetMember("size", RE::Scaleform::GFx::Value(g_indicatorSize));
 				format.SetMember(
 					"color",
@@ -987,6 +1016,9 @@ namespace
 			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
 			g_indicator.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
 			g_indicator.SetMember("autoSize", RE::Scaleform::GFx::Value("center"));
+			// The fonts of a menu are embedded in its movie, so the field
+			// has to be told to use them rather than one from the system.
+			g_indicator.SetMember("embedFonts", RE::Scaleform::GFx::Value(true));
 
 			if (!stage.Invoke("addChild", nullptr, &g_indicator, 1)) {
 				logger::warn("indicator: the stage would not take the field");
