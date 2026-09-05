@@ -8,6 +8,15 @@ Stand: 2026-09-05. Portierung von
 
 ## 0. Aktueller Stand
 
+**Meilenstein 2 steht, im Spiel bestätigt am 2026-09-05 gegen 19:30.** Ein
+Favorit lässt sich parken und wieder auf eine Taste legen, und die Rotation
+setzt alle zwölf Plätze auf einmal. Anzeige, Cache und Tastendruck folgen.
+Offen bleibt eine Sache, und die gehört zum nächsten Schritt: **Das Kreuz
+aktualisiert sich erst, wenn man es schließt und wieder öffnet.** Es zeichnet
+aus einer Kopie, die es beim Öffnen bekommt. Für den Seitenwechsel ist das
+nicht hinnehmbar, denn der passiert bei offenem Kreuz — der Hebel dafür steht
+in Abschnitt 13 (`Cross_mc.infoArray`), der Code in der Historie.
+
 **Der Stand vom 2026-09-05, abends:** `ApplyPage` setzt alle zwölf Plätze auf
 einmal (Abschnitt 15) und ist mit der Rotation auf F8 im Spiel bestätigt. Der
 Schreibvorgang darunter ist am selben Abend noch einmal ersetzt worden: Er
@@ -853,8 +862,43 @@ Zwei Folgen für den Rest:
 
 `ApplyPage` bleibt, wie es war — nur der Zug darunter ist ein anderer.
 
-### Was noch zu messen ist
+### Der Nachtrag, der eine Nacht gespart hat
 
-Der Rundlauf auf F7, jetzt in seiner richtigen Fassung: parken und
-zurückgeben. Geht das durch, ist der Seitenwechsel vollständig entworfen und
-es fehlt nur noch die Buchhaltung mehrerer Seiten.
+`SetFavoriteIndex` allein reichte **nicht**. Im Spiel gemessen: Das Inventar
+folgte, `storedFavTypes` nicht, und auf dem Bildschirm passierte gar nichts.
+Der Grund steht in der Funktion selbst — sie merkt sich vorher einen Zähler
+und verschickt ihre Benachrichtigung nur, wenn er sich geändert hat. Ein
+reiner Indexwechsel ändert ihn nicht.
+
+Was alle erreicht, ist der Weg über die Liste:
+`BGSInventoryList::FindAndWriteStackDataForItem` verschickt danach das
+Ereignis des Inventars. **Beides zusammen ist die Lösung:** der Weg über die
+Liste, und darunter der Funktor der Engine, der nichts tut als
+`ExtraDataList::SetFavorite` aufzurufen.
+
+```cpp
+MatchFavoriteFunctor compare{ from };   // was der Stapel trägt
+SetFavoriteFunctor   write{ to };       // ruft REL::ID(534268)
+player->inventoryList->FindAndWriteStackDataForItem(object, compare, write);
+```
+
+**Im Spiel bestätigt** (2026-09-05, 19:30): parken auf -1, Taste zurückgeben,
+Rotation über alle zwölf Plätze. `favorites` und `cache` im Log bleiben
+gleich, die Anzeige stimmt, die Taste benutzt den richtigen Gegenstand.
+
+### Was als Nächstes dran ist
+
+1. **Das Kreuz bei offenem Menü nachziehen.** Es hält eine Kopie, die es beim
+   Öffnen bekommt, und merkt von einem Wechsel darunter nichts. Der Hebel ist
+   `Cross_mc.infoArray` aus Abschnitt 13; der Code dafür steht in der
+   Historie und muss auf die neuen Verhältnisse zurückgeholt werden. Ohne das
+   gibt es keinen Seitenwechsel bei offenem Kreuz — also gar keinen.
+2. **Die Seitenverwaltung:** mehrere Seiten im Speicher, Zustand ins Co-Save
+   über die F4SE-Serialisierung, geparkte Favoriten wiederfinden.
+3. **Das Grid** aus dem Starfield-Projekt.
+
+Und ein Fall ist weiterhin ungemessen: `ApplyPage`, wenn **alle zwölf** Tasten
+belegt sind. Dann gibt es keinen Parkplatz, und der Ring wird auf einer
+belegten Taste aufgebrochen. Seit es -1 gibt, ist das aber kein Problem mehr,
+sondern eine Vereinfachung: Der erste Zug parkt einfach auf -1, und schon ist
+eine Taste frei. Das gehört in `ApplyPage`, sobald es angefasst wird.
