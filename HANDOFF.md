@@ -886,8 +886,13 @@ gleich, die Anzeige stimmt, die Taste benutzt den richtigen Gegenstand.
 ### Was als Nächstes dran ist
 
 1. ~~Das Kreuz bei offenem Menü nachziehen.~~ **Erledigt, Abschnitt 17.**
-2. ~~Die Seitenverwaltung.~~ **Erledigt, Abschnitt 18** — noch ungetestet.
-3. **Das Grid** aus dem Starfield-Projekt.
+2. ~~Die Seitenverwaltung.~~ **Erledigt und im Spiel bestätigt, Abschnitt 18.**
+3. **Das Grid** aus dem Starfield-Projekt — und mit ihm die FIS-Symbole,
+   Abschnitt 19.
+4. **Für eine Veröffentlichung** (Abschnitt 19): Tasten über den Weg des
+   Spiels statt `GetAsyncKeyState` — Controller, die Belegung des Spielers,
+   und keine Auslösung, während jemand in der Konsole tippt. Dazu die Frage
+   der Next-Gen-Fassung, vertagt.
 
 ---
 
@@ -983,3 +988,67 @@ deshalb nimmt der Leser die Sektion als Argument.
 Alles davon. Zu prüfen sind: blättern hin und zurück, ein Favorit von Hand
 gesetzt und dann geblättert, Spielstand speichern und laden, und was passiert,
 wenn ein Gegenstand einer anderen Seite nicht mehr im Inventar ist.
+
+---
+
+## 19. Was die Mod werden soll (Entscheidungen vom 2026-09-05, nachts)
+
+### Eine Mod, mehrere Anzeigen
+
+Die Seiten hängen an **keiner** Zeile Grid-Code — sie arbeiten mit dem
+Vanilla-Kreuz. Das Grid ist ein Aufsatz, keine Voraussetzung. Alexanders
+Beobachtung dazu: Für Fallout 4 gibt es bisher nichts, was mehrere
+Favoritenseiten anbietet; die Seiten allein sind also schon der Grund, warum
+jemand die Mod installiert.
+
+**Entschieden:** Eine Veröffentlichung, die **beides** enthält, mit
+umschaltbarer Anzeige — Vanilla-Kreuz oder Grid, vielleicht später eine dritte
+Form. Umgestellt wird über **MCM**, wenn es geht, sonst über die INI.
+
+Der Name auf Nexus ist unabhängig vom Dateinamen der DLL. Die Seite darf also
+sagen, dass es um Seiten geht, ohne dass Repo, Plugin oder INI umbenannt
+werden müssen.
+
+### MCM aus einem C++-Plugin
+
+Bei Alexander liegt `Interface\MCM.swf`, MCM ist also installiert. Für ein
+Plugin ohne Papyrus geht es so: MCM bekommt eine Konfiguration unter
+`Data\MCM\Config\<Mod>\config.json` und schreibt die Auswahl des Spielers nach
+`Data\MCM\Settings\<Mod>.ini`. Die liest das Plugin wie jede andere INI —
+neu einlesen am besten dann, wenn das Favoritenmenü aufgeht, damit eine
+Änderung ohne Neustart ankommt. Zu prüfen, wenn es soweit ist.
+
+### FIS-Symbole (der interessante Teil)
+
+**Wie FIS arbeitet**, nachgesehen in
+`Data\Interface\ItemSorter\FIS (FallUI Item Sorter).xml`: Gegenstände werden
+zu `[Tag] Name` umbenannt (`tagWrapper="SQUARE_BRACKET"`), und
+`FIS Categories.xml` ordnet jedem Tag über `icontag` ein Symbol zu. Die Menüs
+von FallUI und DEF_UI schlagen dieses Symbol in einer Symbolbibliothek nach —
+bei Alexander `Data\Interface\FallUI_IconLib.swf` und `iconlibs2.swf`.
+
+**Das Favoritenkreuz ist keines dieser Menüs.** Es druckt den Tag, wie er
+dasteht: `[Aid] Antibiotics`. Genau so stand es die ganze Nacht in unseren
+Logs, ohne dass es jemandem aufgefallen wäre — ein Beleg, der schon vorlag.
+
+**Sofort erledigt:** Der Tag wird aus der Beschriftung genommen
+(`StripItemTags=1`, neue `[Display]`-Sektion). Aus `[Aid] Antibiotics` wird
+`Antibiotics`.
+
+**Der eigentliche Plan fürs Grid:** die Symbolbibliothek laden und das Symbol
+zum Tag selbst zeichnen — dasselbe, was FallUI tut. Offene Fragen, alle
+beantwortbar ohne Ratespiel:
+
+1. Wie heißen die Symbole in `FallUI_IconLib.swf`? Mit JPEXS nachsehen, dem
+   Werkzeug, mit dem schon `FavoritesMenu.swf` gelesen wurde. Wenn die
+   Linkage-Namen den Tag-Schlüsseln entsprechen, ist die Zuordnung geschenkt.
+2. Lässt sich eine fremde SWF in die Bühne von `FavoritesMenu` laden und ein
+   Symbol daraus anhängen? Das ist der Weg, den DEF_UI geht.
+3. Wenn ja: Geht das auch für die **zwölf Zellen des Vanilla-Kreuzes**? Deren
+   `Icon_mc` ist ein MovieClip wie jeder andere. Dann bekämen auch Spieler
+   ohne Grid die Symbole.
+4. Was passiert ohne FIS? Dann gibt es keine Tags, und alles bleibt, wie es
+   ist — die Symbole des Spiels aus `FavIconType`.
+
+Punkt 3 wäre der Fund: FIS-Symbole im normalen Favoritenmenü, was es bisher
+nirgends gibt.
