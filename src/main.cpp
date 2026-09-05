@@ -501,6 +501,143 @@ namespace
 		}
 	}
 
+	// Defined further down, with the rest of the inventory reading.
+	void DumpInventoryFavorites();
+
+	// Letting the engine set the favorite.
+	//
+	// Writing the binding and the cache ourselves leaves one table stale:
+	// the first press of a number key after a swap still acts on the old
+	// mapping and only then repairs itself. That third table is not in
+	// CommonLibF4, so instead of hunting it, this goes the way the game
+	// goes when the player assigns a quickkey in the Pip-Boy --
+	// FindAndWriteStackDataForItem with a write functor. Whatever
+	// bookkeeping the engine does around that write, it does here too.
+	//
+	// The vtable dump settled the one thing that would otherwise have been
+	// guesswork: WriteDataImpl sits on slot 0, so a plain subclass lines up
+	// with what the engine calls. CommonLibF4 documents slot 1, and that is
+	// wrong.
+	class SetQuickkeyFunctor :
+		public RE::BGSInventoryItem::StackDataWriteFunctor
+	{
+	public:
+		explicit SetQuickkeyFunctor(std::int8_t a_index) noexcept :
+			index(a_index)
+		{
+			// The whole stack moves, not a single item split off it.
+			shouldSplitStacks = false;
+		}
+
+		void WriteDataImpl(
+			RE::TESBoundObject&,
+			RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			if (a_stack.extra) {
+				if (auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+					favorite->quickkeyIndex = index;
+				}
+			}
+		}
+
+		std::int8_t index;
+	};
+
+	class MatchFavoriteFunctor :
+		public RE::BGSInventoryItem::StackDataCompareFunctor
+	{
+	public:
+		explicit MatchFavoriteFunctor(std::int8_t a_index) noexcept :
+			index(a_index)
+		{}
+
+		bool CompareData(const RE::BGSInventoryItem::Stack& a_stack) override
+		{
+			if (!a_stack.extra) {
+				return false;
+			}
+			const auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>();
+			return favorite && favorite->quickkeyIndex == index;
+		}
+
+		std::int8_t index;
+	};
+
+	void RunEngineSwap()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList) {
+			logger::warn("engine swap: no inventory");
+			return;
+		}
+
+		struct Bound
+		{
+			RE::TESBoundObject* object;
+			int index;
+		};
+		std::vector<Bound> bound;
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (!a_stack.extra) {
+					return true;
+				}
+				if (const auto* favorite =
+						a_stack.extra->GetByType<RE::ExtraFavorite>()) {
+					bound.push_back(
+						{ a_item.object,
+						  static_cast<int>(favorite->quickkeyIndex) });
+				}
+				return true;
+			});
+
+		if (bound.size() < 2) {
+			logger::warn("engine swap: fewer than two favorites");
+			return;
+		}
+		std::ranges::sort(bound, {}, &Bound::index);
+		const auto first = bound[0];
+		const auto second = bound[1];
+
+		logger::info(
+			"engine swap: \"{}\" on {} and \"{}\" on {} -- through the engine",
+			first.object ? RE::TESFullName::GetFullName(*first.object) : "?"sv,
+			first.index,
+			second.object ? RE::TESFullName::GetFullName(*second.object) : "?"sv,
+			second.index);
+
+		// Park the first one out of the way, move the second in, then bring
+		// the first back. Writing both straight across would let the
+		// compare functor match the wrong stack halfway through.
+		constexpr std::int8_t kPark = 11;
+		const auto write = [&](RE::TESBoundObject* a_object,
+							   std::int8_t a_from,
+							   std::int8_t a_to) {
+			if (!a_object) {
+				return;
+			}
+			MatchFavoriteFunctor compare{ a_from };
+			SetQuickkeyFunctor set{ a_to };
+			player->inventoryList->FindAndWriteStackDataForItem(
+				a_object, compare, set);
+			logger::info(
+				"engine swap: \"{}\" {} -> {}",
+				RE::TESFullName::GetFullName(*a_object),
+				a_from,
+				a_to);
+		};
+
+		write(first.object, static_cast<std::int8_t>(first.index), kPark);
+		write(second.object,
+			  static_cast<std::int8_t>(second.index),
+			  static_cast<std::int8_t>(first.index));
+		write(first.object, kPark, static_cast<std::int8_t>(second.index));
+
+		logger::info("engine swap: done");
+		DumpInventoryFavorites();
+	}
+
 	void NotifyFavoriteChanged()
 	{
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -1159,7 +1296,7 @@ namespace
 				logger::info("key: notify requested");
 				tasks->AddUITask([]() {
 					DumpFunctorVTable();
-					NotifyFavoriteChanged();
+					RunEngineSwap();
 				});
 			}
 
