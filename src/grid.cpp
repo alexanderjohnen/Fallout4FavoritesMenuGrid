@@ -354,6 +354,23 @@ void grid::Draw(
 		}
 	}
 
+	// What was asked for, and what the movie made of it. The two drifting
+	// apart is the only way to tell a layout mistake from a drawing one.
 	logger::info(
-		"grid: drawn, {} pages, playing {}", a_pages.size(), a_current + 1);
+		"grid: {} pages, playing {}; stage {:.0f}x{:.0f}, panel asked for "
+		"{:.0f}x{:.0f} at {:.0f},{:.0f}, reports {:.0f}x{:.0f} at {:.0f},{:.0f} "
+		"with {:.0f} children",
+		a_pages.size(),
+		a_current + 1,
+		stageWidth,
+		stageHeight,
+		width,
+		height,
+		(stageWidth - width) / 2.0,
+		(stageHeight - height) / 2.0,
+		ReadNumber(g_panel, "width", -1.0),
+		ReadNumber(g_panel, "height", -1.0),
+		ReadNumber(g_panel, "x", -1.0),
+		ReadNumber(g_panel, "y", -1.0),
+		ReadNumber(g_panel, "numChildren", -1.0));
 }
