@@ -419,6 +419,22 @@ namespace
 		logger::info("refresh: sent {} to {}", a_name, kProbeMenu);
 	}
 
+	// Every attempt to call one of the movie's functions found the menu
+	// closed, even with the cross on screen -- most likely because the
+	// cross reacts to the key press and closes, while our call runs a tick
+	// later as a UI task. So the key no longer calls anything: it arms the
+	// next step, and the step runs the moment the menu opens.
+	std::atomic<void (*)()> g_pendingStep{ nullptr };
+	std::atomic_bool g_pendingIsScaleform{ false };
+
+	void RunPendingStep()
+	{
+		if (const auto step = g_pendingStep.exchange(nullptr)) {
+			logger::info("refresh: running the armed step now that the cross is open");
+			step();
+		}
+	}
+
 	void SendNextRefreshMessage()
 	{
 		using Action = void (*)();
@@ -435,8 +451,16 @@ namespace
 		static std::size_t next = 0;
 		const auto [action, name] = kSteps[next % kSteps.size()];
 		++next;
-		logger::info("refresh: step {} -- {}", next, name);
-		action();
+
+		// The first four talk to the movie and need the menu; the rest are
+		// messages and can go out at once.
+		if (next % kSteps.size() <= 4 && next % kSteps.size() != 0) {
+			logger::info("refresh: step {} -- {} armed; open the cross", next, name);
+			g_pendingStep.store(action);
+		} else {
+			logger::info("refresh: step {} -- {}", next, name);
+			action();
+		}
 	}
 
 	// Which slot the write functor's method sits on, read rather than
@@ -1013,6 +1037,7 @@ namespace
 			// on 2026-09-05; a menu being torn down is not a canvas.
 			if (a_event.opening && name == kProbeMenu) {
 				ProbeStage(kProbeMenu);
+				RunPendingStep();
 			}
 
 			return RE::BSEventNotifyControl::kContinue;
