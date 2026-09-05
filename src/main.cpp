@@ -621,6 +621,11 @@ namespace
 				icons[static_cast<std::size_t>(index)] =
 					ReadNumber(icon, "currentFrame", 1.0);
 			} else {
+				// Frame 1 is the empty icon, so a failed read leaves the
+				// cell blank -- which is exactly what happened on screen.
+				// Worth saying out loud rather than silently guessing.
+				logger::warn(
+					"cross: could not read the icon frame of Entry_{}", index);
 				icons[static_cast<std::size_t>(index)] = 1.0;
 			}
 		}
@@ -683,6 +688,14 @@ namespace
 					static_cast<std::uint32_t>(held[index]->count)));
 			array.PushBack(entry);
 		}
+
+		std::string written;
+		for (std::size_t index = 0; index < 12; ++index) {
+			written += held[index]
+				? std::format("[{}]{}/{} ", index, held[index]->name, icons[index])
+				: std::format("[{}]- ", index);
+		}
+		logger::info("cross: writing name/icon-frame {}", written);
 
 		if (!cross.SetMember("infoArray", array)) {
 			logger::warn("cross: the infoArray setter was refused");
