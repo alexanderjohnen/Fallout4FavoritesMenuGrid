@@ -41,6 +41,15 @@ namespace
 	// before the cross shows it.
 	bool g_stripItemTags = true;
 
+	// The page marker inside the favorites menu.
+	bool g_showPageIndicator = true;
+	std::string g_indicatorText = "Favorites";
+	double g_indicatorX = 0.0;
+	double g_indicatorY = 96.0;
+	double g_indicatorSize = 18.0;
+	// Anything above white means "take the colour the player set for the HUD".
+	std::uint32_t g_indicatorColor = 0x1000000;
+
 	// The cross shows no page of its own, so turning one is announced the
 	// way the game announces everything else. The wording is a setting
 	// because the game is not played in English everywhere; the numbers are
@@ -136,6 +145,38 @@ namespace
 		return std::nullopt;
 	}
 
+	// The INI is wide, the menu and the HUD want bytes, and a wording may
+	// well carry an umlaut -- so it goes through UTF-8 rather than through a
+	// cast that would drop half of it.
+	[[nodiscard]] std::string ReadText(
+		const std::filesystem::path& a_path,
+		const wchar_t* a_section,
+		const wchar_t* a_key,
+		const wchar_t* a_fallback)
+	{
+		std::wstring value(128, L'#');
+		value.resize(GetPrivateProfileStringW(
+			a_section,
+			a_key,
+			a_fallback,
+			value.data(),
+			static_cast<DWORD>(value.size()),
+			a_path.c_str()));
+		if (value.empty()) {
+			return {};
+		}
+
+		const auto needed = WideCharToMultiByte(
+			CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
+		if (needed <= 1) {
+			return {};
+		}
+		std::string narrow(static_cast<std::size_t>(needed) - 1, ' ');
+		WideCharToMultiByte(
+			CP_UTF8, 0, value.c_str(), -1, narrow.data(), needed, nullptr, nullptr);
+		return narrow;
+	}
+
 	void LoadSettings()
 	{
 		const auto path = GetSettingsPath();
@@ -177,30 +218,27 @@ namespace
 		read(L"Debug", L"RotateFavoritesKey", g_rotateKey);
 		read(L"Debug", L"PeekKey", g_peekKey);
 
-		std::wstring message(128, L'#');
-		message.resize(GetPrivateProfileStringW(
-			L"Pages",
-			L"PageMessage",
-			L"Favorites",
-			message.data(),
-			static_cast<DWORD>(message.size()),
-			path.c_str()));
-		// The INI is wide, the HUD wants bytes, and the wording may well
-		// carry an umlaut -- so it goes through UTF-8 rather than through a
-		// cast that would drop half of it.
-		if (const auto needed = WideCharToMultiByte(
-				CP_UTF8, 0, message.c_str(), -1, nullptr, 0, nullptr, nullptr);
-			needed > 1) {
-			std::string narrow(static_cast<std::size_t>(needed) - 1, '\0');
-			WideCharToMultiByte(
-				CP_UTF8, 0, message.c_str(), -1, narrow.data(), needed, nullptr, nullptr);
-			g_pageMessage = narrow;
-		} else {
-			g_pageMessage.clear();
-		}
-
+		// What the cross shows.
 		g_stripItemTags = GetPrivateProfileIntW(
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
+		g_showPageIndicator =
+			GetPrivateProfileIntW(
+				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
+		g_indicatorX = GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorX", 0, path.c_str());
+		g_indicatorY = GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorY", 96, path.c_str());
+		g_indicatorSize = GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorSize", 18, path.c_str());
+		g_indicatorColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
+			L"Display", L"PageIndicatorColor", 0x1000000, path.c_str()));
+		g_indicatorText =
+			ReadText(path, L"Display", L"PageIndicatorText", L"Favorites");
+
+		// Off unless someone asks for it: the corner message lands wherever
+		// the player's HUD mods put it, which is why the page is written
+		// into the menu instead.
+		g_pageMessage = ReadText(path, L"Pages", L"PageMessage", L"");
 
 		// Not a key, so it is read on its own.
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
@@ -748,6 +786,10 @@ namespace
 	std::vector<Page> g_pages;
 	std::size_t g_currentPage = 0;
 
+	// Defined below, with the rest of the page marker: it needs the pages,
+	// and the pages need to announce themselves.
+	void ShowPageIndicator();
+
 	void EnsurePages()
 	{
 		if (g_pages.size() != static_cast<std::size_t>(g_pageCount)) {
@@ -797,6 +839,7 @@ namespace
 
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
+		ShowPageIndicator();
 		AnnouncePage();
 	}
 
@@ -810,6 +853,114 @@ namespace
 		}
 		const auto next = (static_cast<int>(g_currentPage) + a_by % count + count) % count;
 		GoToPage(static_cast<std::size_t>(next));
+	}
+
+	// ---- Saying which page is showing ------------------------------------
+	//
+	// Not through the game's corner notification. Players rebuild the HUD to
+	// taste -- FallUI and friends move, restyle and hide those messages --
+	// and the favorites menu is the one place that usually stays as it is.
+	// So the page is written into the menu itself, as a text field hung on
+	// Cross_mc. Hanging it there rather than on the stage means it follows
+	// the cross wherever another mod has put it.
+
+	RE::Scaleform::GFx::Value g_indicator;
+
+	// The colour the player set for the HUD, so the page looks like it
+	// belongs to the game rather than to us.
+	[[nodiscard]] std::uint32_t HUDColor()
+	{
+		const auto channel = [](const char* a_name, std::uint32_t a_fallback) {
+			auto* collection = RE::INIPrefSettingCollection::GetSingleton();
+			const auto setting = collection ? collection->GetSetting(a_name) : nullptr;
+			if (!setting ||
+				setting->GetType() != RE::Setting::SETTING_TYPE::kInt) {
+				return a_fallback;
+			}
+			return static_cast<std::uint32_t>(
+				std::clamp(setting->GetInt(), 0, 255));
+		};
+
+		return (channel("iHUDColorR:Interface", 0x12) << 16) |
+			(channel("iHUDColorG:Interface", 0xFF) << 8) |
+			channel("iHUDColorB:Interface", 0x7D);
+	}
+
+	[[nodiscard]] std::string PageWording(std::string_view a_lead)
+	{
+		if (a_lead.empty()) {
+			return std::format("{} / {}", g_currentPage + 1, g_pages.size());
+		}
+		return std::format(
+			"{} {} / {}", a_lead, g_currentPage + 1, g_pages.size());
+	}
+
+	void ReleaseIndicator()
+	{
+		g_indicator = RE::Scaleform::GFx::Value();
+	}
+
+	// Builds the field the first time and writes the page every time. Quiet
+	// when the menu is closed -- there is nothing to write on.
+	void ShowPageIndicator()
+	{
+		if (!g_showPageIndicator || g_pages.empty()) {
+			return;
+		}
+		auto* menu = GetFavoritesMenu();
+		if (!menu) {
+			ReleaseIndicator();
+			return;
+		}
+		RE::Scaleform::GFx::Value cross;
+		if (!GetCross(menu, cross)) {
+			return;
+		}
+
+		if (!g_indicator.IsObject()) {
+			menu->uiMovie->CreateObject(&g_indicator, "flash.text.TextField");
+			if (!g_indicator.IsObject()) {
+				logger::warn("indicator: the menu would not make a text field");
+				g_showPageIndicator = false;
+				return;
+			}
+
+			RE::Scaleform::GFx::Value format;
+			menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
+			if (format.IsObject()) {
+				format.SetMember("size", RE::Scaleform::GFx::Value(g_indicatorSize));
+				format.SetMember(
+					"color",
+					RE::Scaleform::GFx::Value(
+						static_cast<std::uint32_t>(
+							g_indicatorColor <= 0xFFFFFF ? g_indicatorColor
+														 : HUDColor())));
+				format.SetMember("align", RE::Scaleform::GFx::Value("center"));
+				format.SetMember("bold", RE::Scaleform::GFx::Value(true));
+				g_indicator.SetMember("defaultTextFormat", format);
+			}
+
+			// It is a label, not a control: nothing about it should react to
+			// the mouse or take focus away from the cross.
+			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
+			g_indicator.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+			g_indicator.SetMember("autoSize", RE::Scaleform::GFx::Value("center"));
+			g_indicator.SetMember("x", RE::Scaleform::GFx::Value(g_indicatorX));
+			g_indicator.SetMember("y", RE::Scaleform::GFx::Value(g_indicatorY));
+
+			RE::Scaleform::GFx::Value result;
+			if (!cross.Invoke("addChild", &result, &g_indicator, 1)) {
+				logger::warn("indicator: the cross would not take the field");
+				ReleaseIndicator();
+				g_showPageIndicator = false;
+				return;
+			}
+			logger::info("indicator: added to the cross");
+		}
+
+		g_indicator.SetMember(
+			"text",
+			RE::Scaleform::GFx::Value(PageWording(g_indicatorText).c_str()));
 	}
 
 	// ---- Keeping the pages in the save -----------------------------------
@@ -1064,6 +1215,16 @@ namespace
 			if (a_event.menuName == favoritesMenu) {
 				logger::info(
 					"FavoritesMenu {}", a_event.opening ? "opened" : "closed");
+
+				// The field belongs to the movie that is going away, so it
+				// is dropped on close and built again on the next open.
+				if (!a_event.opening) {
+					ReleaseIndicator();
+				} else if (const auto* tasks = F4SE::GetTaskInterface()) {
+					// Not straight away: the menu is still being put
+					// together while this event runs.
+					tasks->AddUITask([]() { ShowPageIndicator(); });
+				}
 			}
 			return RE::BSEventNotifyControl::kContinue;
 		}
