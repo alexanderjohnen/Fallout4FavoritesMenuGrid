@@ -614,3 +614,57 @@ Gegenstand benutzt. Falls nicht, löst das Grid die Auswahl selbst aus.
 | JPEXS / ffdec-cli | SWF nach ActionScript dekompilieren |
 | Address Library | Adressen für `REL::ID`, Grundlage von CommonLibF4 |
 | Zeichenketten aus fremden DLLs | wie andere Mods dasselbe System anfassen |
+
+---
+
+## 14. Der Seitenwechsel funktioniert — und zwar nur über die Engine
+
+**Gelöst am 2026-09-05, 03:17.** Der Weg ist kürzer als alles, was wir davor
+versucht haben:
+
+```cpp
+class SetQuickkeyFunctor : public RE::BGSInventoryItem::StackDataWriteFunctor
+{
+    void WriteDataImpl(RE::TESBoundObject&, Stack& a_stack) override
+    { /* ExtraFavorite::quickkeyIndex setzen */ }
+};
+
+player->inventoryList->FindAndWriteStackDataForItem(object, compare, set);
+```
+
+Ein Favorit umgehängt, und **das Spiel zieht alles andere selbst nach**: die
+Anzeige im Kreuz, den Cache in `storedFavTypes` und die dritte Tabelle, die
+wir nie gefunden haben. Im Spiel bestätigt: Anzeige stimmt sofort, und der
+**erste** Druck auf die Zifferntaste benutzt den richtigen Gegenstand.
+
+### Was dabei zu beachten ist
+
+- `WriteDataImpl` sitzt auf **Vtable-Platz 0**. CommonLibF4 dokumentiert
+  Platz 1 — das ist falsch, gemessen an der Vtable von
+  `ApplyChangesFunctor` (`REL::ID(319870)`), in der die bekannte Adresse von
+  `WriteDataImpl` (`REL::ID(1291190)`) auf Platz 0 steht. Eine gewöhnliche
+  C++-Ableitung passt also.
+- `shouldSplitStacks = false`, sonst spaltet der Schreibvorgang den Stapel.
+- Beim Tauschen zweier Plätze muss einer **zwischengeparkt** werden, sonst
+  trifft der Vergleichsfunktor auf halbem Weg den falschen Stapel.
+
+### Was damit hinfällig ist
+
+Alles, was in den Abschnitten 6 bis 13 als Umweg steht: der eigene
+Schreibzugriff auf `storedFavTypes`, das Nachschieben von UI-Nachrichten,
+`SetIsDirty`, das Melden des `FavoriteChangedEvent` und sogar das Schreiben
+von `Cross_mc.infoArray`. Nichts davon wird für den Seitenwechsel gebraucht.
+
+**Wertvoll bleiben die Abschnitte trotzdem**, und zwar aus zwei Gründen. Sie
+erklären, *warum* der direkte Weg nicht trägt — es gibt drei Tabellen, und
+zwei davon kann man von außen gar nicht sehen. Und `Cross_mc.infoArray`
+bleibt der Hebel, mit dem sich das Kreuz gezielt füllen lässt, falls das Grid
+später einmal etwas anzeigen soll, das nicht in den zwölf nativen Plätzen
+steht.
+
+### Damit ist der Kern entworfen
+
+Ein Seitenwechsel ist: für jeden der zwölf Plätze den Favoriten über
+`FindAndWriteStackDataForItem` umhängen. Was bleibt, ist Buchhaltung —
+mehrere Seiten verwalten, geparkte Favoriten wiederfinden (Abschnitt 8),
+Zustand ins Co-Save — und danach die Oberfläche aus dem Starfield-Projekt.
