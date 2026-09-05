@@ -47,6 +47,11 @@ namespace grid
 		// switch, never as the default.
 		bool inMenuRoot{ false };
 
+		// A plate behind the whole panel. Fallout 4 draws its interface
+		// without one -- the cross has no backdrop either -- and a slab is
+		// what makes an addition look like an addition.
+		bool backdrop{ false };
+
 		// Which menu the panel is drawn on. The favorites menu paints only a
 		// strip around its own cross, so anything of ours outside that never
 		// arrives; the HUD covers the whole screen and is repainted all over.

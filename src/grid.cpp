@@ -20,13 +20,16 @@ namespace
 
 	constexpr std::size_t kSlots = 12;
 
-	// A cell is drawn as a plate of the HUD colour at these strengths, so
-	// the whole panel keeps to one colour and reads as one thing.
+	// Every cell is a plate of the HUD colour at one of these strengths, so
+	// the panel keeps to a single colour and reads as one thing. Without a
+	// backdrop behind them they have to carry the contrast themselves, which
+	// is why the played page is a good deal stronger than the rest.
+	constexpr double kCellAlpha = 0.10;
+	constexpr double kCellLineAlpha = 0.30;
+	constexpr double kCurrentAlpha = 0.30;
+	constexpr double kCurrentLineAlpha = 0.95;
+	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
-	constexpr double kCellAlpha = 0.16;
-	constexpr double kCellLineAlpha = 0.45;
-	constexpr double kCurrentAlpha = 0.32;
-	constexpr double kCurrentLineAlpha = 1.0;
 
 	RE::Scaleform::GFx::Value g_panel;
 	// Kept so the cross can be put back the way it was found.
@@ -392,10 +395,12 @@ void grid::Draw(
 			1.0);
 	}
 
-	// The plate behind everything, dark rather than coloured: the cells and
-	// the text carry the colour, and a coloured plate would fight them.
-	Fill(graphics, 0.0, 0.0, width, height, 0x000000, kPanelAlpha);
-	Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
+	// A plate behind everything only on request. The game draws no such
+	// slab anywhere, and the cells read well enough without one.
+	if (a_where.backdrop) {
+		Fill(graphics, 0.0, 0.0, width, height, 0x000000, kPanelAlpha);
+		Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
+	}
 
 	if (!a_title.empty()) {
 		Label(
