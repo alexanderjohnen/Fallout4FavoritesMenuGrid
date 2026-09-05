@@ -566,6 +566,131 @@ namespace
 	// Defined further down, with the rest of the inventory reading.
 	void DumpInventoryFavorites();
 
+	// Rebuilding the cross from the inventory.
+	//
+	// FavoritesMenu.swf, decompiled with JPEXS, ends the guessing:
+	//
+	//     public function set infoArray(a:Array) : *      // on Cross_mc
+	//     {
+	//        this._FavoritesInfoA = a;
+	//        ... SetIsDirty();
+	//     }
+	//
+	//     override public function redrawUIComponent() : void
+	//     {
+	//        ... entry.Icon_mc.gotoAndStop(info.FavIconType);
+	//     }
+	//
+	// The twelve cells live off that array, the setter is public, and it
+	// triggers the redraw itself. Every earlier attempt failed because it
+	// asked the menu to redraw data nobody had changed.
+	//
+	// An entry is { FavIconType, text, count, ammoText, ammoCount }. The
+	// icon is a frame number whose meaning is not in the script, so it is
+	// carried over from the cell that shows the item now rather than
+	// invented: Icon_mc.currentFrame can be read even though the mapping
+	// cannot.
+	void RefreshCross(int a_swappedFrom, int a_swappedTo)
+	{
+		auto* ui = RE::UI::GetSingleton();
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!ui || !player || !player->inventoryList) {
+			return;
+		}
+		static const RE::BSFixedString menuName{ kProbeMenu };
+		const auto menu = ui->GetMenu(menuName);
+		if (!menu || !menu->uiMovie || !menu->menuObj.IsObject()) {
+			logger::info("cross: {} is not open, nothing to refresh", kProbeMenu);
+			return;
+		}
+
+		RE::Scaleform::GFx::Value cross;
+		if (!menu->menuObj.GetMember("Cross_mc", &cross) || !cross.IsObject()) {
+			logger::warn("cross: no Cross_mc");
+			return;
+		}
+
+		// The icon frames as they are on screen right now.
+		std::array<double, 12> icons{};
+		for (int index = 0; index < 12; ++index) {
+			const RE::Scaleform::GFx::Value argument{ index };
+			RE::Scaleform::GFx::Value entry;
+			RE::Scaleform::GFx::Value icon;
+			if (cross.Invoke("GetEntryClip", &entry, &argument, 1) &&
+				entry.IsObject() && entry.GetMember("Icon_mc", &icon)) {
+				icons[static_cast<std::size_t>(index)] =
+					ReadNumber(icon, "currentFrame", 1.0);
+			} else {
+				icons[static_cast<std::size_t>(index)] = 1.0;
+			}
+		}
+
+		// The two that changed places take their icons with them.
+		if (a_swappedFrom >= 0 && a_swappedFrom < 12 && a_swappedTo >= 0 &&
+			a_swappedTo < 12) {
+			std::swap(
+				icons[static_cast<std::size_t>(a_swappedFrom)],
+				icons[static_cast<std::size_t>(a_swappedTo)]);
+		}
+
+		// What the slots hold now, straight from the inventory.
+		struct Held
+		{
+			std::string name;
+			std::uint32_t count;
+		};
+		std::array<std::optional<Held>, 12> held{};
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (!a_stack.extra) {
+					return true;
+				}
+				const auto* favorite = a_stack.extra->GetByType<RE::ExtraFavorite>();
+				if (!favorite) {
+					return true;
+				}
+				const auto index = static_cast<int>(favorite->quickkeyIndex);
+				if (index < 0 || index >= 12) {
+					return true;
+				}
+				held[static_cast<std::size_t>(index)] = Held{
+					a_item.object
+						? std::string(RE::TESFullName::GetFullName(*a_item.object))
+						: std::string("?"),
+					a_stack.count
+				};
+				return true;
+			});
+
+		RE::Scaleform::GFx::Value array;
+		menu->uiMovie->CreateArray(&array);
+		for (std::size_t index = 0; index < 12; ++index) {
+			if (!held[index]) {
+				// An empty slot is a null entry; redrawUIComponent checks
+				// for exactly that and parks the icon on frame 1.
+				array.PushBack(RE::Scaleform::GFx::Value(nullptr));
+				continue;
+			}
+			RE::Scaleform::GFx::Value entry;
+			menu->uiMovie->CreateObject(&entry);
+			entry.SetMember("FavIconType", RE::Scaleform::GFx::Value(icons[index]));
+			entry.SetMember(
+				"text", RE::Scaleform::GFx::Value(held[index]->name.c_str()));
+			entry.SetMember(
+				"count",
+				RE::Scaleform::GFx::Value(
+					static_cast<std::uint32_t>(held[index]->count)));
+			array.PushBack(entry);
+		}
+
+		if (!cross.SetMember("infoArray", array)) {
+			logger::warn("cross: the infoArray setter was refused");
+			return;
+		}
+		logger::info("cross: infoArray rewritten from the inventory");
+	}
+
 	// Exchanges the two favorites with the lowest keys, by writing the
 	// binding on the inventory stacks. The cache is deliberately left
 	// alone: with both halves written, a notification test has nothing it
@@ -622,6 +747,7 @@ namespace
 		second.favorite->quickkeyIndex = static_cast<std::int8_t>(first.index);
 
 		logger::info("swap: bindings changed, cache deliberately left stale");
+		RefreshCross(first.index, second.index);
 		logger::info("swap: cache still says [ {}]", DescribeSlots(*manager));
 		DumpInventoryFavorites();
 	}
