@@ -53,6 +53,27 @@ void input::Install(const Hooks& a_hooks)
 {
 	g_hooks = a_hooks;
 
+	// Which vtable the living object actually uses. Patching one it does not
+	// carry changes nothing at all, which is exactly what the first attempt
+	// achieved: the hook reported itself installed and not one event ever
+	// arrived. The four the library lists are printed beside it, so the
+	// answer is a comparison rather than another guess.
+	if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
+		const auto base = REL::Module::get().base();
+		const auto live = *reinterpret_cast<const std::uintptr_t*>(manager);
+		std::string known;
+		for (const auto& candidate : RE::VTABLE::FavoritesManager) {
+			known += std::format("{:#x} ", candidate.address() - base);
+		}
+		logger::info(
+			"input: the manager carries vtable {:#x}; the library lists {}",
+			live - base,
+			known);
+		logger::info(
+			"input: its input handling is {}",
+			manager->inputEventHandlingEnabled ? "on" : "off");
+	}
+
 	REL::Relocation<std::uintptr_t> vtable{ REL::ID(kInputVTable) };
 	g_shouldHandle = vtable.write_vfunc(kShouldHandleEvent, &ShouldHandleEvent);
 	g_onMouseMove = vtable.write_vfunc(kOnMouseMoveEvent, &OnMouseMoveEvent);
