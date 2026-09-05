@@ -241,6 +241,40 @@ void grid::Draw(
 		return;
 	}
 
+	// What the movie is actually allowed to paint on.
+	//
+	// The panel comes out clipped to a box around the cross, and so did the
+	// page marker before it, so the suspicion is that the menu is given a
+	// viewport rather than the whole screen. These numbers settle it: the
+	// viewport is where the movie may draw, the scissor is what survives of
+	// that, and the visible frame rect is the same thing in stage units.
+	{
+		static bool reported = false;
+		if (!reported) {
+			reported = true;
+			RE::Scaleform::GFx::Viewport view{};
+			a_menu->uiMovie->GetViewport(&view);
+			const auto frame = a_menu->uiMovie->GetVisibleFrameRect();
+			logger::info(
+				"grid: viewport {}x{} at {},{} of a {}x{} buffer; scissor "
+				"{}x{} at {},{}; visible frame {:.0f},{:.0f} to {:.0f},{:.0f}",
+				view.width,
+				view.height,
+				view.left,
+				view.top,
+				view.bufferWidth,
+				view.bufferHeight,
+				view.scissorWidth,
+				view.scissorHeight,
+				view.scissorLeft,
+				view.scissorTop,
+				frame.x1,
+				frame.y1,
+				frame.x2,
+				frame.y2);
+		}
+	}
+
 	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
 	// and a panel in the middle plus a cross in the corner would be two
 	// readings of the same twelve keys.
