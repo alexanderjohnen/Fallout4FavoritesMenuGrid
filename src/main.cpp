@@ -17,6 +17,8 @@
 
 #include "PCH.h"
 
+#include "peek.h"
+
 namespace
 {
 	// ---- Settings -------------------------------------------------------
@@ -31,6 +33,10 @@ namespace
 	// unfavoritable afterwards. It stays here for the engine-path attempt.
 	int g_roundTripKey = 0;
 	int g_rotateKey = VK_F8;
+
+	// Address Library IDs to copy out of the running game -- see peek.h.
+	std::wstring g_peekIDs;
+	std::wstring g_peekVtableRefs;
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
@@ -145,9 +151,24 @@ namespace
 			}
 		};
 
+		const auto readText = [&](const wchar_t* a_key, std::wstring& a_target) {
+			std::wstring value(512, L'\0');
+			const auto length = GetPrivateProfileStringW(
+				L"Debug",
+				a_key,
+				L"",
+				value.data(),
+				static_cast<DWORD>(value.size()),
+				path.c_str());
+			value.resize(length);
+			a_target = value;
+		};
+
 		read(L"InventoryProbeKey", g_inventoryKey);
 		read(L"FavoriteRoundTripKey", g_roundTripKey);
 		read(L"RotateFavoritesKey", g_rotateKey);
+		readText(L"PeekIDs", g_peekIDs);
+		readText(L"PeekVtableRefs", g_peekVtableRefs);
 
 		logger::info(
 			"settings: keys are {:#04x} (inventory), {:#04x} (round trip) and "
@@ -723,6 +744,8 @@ namespace
 
 		ui->GetEventSource<RE::MenuOpenCloseEvent>()->RegisterSink(
 			MenuWatch::GetSingleton());
+
+		peek::Run(g_peekIDs, g_peekVtableRefs);
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info("ready -- the keys are in FavoritesMenuGrid.ini");

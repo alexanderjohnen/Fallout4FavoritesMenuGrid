@@ -41,6 +41,8 @@ add_library(
 	${PROJECT_NAME}
 	SHARED
 	src/main.cpp
+	src/peek.cpp
+	src/peek.h
 	src/PCH.h
 )
 
