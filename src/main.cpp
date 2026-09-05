@@ -245,7 +245,8 @@ namespace
 		g_gridWhere.probeStage =
 			GetPrivateProfileIntW(L"Display", L"GridProbeStage", 0, path.c_str()) != 0;
 		g_gridWhere.inMenuRoot =
-			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 1, path.c_str()) != 0;
+			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
+		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
 		g_showPageIndicator =
 			GetPrivateProfileIntW(
 				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
@@ -456,19 +457,25 @@ namespace
 	// cross when that page was showing.
 	std::unordered_map<RE::TESBoundObject*, double> g_iconOfObject;
 
-	// The open cross, or nothing.
-	[[nodiscard]] RE::IMenu* GetFavoritesMenu()
+	// An open menu with a usable movie, by name.
+	[[nodiscard]] RE::IMenu* GetMenu(std::string_view a_name)
 	{
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
 			return nullptr;
 		}
-		static const RE::BSFixedString menuName{ "FavoritesMenu" };
+		const RE::BSFixedString menuName{ a_name };
 		const auto menu = ui->GetMenu(menuName);
 		if (!menu || !menu->uiMovie || !menu->menuObj.IsObject()) {
 			return nullptr;
 		}
 		return menu.get();
+	}
+
+	// The open cross, or nothing.
+	[[nodiscard]] RE::IMenu* GetFavoritesMenu()
+	{
+		return GetMenu("FavoritesMenu");
 	}
 
 	[[nodiscard]] bool GetCross(RE::IMenu* a_menu, RE::Scaleform::GFx::Value& a_cross)
@@ -1203,7 +1210,17 @@ namespace
 			font = CrossFont(cross);
 		}
 
+		// Drawn on the HUD by default: the favorites menu only paints a
+		// strip around its own cross, so anything of ours outside that never
+		// reaches the screen.
+		auto* canvas = GetMenu(g_gridWhere.canvas);
+		if (!canvas) {
+			logger::warn("grid: {} is not open to draw on", g_gridWhere.canvas);
+			return;
+		}
+
 		grid::Draw(
+			canvas,
 			menu,
 			font,
 			PageWording(g_indicatorText),

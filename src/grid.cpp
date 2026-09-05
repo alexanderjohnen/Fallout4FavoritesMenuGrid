@@ -137,7 +137,7 @@ namespace
 	// naming one the movie does not have draws a row of boxes, which this
 	// project has now learned twice.
 	void Label(
-		RE::IMenu* a_menu,
+		RE::IMenu* a_canvas,
 		const std::string& a_font,
 		std::string_view a_text,
 		double a_x,
@@ -148,7 +148,7 @@ namespace
 		double a_alpha)
 	{
 		RE::Scaleform::GFx::Value field;
-		a_menu->uiMovie->CreateObject(&field, "flash.text.TextField");
+		a_canvas->uiMovie->CreateObject(&field, "flash.text.TextField");
 		if (!field.IsDisplayObject()) {
 			return;
 		}
@@ -165,7 +165,7 @@ namespace
 		field.SetMember("embedFonts", RE::Scaleform::GFx::Value(!a_font.empty()));
 
 		RE::Scaleform::GFx::Value format;
-		a_menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
+		a_canvas->uiMovie->CreateObject(&format, "flash.text.TextFormat");
 		if (format.IsObject()) {
 			if (!a_font.empty()) {
 				format.SetMember(
@@ -207,7 +207,8 @@ void grid::Release()
 }
 
 void grid::Draw(
-	RE::IMenu* a_menu,
+	RE::IMenu* a_canvas,
+	RE::IMenu* a_favorites,
 	const std::string& a_font,
 	const std::string& a_title,
 	const std::vector<Page>& a_pages,
@@ -215,11 +216,11 @@ void grid::Draw(
 	std::uint32_t a_color,
 	const Placement& a_where)
 {
-	if (!a_menu || !a_menu->uiMovie || a_pages.empty()) {
+	if (!a_canvas || !a_canvas->uiMovie || !a_favorites || a_pages.empty()) {
 		return;
 	}
 	RE::Scaleform::GFx::Value stage;
-	if (!a_menu->menuObj.GetMember("stage", &stage) || !stage.IsDisplayObject()) {
+	if (!a_canvas->menuObj.GetMember("stage", &stage) || !stage.IsDisplayObject()) {
 		logger::warn("grid: the menu has no stage");
 		return;
 	}
@@ -229,7 +230,7 @@ void grid::Draw(
 	// two that have to agree.
 	Release();
 
-	a_menu->uiMovie->CreateObject(&g_panel, "flash.display.Sprite");
+	a_canvas->uiMovie->CreateObject(&g_panel, "flash.display.Sprite");
 	if (!g_panel.IsDisplayObject()) {
 		logger::warn("grid: the movie would not make a sprite");
 		return;
@@ -237,7 +238,7 @@ void grid::Draw(
 	g_panel.SetMember("name", RE::Scaleform::GFx::Value("FavoritesMenuGrid"));
 	g_panel.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
 
-	auto& parent = a_where.inMenuRoot ? a_menu->menuObj : stage;
+	auto& parent = a_where.inMenuRoot ? a_favorites->menuObj : stage;
 	if (!parent.Invoke("addChild", nullptr, &g_panel, 1)) {
 		logger::warn("grid: the panel was not taken in");
 		g_panel = RE::Scaleform::GFx::Value();
@@ -258,8 +259,8 @@ void grid::Draw(
 		if (!reported) {
 			reported = true;
 			RE::Scaleform::GFx::Viewport view{};
-			a_menu->uiMovie->GetViewport(&view);
-			const auto frame = a_menu->uiMovie->GetVisibleFrameRect();
+			a_canvas->uiMovie->GetViewport(&view);
+			const auto frame = a_canvas->uiMovie->GetVisibleFrameRect();
 			logger::info(
 				"grid: viewport {}x{} at {},{} of a {}x{} buffer; scissor "
 				"{}x{} at {},{}; visible frame {:.0f},{:.0f} to {:.0f},{:.0f}",
@@ -288,13 +289,13 @@ void grid::Draw(
 		if (!listed) {
 			listed = true;
 			const auto total =
-				static_cast<int>(ReadNumber(a_menu->menuObj, "numChildren", 0.0));
+				static_cast<int>(ReadNumber(a_favorites->menuObj, "numChildren", 0.0));
 			std::string names;
 			for (int index = 0; index < total; ++index) {
 				const RE::Scaleform::GFx::Value at{ index };
 				RE::Scaleform::GFx::Value child;
 				RE::Scaleform::GFx::Value name;
-				if (a_menu->menuObj.Invoke("getChildAt", &child, &at, 1) &&
+				if (a_favorites->menuObj.Invoke("getChildAt", &child, &at, 1) &&
 					child.IsDisplayObject() &&
 					child.GetMember("name", &name) && name.IsString()) {
 					names += std::format(
@@ -313,7 +314,7 @@ void grid::Draw(
 	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
 	// and a panel in the middle plus a cross in the corner would be two
 	// readings of the same twelve keys.
-	if (a_menu->menuObj.GetMember("Cross_mc", &g_hiddenCross) &&
+	if (a_favorites->menuObj.GetMember("Cross_mc", &g_hiddenCross) &&
 		g_hiddenCross.IsDisplayObject()) {
 		g_hiddenCross.SetMember("visible", RE::Scaleform::GFx::Value(false));
 	} else {
@@ -380,7 +381,7 @@ void grid::Draw(
 
 	if (!a_title.empty()) {
 		Label(
-			a_menu,
+			a_canvas,
 			a_font,
 			a_title,
 			0.0,
@@ -397,7 +398,7 @@ void grid::Draw(
 		const bool playing = row == a_current;
 
 		Label(
-			a_menu,
+			a_canvas,
 			a_font,
 			std::to_string(row + 1),
 			kPadding - 4.0,
@@ -433,7 +434,7 @@ void grid::Draw(
 			// The key it sits on, in the corner, so the panel can be read
 			// against the cross without counting.
 			Label(
-				a_menu,
+				a_canvas,
 				a_font,
 				cell.label,
 				cellLeft + 2.0,
@@ -445,7 +446,7 @@ void grid::Draw(
 
 			if (taken) {
 				Label(
-					a_menu,
+					a_canvas,
 					a_font,
 					Shorten(cell.name, 13),
 					cellLeft,

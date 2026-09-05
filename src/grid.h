@@ -39,15 +39,26 @@ namespace grid
 		// reach the screen at all.
 		bool probeStage{ false };
 
-		// Whether the panel hangs in the menu's own root clip rather than
-		// beside it on the stage. The root clip is what the game draws; a
-		// sibling of it only seems to come through where the menu repaints
-		// anyway, which is what cut the panel in half.
-		bool inMenuRoot{ true };
+		// Hanging the panel in the menu's own root clip was tried and is a
+		// dead end: the favorites menu vanished entirely and the panel
+		// reported a position of -107374182. Bethesda's UI components do not
+		// take kindly to foreign children -- the same lesson the cross gave
+		// when a text field kept the menu from ever closing. Kept only as a
+		// switch, never as the default.
+		bool inMenuRoot{ false };
+
+		// Which menu the panel is drawn on. The favorites menu paints only a
+		// strip around its own cross, so anything of ours outside that never
+		// arrives; the HUD covers the whole screen and is repainted all over.
+		std::string canvas{ "HUDMenu" };
 	};
 
+	// `a_canvas` is drawn on, `a_favorites` is the menu the cross lives in;
+	// they are only the same menu when the canvas is the favorites menu
+	// itself.
 	void Draw(
-		RE::IMenu* a_menu,
+		RE::IMenu* a_canvas,
+		RE::IMenu* a_favorites,
 		const std::string& a_font,
 		const std::string& a_title,
 		const std::vector<Page>& a_pages,
