@@ -339,8 +339,26 @@ void grid::Draw(
 		a_where.x < 0.0 ? (stageWidth - width) / 2.0 : a_where.x;
 	const auto top =
 		a_where.y < 0.0 ? (stageHeight - height) / 2.0 : a_where.y;
-	g_panel.SetMember("x", RE::Scaleform::GFx::Value(left));
-	g_panel.SetMember("y", RE::Scaleform::GFx::Value(top));
+	// Setting x and y is not always enough. On the HUD they read back as
+	// nonsense afterwards, so the older names are tried as well and the
+	// result is logged -- a panel of the right size in the wrong place looks
+	// exactly like a panel that was never drawn.
+	const auto place = [&](const char* a_x, const char* a_y) {
+		g_panel.SetMember(a_x, RE::Scaleform::GFx::Value(left));
+		g_panel.SetMember(a_y, RE::Scaleform::GFx::Value(top));
+		return ReadNumber(g_panel, a_x, -1.0e9);
+	};
+
+	auto placed = place("x", "y");
+	if (std::abs(placed - left) > 1.0) {
+		const auto second = place("_x", "_y");
+		logger::warn(
+			"grid: x came back as {:.0f} instead of {:.0f}; _x gives {:.0f}",
+			placed,
+			left,
+			second);
+		placed = second;
+	}
 
 	// The stage, outlined. The panel is demonstrably drawn where it should
 	// be and only part of it arrives, so the question is no longer where the
