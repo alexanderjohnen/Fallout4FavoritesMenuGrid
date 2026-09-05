@@ -900,8 +900,43 @@ namespace
 		g_indicator = RE::Scaleform::GFx::Value();
 	}
 
+	// Where the cross sits on the stage. Its own x and y are in whatever
+	// space its parent uses, so the point is converted rather than assumed.
+	void CrossOnStage(
+		RE::IMenu* a_menu,
+		RE::Scaleform::GFx::Value& a_cross,
+		double& a_x,
+		double& a_y)
+	{
+		a_x = ReadNumber(a_cross, "x", 0.0);
+		a_y = ReadNumber(a_cross, "y", 0.0);
+
+		const std::array<RE::Scaleform::GFx::Value, 2> origin{
+			RE::Scaleform::GFx::Value(0.0), RE::Scaleform::GFx::Value(0.0)
+		};
+		RE::Scaleform::GFx::Value point;
+		a_menu->uiMovie->CreateObject(
+			&point, "flash.geom.Point", origin.data(), 2);
+		if (!point.IsObject()) {
+			return;
+		}
+
+		RE::Scaleform::GFx::Value onStage;
+		if (a_cross.Invoke("localToGlobal", &onStage, &point, 1) &&
+			onStage.IsObject()) {
+			a_x = ReadNumber(onStage, "x", a_x);
+			a_y = ReadNumber(onStage, "y", a_y);
+		}
+	}
+
 	// Builds the field the first time and writes the page every time. Quiet
 	// when the menu is closed -- there is nothing to write on.
+	//
+	// The field goes on the stage, not into Cross_mc. Hung on the cross it
+	// looked right and cost the menu its exit: FavoritesMenu stayed open
+	// from the moment the child was added. The cross counts on its children
+	// being its own, so the marker is placed beside it instead -- converted
+	// to stage coordinates, so it still follows wherever the cross sits.
 	void ShowPageIndicator()
 	{
 		if (!g_showPageIndicator || g_pages.empty()) {
@@ -914,6 +949,13 @@ namespace
 		}
 		RE::Scaleform::GFx::Value cross;
 		if (!GetCross(menu, cross)) {
+			return;
+		}
+		RE::Scaleform::GFx::Value stage;
+		if (!menu->menuObj.GetMember("stage", &stage) ||
+			!stage.IsDisplayObject()) {
+			logger::warn("indicator: the menu has no stage");
+			g_showPageIndicator = false;
 			return;
 		}
 
@@ -945,18 +987,23 @@ namespace
 			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
 			g_indicator.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
 			g_indicator.SetMember("autoSize", RE::Scaleform::GFx::Value("center"));
-			g_indicator.SetMember("x", RE::Scaleform::GFx::Value(g_indicatorX));
-			g_indicator.SetMember("y", RE::Scaleform::GFx::Value(g_indicatorY));
 
-			RE::Scaleform::GFx::Value result;
-			if (!cross.Invoke("addChild", &result, &g_indicator, 1)) {
-				logger::warn("indicator: the cross would not take the field");
+			if (!stage.Invoke("addChild", nullptr, &g_indicator, 1)) {
+				logger::warn("indicator: the stage would not take the field");
 				ReleaseIndicator();
 				g_showPageIndicator = false;
 				return;
 			}
-			logger::info("indicator: added to the cross");
+			logger::info("indicator: added to the stage");
 		}
+
+		double x = 0.0;
+		double y = 0.0;
+		CrossOnStage(menu, cross, x, y);
+		g_indicator.SetMember(
+			"x", RE::Scaleform::GFx::Value(x + g_indicatorX));
+		g_indicator.SetMember(
+			"y", RE::Scaleform::GFx::Value(y + g_indicatorY));
 
 		g_indicator.SetMember(
 			"text",
