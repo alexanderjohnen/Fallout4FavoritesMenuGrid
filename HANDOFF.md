@@ -541,3 +541,76 @@ Spiels sind vorhanden und wiederverwendbar, statt eigene Grafik mitzubringen.
 Anzeige alt) und bewegen nichts. `kShow`, `kHide`+`kShow` und
 `kForceHide`+`kShow` stehen noch aus; sie sind in der Reihenfolge jetzt
 vorn.
+
+---
+
+## 13. Wie das Favoritenmenü wirklich funktioniert
+
+**Gelöst am 2026-09-05 gegen 02:55.** `FavoritesMenu.swf` liegt in
+`Fallout4 - Interface.ba2`; mit **Archive2** (Teil des Creation Kit) heraus
+und mit **JPEXS** (`ffdec-cli.exe -export script`) dekompiliert. Der Code
+beantwortet auf einer Seite, was ein Abend Ausprobieren nicht geschafft hat.
+
+### Die Datenkette
+
+```actionscript
+// FavoritesMenu.as
+public function set favInfoArray(a:Array) : *   { this.Cross_mc.infoArray = a; }
+public function set selectedIndex(i:uint) : *   { this.Cross_mc.selectedIndex = i; }
+private function onFavEntryClick() : *          { this.BGSCodeObj.useQuickkey(this.Cross_mc.selectedIndex); }
+
+// FavoritesCross.as
+public function set infoArray(a:Array) : *      // öffentlich
+{
+   this._FavoritesInfoA = a;
+   this.selectedIndex = this.ClampSelection(this.selectedIndex);
+   dispatchEvent(new CustomEvent(SELECTION_UPDATE, ...));
+   SetIsDirty();
+}
+
+override public function redrawUIComponent() : void
+{
+   ... entry.Icon_mc.gotoAndStop(info.FavIconType);
+}
+```
+
+- Das Spiel reicht die zwölf Einträge über **`favInfoArray`** herein, die
+  landen in **`Cross_mc.infoArray`**, und der Setter löst das Neuzeichnen
+  selbst aus.
+- Ein Eintrag ist `{ FavIconType, text, count, ammoText, ammoCount }`.
+  `FavIconType` ist eine **Bildnummer** in `Icon_mc`; die Zuordnung steht
+  nicht im Skript, `Icon_mc.currentFrame` lässt sich aber lesen und
+  mitnehmen.
+- Ein leerer Platz ist ein **`null`-Eintrag**, kein fehlender.
+- Benutzt wird über **`BGSCodeObj.useQuickkey(index)`** — der Rückruf, den
+  die C++-Seite am Menü registriert. Das Gegenstück zu `ProcessUserEvent`
+  in Starfield.
+- Die Indizes 0 bis 11 sind Kreuzpositionen (`FS_LEFT_3` … `FS_DOWN_3`),
+  `12` ist `FS_NONE`. Die Tastenbeschriftung macht `FavoritesEntry`
+  selbst: 1–9, dann `0`, `-`, `=`.
+
+### Warum alles davor scheiterte
+
+`SetIsDirty()` wurde angenommen und bewirkte nichts — es zeichnet aus
+`_FavoritesInfoA` neu, und die hatte niemand geändert. Alle UI-Nachrichten
+(`kInventoryUpdate`, `kUpdate`, `kReshow`, `kShow`) sitzen auf derselben
+unveränderten Liste. **Nicht das Neuzeichnen fehlte, sondern die Daten.**
+
+### Was jetzt funktioniert
+
+`RefreshCross()` baut die Liste aus dem Inventar neu und schreibt sie in
+`Cross_mc.infoArray`; die Icons der betroffenen Zellen werden über
+`GetEntryClip(i).Icon_mc.currentFrame` übernommen. Im Spiel bestätigt: Die
+Anzeige folgt sofort, ohne Speichern und Laden.
+
+**Offen:** ob `useQuickkey(index)` nach einem Wechsel den richtigen
+Gegenstand benutzt. Falls nicht, löst das Grid die Auswahl selbst aus.
+
+### Werkzeuge, die sich gelohnt haben
+
+| Werkzeug | wofür |
+| --- | --- |
+| Archive2 (Creation Kit) | SWF aus dem BA2 holen |
+| JPEXS / ffdec-cli | SWF nach ActionScript dekompilieren |
+| Address Library | Adressen für `REL::ID`, Grundlage von CommonLibF4 |
+| Zeichenketten aus fremden DLLs | wie andere Mods dasselbe System anfassen |
