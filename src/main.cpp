@@ -455,8 +455,12 @@ namespace
 		// The first four talk to the movie and need the menu; the rest are
 		// messages and can go out at once.
 		if (next % kSteps.size() <= 4 && next % kSteps.size() != 0) {
-			logger::info("refresh: step {} -- {} armed; open the cross", next, name);
+			// kShow opens the cross, so the step does not have to wait for
+			// the player: arm it, then ask the menu to appear, and it runs
+			// the moment it does. One press, one complete attempt.
+			logger::info("refresh: step {} -- {} armed, opening the cross", next, name);
 			g_pendingStep.store(action);
+			SendMessage(RE::UI_MESSAGE_TYPE::kShow, "kShow (to run the armed step)"sv);
 		} else {
 			logger::info("refresh: step {} -- {}", next, name);
 			action();
