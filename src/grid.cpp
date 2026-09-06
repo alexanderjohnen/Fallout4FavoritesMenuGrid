@@ -596,7 +596,11 @@ void grid::Draw(
 	// fraction of a cell, so the band they need is measured from them.
 	m.titleSize = a_where.labelSize;
 	m.detailSize = a_where.detailSize;
-	m.titleHeight = m.titleSize + m.detailSize + m.gap * 2.0;
+	m.titleHeight =
+		m.titleSize + m.detailSize + m.gap * 2.0 + a_where.labelGap;
+	if (!a_where.showRowLabels) {
+		m.rowLabelWidth = 0.0;
+	}
 	m.keyRowHeight = m.keySize + a_where.keyRowGap;
 	m.hintHeight = a_where.hint.empty() ? 0.0 : a_where.hintSize + m.gap * 2.0;
 	const auto width = PanelWidth(m);
@@ -715,16 +719,18 @@ void grid::Draw(
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
 		const auto rowTop = RowTop(m, row);
 
-		Label(
-			a_canvas,
-			a_font,
-			std::to_string(row + 1),
-			m.padding - 4.0,
-			rowTop + m.cell / 2.0 - m.rowLabelSize,
-			m.rowLabelWidth,
-			m.rowLabelSize,
-			a_color,
-			1.0);
+		if (a_where.showRowLabels) {
+			Label(
+				a_canvas,
+				a_font,
+				std::to_string(row + 1),
+				m.padding - 4.0,
+				rowTop + m.cell / 2.0 - m.rowLabelSize,
+				m.rowLabelWidth,
+				m.rowLabelSize,
+				a_color,
+				1.0);
+		}
 
 		// Every cell gets the same plate, whether a key holds something or
 		// not. An empty key is still a key: it is where something can be

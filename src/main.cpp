@@ -433,6 +433,14 @@ namespace
 				GetPrivateProfileIntW(L"Display", L"KeyHintSize", 18, path.c_str())),
 			8,
 			48);
+		g_gridWhere.labelGap = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Display", L"LabelGap", 16, path.c_str())),
+			0,
+			96);
+		g_gridWhere.showRowLabels =
+			GetPrivateProfileIntW(
+				L"Display", L"ShowPageNumbers", 1, path.c_str()) != 0;
 		g_gridWhere.keyRowGap = std::clamp(
 			static_cast<int>(
 				GetPrivateProfileIntW(L"Display", L"KeyRowGap", 8, path.c_str())),

@@ -82,6 +82,18 @@ namespace grid
 		double labelSize{ 28.0 };
 		double detailSize{ 22.0 };
 
+		// The air under the two lines, before the key names begin. A text
+		// field is taller than the size of the type in it -- there is room
+		// for what hangs below the line, and Scaleform adds its own -- so the
+		// band cannot be measured from the sizes alone, and the second line
+		// grew into the key row when it had something to say.
+		double labelGap{ 16.0 };
+
+		// Whether the page numbers stand down the left side. They are the one
+		// thing on the panel that says which row is which; a player who knows
+		// their own pages by what is on them does not need telling.
+		bool showRowLabels{ true };
+
 		// The line of keys under the panel, in the shape the game writes its
 		// own: "E) USE   INS) MOVE". Empty leaves it off.
 		std::string hint;
