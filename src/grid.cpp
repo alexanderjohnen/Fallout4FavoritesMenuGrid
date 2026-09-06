@@ -44,6 +44,8 @@ namespace
 	// The key line is a reminder rather than a statement, and sits quieter
 	// still.
 	constexpr double kHintAlpha = 0.6;
+	// A corner mark is a frame, and a frame is drawn, not suggested.
+	constexpr double kCornerAlpha = 0.85;
 
 	// The marked cell: the same plate with more light in it.
 	constexpr double kMarkFillAlpha = 0.18;
@@ -254,6 +256,51 @@ namespace
 		a_graphics.Invoke("drawRect", nullptr, rect.data(), rect.size());
 		const std::array clear{ RE::Scaleform::GFx::Value(0.0) };
 		a_graphics.Invoke("lineStyle", nullptr, clear.data(), clear.size());
+	}
+
+	// Four right angles around a rectangle, each two strokes meeting at a
+	// corner. Not an outline: an outline closes a thing off, and a corner
+	// mark points at it -- which is what the game does when it wants to say
+	// "this, here" without drawing a box around the world.
+	void Corners(
+		RE::Scaleform::GFx::Value& a_graphics,
+		double a_left,
+		double a_top,
+		double a_width,
+		double a_height,
+		double a_arm,
+		double a_thickness,
+		std::uint32_t a_color,
+		double a_alpha)
+	{
+		const auto arm = std::min({ a_arm, a_width / 2.0, a_height / 2.0 });
+		const auto right = a_left + a_width;
+		const auto bottom = a_top + a_height;
+
+		// Each corner is one horizontal stroke and one vertical one, both
+		// starting in the corner itself, so the two always meet cleanly
+		// however thick they are.
+		const std::array<std::array<double, 4>, 8> strokes{ {
+			{ a_left, a_top, arm, a_thickness },
+			{ a_left, a_top, a_thickness, arm },
+			{ right - arm, a_top, arm, a_thickness },
+			{ right - a_thickness, a_top, a_thickness, arm },
+			{ a_left, bottom - a_thickness, arm, a_thickness },
+			{ a_left, bottom - arm, a_thickness, arm },
+			{ right - arm, bottom - a_thickness, arm, a_thickness },
+			{ right - a_thickness, bottom - arm, a_thickness, arm },
+		} };
+
+		for (const auto& stroke : strokes) {
+			Fill(
+				a_graphics,
+				stroke[0],
+				stroke[1],
+				stroke[2],
+				stroke[3],
+				a_color,
+				a_alpha);
+		}
 	}
 
 	// ---- Icons -----------------------------------------------------------
@@ -721,6 +768,22 @@ void grid::Draw(
 		m.detailSize,
 		a_color,
 		kDetailAlpha);
+
+	// The brackets, around the cells rather than around the panel: the grid
+	// is the thing, and the writing above and below it is about the grid.
+	if (a_where.corners) {
+		Corners(
+			graphics,
+			CellsLeft(m) - a_where.cornerOutset,
+			RowTop(m, 0) - a_where.cornerOutset,
+			CellsWidth(m) + a_where.cornerOutset * 2.0,
+			RowHeight(m) * static_cast<double>(a_pages.size()) - m.gap +
+				a_where.cornerOutset * 2.0,
+			m.cell * a_where.cornerArm,
+			a_where.cornerThickness,
+			a_color,
+			kCornerAlpha);
+	}
 
 	// The twelve key names, once, at the head of their columns. They are the
 	// only thing on the panel that is the same on every page, so they are the

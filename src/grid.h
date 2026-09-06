@@ -82,6 +82,15 @@ namespace grid
 		double labelSize{ 28.0 };
 		double detailSize{ 22.0 };
 
+		// Corner brackets around the grid -- four short right angles, the way
+		// the game frames a target or a chosen thing. Off by default: the
+		// panel is meant to look like the game drew it, and the game draws
+		// nothing around its own cells.
+		bool corners{ false };
+		double cornerArm{ 0.4 };      // of a cell
+		double cornerThickness{ 3.0 };  // stage units
+		double cornerOutset{ 6.0 };     // how far outside the cells they sit
+
 		// The air under the two lines, before the key names begin. A text
 		// field is taller than the size of the type in it -- there is room
 		// for what hangs below the line, and Scaleform adds its own -- so the
