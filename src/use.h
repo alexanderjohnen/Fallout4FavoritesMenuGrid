@@ -25,9 +25,9 @@
 // .exe is packed on disk, so all of this can only happen in the running game.
 namespace use
 {
-	// Writes out what the manager brings to the input, and takes the address
-	// of UseQuickkeyItem from the INI if one is named there.
-	void Find(const std::filesystem::path& a_settings);
+	// Resolves the engine's own use of a favorite, and redirects the one call
+	// inside it that can take something off again.
+	void Find();
 
 	[[nodiscard]] bool Ready();
 

@@ -2152,3 +2152,51 @@ auch hier.
 
 `F4SE::AllocTrampoline(64)` in `F4SEPlugin_Load` — der eine Aufruf ist der
 einzige, den dieses Plugin umleitet.
+
+## 36. Eine Richtung, und der Rest fliegt raus (2026-09-06)
+
+Entscheidung: **die Mod ist das Grid.** Das Vanilla-Menü sitzt woanders, sieht
+anders aus und gehorcht anderen Regeln; es parallel zu bedienen hieße, jede
+Änderung zweimal zu machen und zweimal zu testen. Andere Anordnungen können
+später dazukommen — dann aber in unserem System, nicht als zweiter Weg durch
+denselben Code.
+
+### Was aus dem Code verschwunden ist
+
+| | warum |
+| --- | --- |
+| `UseGrid` und der ganze Zweig dahinter | es gibt nur noch einen Weg |
+| Der Seitenmarker am Kreuz (`ShowPageIndicator`, `PageIndicator*`, `DressField`, `PageWording`, `ReleaseIndicator`) | er war die Anzeige *für* das Vanilla-Kreuz; das Panel sagt es selbst |
+| `GridMenu` | drei fremde Leinwände wurden probiert, das eigene Menü hat gewonnen (Abschnitt 21) |
+| `GridInMenuRoot` | dokumentierte Sackgasse, als Schalter aufbewahrt, nie benutzt |
+| `GridProbeStage` | hat seine Frage beantwortet: der Viewport war nie das Problem |
+| `InventoryProbeKey`, `FavoriteRoundTripKey`, `RotateFavoritesKey` samt `RotateFavorites` und `FavoriteRoundTrip` | die Werkbank aus der Erkundungszeit; `ApplyPage` ist inzwischen der bewiesene Weg |
+| `UseQuickkeyID` / `UseQuickkeyRVA` | die Adresse steht fest und ist im Spiel bestätigt |
+| Der automatische Funktionsdump bei jedem Start | Entwicklerarbeit, die niemand ausliefert |
+
+`CrossFont` bleibt: die Schrift des Panels wird weiterhin aus dem Kreuz
+gemessen, weil das die einzige ist, von der feststeht, dass das Menü sie hat.
+Das Kreuz selbst bleibt versteckt.
+
+`peek` bleibt auch, aber ausdrücklich als Werkzeug: der `[Debug]`-Abschnitt der
+INI sagt jetzt in seinem ersten Satz, dass er zum Arbeiten an der Mod da ist
+und nicht zum Spielen. Leer ist er wirkungslos.
+
+`main.cpp` ist dabei um rund 250 Zeilen kürzer geworden, `use.cpp` um ein
+Drittel.
+
+### Die INI
+
+Neu geschrieben statt geflickt. Fünfzehn Einstellungen sind verschwunden, der
+Rest ist nach dem geordnet, was ein Spieler sucht: erst wo und wie groß, dann
+die Schrift darüber, dann die Symbole, dann die Seiten, dann die Tasten. Der
+`[Debug]`-Abschnitt steht am Ende und ist als solcher gekennzeichnet.
+
+Die installierte INI wurde dabei **mit den Werten des Spielers** neu
+geschrieben, nicht überschrieben — was er verstellt hatte, steht weiterhin
+verstellt drin.
+
+Der README behauptete noch, das sei kein funktionierender Mod, und versprach,
+dass nichts in `Data\Interface` liegt. Beides stimmt nicht mehr: die 36 Bytes
+unserer eigenen Bühne liegen dort, gehören aber keinem Vanilla-Menü und können
+mit nichts kollidieren. Das steht jetzt so da.

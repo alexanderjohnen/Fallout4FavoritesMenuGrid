@@ -33,11 +33,6 @@ namespace
 	// The keys are in the INI because guessing them cost four rounds: F5 is
 	// quicksave, F9 is quickload, and Special K sits on F8 and F9 here.
 
-	int g_inventoryKey = VK_F6;
-	// On again: the round trip no longer takes anything away, it parks a
-	// favorite at -1 and gives the key back, both through the engine.
-	int g_roundTripKey = VK_F7;
-	int g_rotateKey = VK_F8;
 	int g_nextPageKey = VK_NEXT;
 	int g_previousPageKey = VK_PRIOR;
 
@@ -48,8 +43,6 @@ namespace
 	// before the cross shows it.
 	bool g_stripItemTags = true;
 
-	// The whole set of pages, drawn beside the cross.
-	bool g_useGrid = true;
 	grid::Placement g_gridWhere;
 
 	// Walking the grid and using what is under the mark. Keys rather than
@@ -125,28 +118,8 @@ namespace
 	// menu is open.
 	bool g_hideCrosshair = true;
 
-	// The page marker inside the favorites menu.
-	bool g_showPageIndicator = true;
-	std::string g_indicatorText = "Favorites";
-	double g_indicatorX = 0.0;
-	double g_indicatorY = 4.0;
-	double g_indicatorSize = 18.0;
-	// Wide enough for any wording anyone is likely to put in the INI; the
-	// text is centred in it, so what is not used costs nothing.
-	constexpr double kIndicatorWidth = 320.0;
-
-	// Empty means "the one the cross labels its own keys with".
-	std::string g_indicatorFont;
-	// What the measuring settled on, so it is only logged when it changes.
-	std::string g_indicatorFontInUse = "?";
-	// The cross is measured on every draw but only reported once.
-	bool g_boundsLogged = false;
-	// Anything above white means "take the colour the player set for the HUD".
-	std::uint32_t g_indicatorColor = 0x1000000;
-
-	// The grid's own, on the same terms. It is a colour of its own because
-	// the grid is the whole panel now and the marker inside the favorites
-	// menu is a different thing on a different canvas.
+	// The colour of the whole panel. Anything above white means "take the
+	// colour the player set for the HUD".
 	std::uint32_t g_gridColor = 0x1000000;
 
 	// The cross shows no page of its own, so turning one is announced the
@@ -399,9 +372,6 @@ namespace
 		g_wrapNavigation =
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
-		read(L"Debug", L"InventoryProbeKey", g_inventoryKey);
-		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
-		read(L"Debug", L"RotateFavoritesKey", g_rotateKey);
 		read(L"Debug", L"PeekKey", g_peekKey);
 
 		// What the cross shows.
@@ -414,8 +384,6 @@ namespace
 
 		g_stripItemTags = GetPrivateProfileIntW(
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
-		g_useGrid =
-			GetPrivateProfileIntW(L"Display", L"UseGrid", 1, path.c_str()) != 0;
 		// GetPrivateProfileIntW answers with a UINT, so a -1 that means
 		// "centred" comes back as 4294967295 and puts the panel four billion
 		// units off screen. The cast is the whole fix, and it cost an
@@ -424,11 +392,6 @@ namespace
 			GetPrivateProfileIntW(L"Display", L"GridX", -1, path.c_str()));
 		g_gridWhere.y = static_cast<int>(
 			GetPrivateProfileIntW(L"Display", L"GridY", -1, path.c_str()));
-		g_gridWhere.probeStage =
-			GetPrivateProfileIntW(L"Display", L"GridProbeStage", 0, path.c_str()) != 0;
-		g_gridWhere.inMenuRoot =
-			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
-		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
 		g_useIcons =
 			GetPrivateProfileIntW(L"Display", L"UseIcons", 1, path.c_str()) != 0;
 		g_iconFallback =
@@ -499,22 +462,8 @@ namespace
 		g_hideCrosshair =
 			GetPrivateProfileIntW(
 				L"Display", L"HideCrosshair", 1, path.c_str()) != 0;
-		g_showPageIndicator =
-			GetPrivateProfileIntW(
-				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
-		g_indicatorX = static_cast<int>(GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorX", 0, path.c_str()));
-		g_indicatorY = static_cast<int>(GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorY", 4, path.c_str()));
-		g_indicatorSize = static_cast<int>(GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorSize", 18, path.c_str()));
-		g_indicatorColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
-			L"Display", L"PageIndicatorColor", 0x1000000, path.c_str()));
 		g_gridColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
 			L"Display", L"GridColor", 0x1000000, path.c_str()));
-		g_indicatorText =
-			ReadText(path, L"Display", L"PageIndicatorText", L"Favorites");
-		g_indicatorFont = ReadText(path, L"Display", L"PageIndicatorFont", L"");
 
 		// Off unless someone asks for it: the corner message lands wherever
 		// the player's HUD mods put it, which is why the page is written
@@ -532,14 +481,11 @@ namespace
 			g_pageCount);
 
 		logger::info(
-			"settings: {} pages on {:#04x} and {:#04x}; keys {:#04x} "
-			"(inventory), {:#04x} (round trip), {:#04x} (rotate)",
+			"settings: {} pages, {} cells, page keys {:#04x} and {:#04x}",
 			g_pageCount,
+			static_cast<int>(g_gridWhere.cellSize),
 			g_nextPageKey,
-			g_previousPageKey,
-			g_inventoryKey,
-			g_roundTripKey,
-			g_rotateKey);
+			g_previousPageKey);
 	}
 
 	// ---- Reading the favorites -------------------------------------------
@@ -1044,32 +990,6 @@ namespace
 		LogFavorites("after the page");
 	}
 
-	// The test bench: every favorite moves up one key and the topmost one
-	// wraps around. Nothing a page switch needs, but it exercises the whole
-	// of ApplyPage in one press and enough presses bring everything back.
-	void RotateFavorites()
-	{
-		const auto current = ReadFavorites();
-
-		std::vector<std::size_t> occupied;
-		for (std::size_t key = 0; key < current.size(); ++key) {
-			if (current[key].object) {
-				occupied.push_back(key);
-			}
-		}
-		if (occupied.size() < 2) {
-			logger::warn("rotate: fewer than two favorites");
-			return;
-		}
-
-		Page target{};
-		for (std::size_t index = 0; index < occupied.size(); ++index) {
-			target[occupied[(index + 1) % occupied.size()]] =
-				current[occupied[index]].object;
-		}
-		ApplyPage(target);
-	}
-
 	// ---- The pages themselves --------------------------------------------
 	//
 	// A page is twelve items. The one being played is not kept in the list
@@ -1095,7 +1015,6 @@ namespace
 
 	// Defined below, with the rest of the page marker: they need the pages,
 	// and the pages need to show themselves.
-	void ShowPageIndicator();
 	void ShowGrid();
 
 	// Defined with the rest of the choosing, further down: the panel has to
@@ -1135,10 +1054,10 @@ namespace
 		// default in exactly that case.
 		auto lead = g_pageMessage;
 		if (lead.empty()) {
-			if (g_useGrid && g_favoritesMenuOpen.load()) {
+			if (g_favoritesMenuOpen.load()) {
 				return;
 			}
-			lead = g_indicatorText.empty() ? "Favorites" : g_indicatorText;
+			lead = "Favorites";
 		}
 		const auto line =
 			std::format("{} {} / {}", lead, g_currentPage + 1, g_pages.size());
@@ -1162,7 +1081,6 @@ namespace
 
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
-		ShowPageIndicator();
 		ShowGrid();
 		AnnouncePage();
 	}
@@ -1178,17 +1096,6 @@ namespace
 		const auto next = (static_cast<int>(g_currentPage) + a_by % count + count) % count;
 		GoToPage(static_cast<std::size_t>(next));
 	}
-
-	// ---- Saying which page is showing ------------------------------------
-	//
-	// Not through the game's corner notification. Players rebuild the HUD to
-	// taste -- FallUI and friends move, restyle and hide those messages --
-	// and the favorites menu is the one place that usually stays as it is.
-	// So the page is written into the menu itself, as a text field hung on
-	// Cross_mc. Hanging it there rather than on the stage means it follows
-	// the cross wherever another mod has put it.
-
-	RE::Scaleform::GFx::Value g_indicator;
 
 	// The colour the player set for the HUD, so the page looks like it
 	// belongs to the game rather than to us.
@@ -1210,20 +1117,6 @@ namespace
 			channel("iHUDColorB:Interface", 0x7D);
 	}
 
-	[[nodiscard]] std::string PageWording(std::string_view a_lead)
-	{
-		if (a_lead.empty()) {
-			return std::format("{} / {}", g_currentPage + 1, g_pages.size());
-		}
-		return std::format(
-			"{} {} / {}", a_lead, g_currentPage + 1, g_pages.size());
-	}
-
-	void ReleaseIndicator()
-	{
-		g_indicator = RE::Scaleform::GFx::Value();
-	}
-
 	// Which font the cross draws its own key labels with. Whatever the menu
 	// already uses is one it certainly has.
 	[[nodiscard]] std::string CrossFont(RE::Scaleform::GFx::Value& a_cross)
@@ -1241,216 +1134,6 @@ namespace
 			return font.GetString();
 		}
 		return {};
-	}
-
-	// Writes the text and gives it a font that is really there.
-	//
-	// This was learned twice. The Starfield version of this mod has the same
-	// paragraph next to the same code: leaving the font unset falls back to
-	// whatever Scaleform picks, and naming one the movie does not have draws
-	// a row of boxes -- which is exactly what the first attempt looked like
-	// on screen. So the choice is **measured**: a field with a usable font
-	// reports a textWidth for a known string, one without reports nothing.
-	//
-	// The first candidate is the font the cross labels its own keys with,
-	// which is the one answer that stays right when an interface mod brings
-	// its own fonts along.
-	bool DressField(
-		RE::IMenu* a_menu,
-		RE::Scaleform::GFx::Value& a_cross,
-		RE::Scaleform::GFx::Value& a_field,
-		const std::string& a_text)
-	{
-		std::vector<std::string> candidates;
-		if (!g_indicatorFont.empty()) {
-			candidates.push_back(g_indicatorFont);
-		}
-		if (auto own = CrossFont(a_cross); !own.empty()) {
-			candidates.push_back(std::move(own));
-		}
-		// The names the game gives its own fonts in FontConfig.txt.
-		candidates.emplace_back("$MAIN_Font_Bold");
-		candidates.emplace_back("$MAIN_Font");
-		// Last resort: whatever the movie falls back to on its own.
-		candidates.emplace_back();
-
-		for (const auto& font : candidates) {
-			RE::Scaleform::GFx::Value format;
-			a_menu->uiMovie->CreateObject(&format, "flash.text.TextFormat");
-			if (!format.IsObject()) {
-				return false;
-			}
-			if (!font.empty()) {
-				format.SetMember("font", RE::Scaleform::GFx::Value(font.c_str()));
-			}
-			format.SetMember("size", RE::Scaleform::GFx::Value(g_indicatorSize));
-			format.SetMember(
-				"color",
-				RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(
-					g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor())));
-			format.SetMember("align", RE::Scaleform::GFx::Value("center"));
-			format.SetMember("bold", RE::Scaleform::GFx::Value(true));
-
-			// The fonts of a menu are embedded in its movie, so a named one
-			// only draws when the field is told to look there.
-			a_field.SetMember(
-				"embedFonts", RE::Scaleform::GFx::Value(!font.empty()));
-			a_field.SetMember("text", RE::Scaleform::GFx::Value(a_text.c_str()));
-			// After the text, not before: defaultTextFormat only reaches
-			// what is typed afterwards.
-			a_field.Invoke("setTextFormat", nullptr, &format, 1);
-
-			const auto width = ReadNumber(a_field, "textWidth", 0.0);
-			if (width > 0.0) {
-				a_field.SetMember("defaultTextFormat", format);
-				if (font != g_indicatorFontInUse) {
-					logger::info(
-						"indicator: drawing with {} ({:.1f} wide)",
-						font.empty() ? "the movie's own fallback" : font,
-						width);
-					g_indicatorFontInUse = font;
-				}
-				return true;
-			}
-			logger::info(
-				"indicator: {} draws nothing here",
-				font.empty() ? "the movie's own fallback" : font);
-		}
-		return false;
-	}
-
-	// What the cross actually covers on the stage.
-	//
-	// Its own x and y are the origin of its coordinate space, and that origin
-	// is not the middle of what you see -- measured in game it sits well
-	// above the drawn cross, which is why the marker first landed beside the
-	// upper cells instead of under them. getBounds answers where the thing
-	// really is, whatever the symbol was built like.
-	struct Bounds
-	{
-		double x{ 0.0 };
-		double y{ 0.0 };
-		double width{ 0.0 };
-		double height{ 0.0 };
-	};
-
-	[[nodiscard]] Bounds CrossBounds(
-		RE::Scaleform::GFx::Value& a_cross,
-		RE::Scaleform::GFx::Value& a_stage)
-	{
-		Bounds bounds;
-
-		RE::Scaleform::GFx::Value rect;
-		if (a_cross.Invoke("getBounds", &rect, &a_stage, 1) && rect.IsObject()) {
-			bounds.x = ReadNumber(rect, "x", 0.0);
-			bounds.y = ReadNumber(rect, "y", 0.0);
-			bounds.width = ReadNumber(rect, "width", 0.0);
-			bounds.height = ReadNumber(rect, "height", 0.0);
-		}
-		if (bounds.width > 0.0 && bounds.height > 0.0) {
-			return bounds;
-		}
-
-		// Nothing drawn yet, or a build that will not answer: the origin is
-		// at least in the right corner of the screen.
-		bounds.x = ReadNumber(a_cross, "x", 0.0);
-		bounds.y = ReadNumber(a_cross, "y", 0.0);
-		return bounds;
-	}
-
-	// Builds the field the first time and writes the page every time. Quiet
-	// when the menu is closed -- there is nothing to write on.
-	//
-	// The field goes on the stage, not into Cross_mc. Hung on the cross it
-	// looked right and cost the menu its exit: FavoritesMenu stayed open
-	// from the moment the child was added. The cross counts on its children
-	// being its own, so the marker is placed beside it instead -- converted
-	// to stage coordinates, so it still follows wherever the cross sits.
-	void ShowPageIndicator()
-	{
-		// With the grid up the page stands in its title, and the cross it
-		// would be measured against is hidden anyway.
-		if (!g_showPageIndicator || g_useGrid || g_pages.empty()) {
-			return;
-		}
-		auto* menu = GetFavoritesMenu();
-		if (!menu) {
-			ReleaseIndicator();
-			return;
-		}
-		RE::Scaleform::GFx::Value cross;
-		if (!GetCross(menu, cross)) {
-			return;
-		}
-		RE::Scaleform::GFx::Value stage;
-		if (!menu->menuObj.GetMember("stage", &stage) ||
-			!stage.IsDisplayObject()) {
-			logger::warn("indicator: the menu has no stage");
-			g_showPageIndicator = false;
-			return;
-		}
-
-		if (!g_indicator.IsObject()) {
-			menu->uiMovie->CreateObject(&g_indicator, "flash.text.TextField");
-			if (!g_indicator.IsObject()) {
-				logger::warn("indicator: the menu would not make a text field");
-				g_showPageIndicator = false;
-				return;
-			}
-
-			// It is a label, not a control: nothing about it should react to
-			// the mouse or take focus away from the cross.
-			g_indicator.SetMember("selectable", RE::Scaleform::GFx::Value(false));
-			g_indicator.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
-			g_indicator.SetMember("multiline", RE::Scaleform::GFx::Value(false));
-			g_indicator.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
-
-			// A fixed, generous box with the text centred in it, rather than
-			// autoSize. Left to size itself the field came up cut off on the
-			// first draw and only sorted itself out on the second, because
-			// the box was still the default width when the text arrived.
-			g_indicator.SetMember(
-				"width", RE::Scaleform::GFx::Value(kIndicatorWidth));
-			g_indicator.SetMember(
-				"height", RE::Scaleform::GFx::Value(g_indicatorSize + 8.0));
-			// The fonts of a menu are embedded in its movie, so the field
-			// has to be told to use them rather than one from the system.
-			g_indicator.SetMember("embedFonts", RE::Scaleform::GFx::Value(true));
-
-			if (!stage.Invoke("addChild", nullptr, &g_indicator, 1)) {
-				logger::warn("indicator: the stage would not take the field");
-				ReleaseIndicator();
-				g_showPageIndicator = false;
-				return;
-			}
-			logger::info("indicator: added to the stage");
-		}
-
-		const auto bounds = CrossBounds(cross, stage);
-		if (!g_boundsLogged) {
-			logger::info(
-				"indicator: the cross covers {:.0f},{:.0f} to {:.0f},{:.0f}",
-				bounds.x,
-				bounds.y,
-				bounds.x + bounds.width,
-				bounds.y + bounds.height);
-			g_boundsLogged = true;
-		}
-
-		// Centred on the cross and, by default, just below it.
-		g_indicator.SetMember(
-			"x",
-			RE::Scaleform::GFx::Value(
-				bounds.x + bounds.width / 2.0 - kIndicatorWidth / 2.0 +
-				g_indicatorX));
-		g_indicator.SetMember(
-			"y",
-			RE::Scaleform::GFx::Value(bounds.y + bounds.height + g_indicatorY));
-
-		if (!DressField(menu, cross, g_indicator, PageWording(g_indicatorText))) {
-			logger::warn("indicator: no font in this menu draws anything");
-			g_showPageIndicator = false;
-		}
 	}
 
 	// ---- The grid --------------------------------------------------------
@@ -1615,9 +1298,6 @@ namespace
 
 	void ShowGrid()
 	{
-		if (!g_useGrid) {
-			return;
-		}
 		auto* menu = GetFavoritesMenu();
 		if (!menu) {
 			grid::Release();
@@ -1628,15 +1308,11 @@ namespace
 			return;
 		}
 
-		// Whatever the marker measured, or the cross's own font if the
-		// marker is switched off and nothing has been measured yet. Reported
-		// once: everything on the panel is written in it, and a font that
-		// quietly fell back to the player's default would look like a design
-		// decision rather than a miss.
-		auto font = g_indicatorFontInUse;
-		if (font == "?") {
-			font = CrossFont(cross);
-		}
+		// The font the cross labels its own keys with, which is one the menu
+		// certainly has. Reported once: everything on the panel is written
+		// in it, and a font that quietly fell back to the player's default
+		// would look like a design decision rather than a miss.
+		auto font = CrossFont(cross);
 		if (!g_gridFont.empty()) {
 			font = g_gridFont;
 		}
@@ -1652,12 +1328,12 @@ namespace
 		// The keys, so the line under the panel can name them.
 		g_gridWhere.hint = BuildHint();
 
-		// Drawn on the HUD by default: the favorites menu only paints a
-		// strip around its own cross, so anything of ours outside that never
-		// reaches the screen.
-		auto* canvas = GetMenu(g_gridWhere.canvas);
+		// Our own menu, always. Three other canvases were tried and are
+		// written up in the handoff; a menu of our own is the only one that
+		// draws the whole panel and carries a pointer.
+		auto* canvas = GetMenu(menu::kName);
 		if (!canvas) {
-			logger::warn("grid: {} is not open to draw on", g_gridWhere.canvas);
+			logger::warn("grid: {} is not open to draw on", menu::kName);
 			return;
 		}
 
@@ -1864,14 +1540,11 @@ namespace
 		// The library arrives some frames after it was asked for, and the
 		// panel was drawn before that. So when it lands, the panel is drawn
 		// again -- once -- and this time its cells can carry symbols.
-		if (auto* canvas = GetMenu(g_gridWhere.canvas)) {
+		if (auto* canvas = GetMenu(menu::kName)) {
 			icons::Poll(canvas, []() { ShowGrid(); });
 		}
 
-		if (!g_useGrid) {
-			return;
-		}
-		auto* canvas = GetMenu(g_gridWhere.canvas);
+		auto* canvas = GetMenu(menu::kName);
 		if (!canvas) {
 			return;
 		}
@@ -2119,7 +1792,7 @@ namespace
 	// the one thing that is safe to ask there.
 	[[nodiscard]] bool GridIsShowing()
 	{
-		return g_useGrid && g_favoritesMenuOpen.load();
+		return g_favoritesMenuOpen.load();
 	}
 
 	// From the input thread. Everything the actions do touches Scaleform or
@@ -2265,49 +1938,6 @@ namespace
 	// The probe is a round trip on one key: the first press takes the lowest
 	// favorite off its key, the second gives it back.
 
-	RE::TESBoundObject* g_probeObject = nullptr;
-	int g_probeIndex = -1;
-
-	void FavoriteRoundTrip()
-	{
-		if (g_probeIndex < 0) {
-			const auto slots = ReadFavorites();
-			for (std::size_t key = 0; key < slots.size(); ++key) {
-				if (slots[key].object) {
-					g_probeObject = slots[key].object;
-					g_probeIndex = static_cast<int>(key);
-					break;
-				}
-			}
-			if (g_probeIndex < 0) {
-				logger::warn("round trip: there is no favorite to take away");
-				return;
-			}
-
-			LearnIcons();
-			MoveFavorite(g_probeObject, g_probeIndex, -1);
-			RefreshCross();
-			logger::info(
-				"round trip: \"{}\" is parked -- press again to give the key back",
-				RE::TESFullName::GetFullName(*g_probeObject));
-			LogFavorites("after parking one favorite");
-			return;
-		}
-
-		LearnIcons();
-		WriteFavorite(
-			g_probeObject, kNoKey, static_cast<std::uint8_t>(g_probeIndex));
-		RefreshCross();
-		logger::info(
-			"round trip: \"{}\" is back on [{}]",
-			RE::TESFullName::GetFullName(*g_probeObject),
-			KeyLabel(static_cast<std::size_t>(g_probeIndex)));
-		LogFavorites("after giving the key back");
-
-		g_probeObject = nullptr;
-		g_probeIndex = -1;
-	}
-
 	// ---- Input -----------------------------------------------------------
 
 	[[nodiscard]] bool IsGameForeground()
@@ -2331,9 +1961,6 @@ namespace
 	// the Starfield project arrived at.
 	void KeyboardPollingLoop()
 	{
-		bool previousInventory = false;
-		bool previousRoundTrip = false;
-		bool previousRotate = false;
 		bool previousPeek = false;
 		bool previousNext = false;
 		bool previousBack = false;
@@ -2342,32 +1969,17 @@ namespace
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 
 			if (!IsGameForeground()) {
-				previousInventory = false;
-				previousRoundTrip = false;
-				previousRotate = false;
 				previousPeek = false;
 				previousNext = false;
 				previousBack = false;
 				continue;
 			}
 
-			const auto inventory = IsKeyDown(g_inventoryKey);
-			const auto roundTrip = IsKeyDown(g_roundTripKey);
-			const auto rotate = IsKeyDown(g_rotateKey);
 			const auto peekNow = IsKeyDown(g_peekKey);
 			const auto nextPage = IsKeyDown(g_nextPageKey);
 			const auto previousPage = IsKeyDown(g_previousPageKey);
 			const auto* tasks = F4SE::GetTaskInterface();
 
-			if (tasks && inventory && !previousInventory) {
-				tasks->AddUITask([]() { LogFavorites("probe"); });
-			}
-			if (tasks && roundTrip && !previousRoundTrip) {
-				tasks->AddUITask([]() { FavoriteRoundTrip(); });
-			}
-			if (tasks && rotate && !previousRotate) {
-				tasks->AddUITask([]() { RotateFavorites(); });
-			}
 			// Turning pages by hand is what the grid did away with -- while
 			// the grid is up. Everywhere else the keys still matter, and the
 			// Pip-Boy is the place it matters most: assigning a favorite
@@ -2385,9 +1997,6 @@ namespace
 				peek::Run(GetSettingsPath());
 			}
 
-			previousInventory = inventory;
-			previousRoundTrip = roundTrip;
-			previousRotate = rotate;
 			previousPeek = peekNow;
 			previousNext = nextPage;
 			previousBack = previousPage;
@@ -2424,11 +2033,8 @@ namespace
 					g_marked.reset();
 					g_held.reset();
 					ForgetPointer();
-					ReleaseIndicator();
 					grid::Release();
-					if (g_useGrid) {
-						menu::Hide();
-					}
+					menu::Hide();
 					// After the menu is out of the way: the page switch
 					// rewrites the twelve keys and refreshes the cross, and
 					// there is no reason for either to happen behind a menu
@@ -2436,13 +2042,11 @@ namespace
 					if (const auto* tasks = F4SE::GetTaskInterface()) {
 						tasks->AddUITask([]() { RestoreDefaultPage(); });
 					}
-				} else if (g_useGrid) {
+				} else {
 					// Our own menu carries the grid. It answers with
 					// SetOnReady once its movie is loaded, which is when
 					// there is something to draw on.
 					menu::Show();
-				} else if (const auto* tasks = F4SE::GetTaskInterface()) {
-					tasks->AddUITask([]() { ShowPageIndicator(); });
 				}
 			}
 			return RE::BSEventNotifyControl::kContinue;
@@ -2488,7 +2092,7 @@ namespace
 
 		// The one call the grid cannot make up for itself. Looked for once,
 		// here, so a failure is in the log before anyone clicks anything.
-		use::Find(GetSettingsPath());
+		use::Find();
 
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;

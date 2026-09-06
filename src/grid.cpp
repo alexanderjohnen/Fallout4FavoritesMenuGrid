@@ -541,14 +541,11 @@ void grid::Draw(
 	g_panel.SetMember("name", RE::Scaleform::GFx::Value("FavoritesMenuGrid"));
 	g_panel.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
 
-	auto& parent = a_where.inMenuRoot ? a_favorites->menuObj : stage;
-	if (!parent.Invoke("addChild", nullptr, &g_panel, 1)) {
+	if (!stage.Invoke("addChild", nullptr, &g_panel, 1)) {
 		logger::warn("grid: the panel was not taken in");
 		g_panel = RE::Scaleform::GFx::Value();
 		return;
 	}
-	logger::info(
-		"grid: hung in {}", a_where.inMenuRoot ? "the menu's root" : "the stage");
 
 	// What the movie is actually allowed to paint on.
 	//
@@ -720,38 +717,6 @@ void grid::Draw(
 	g_labelBottom = KeyRowTop(m) - a_where.labelGap;
 	g_rows = a_pages.size();
 	g_pointerReported = false;
-
-	// The stage, outlined. The panel is demonstrably drawn where it should
-	// be and only part of it arrives, so the question is no longer where the
-	// panel is but which parts of the stage reach the screen at all. An
-	// outline all the way round, with a mark in every corner and in the
-	// middle, answers that in one screenshot.
-	if (a_where.probeStage) {
-		Fill(graphics, -left, -top, stageWidth, 2.0, a_color, 1.0);
-		Fill(graphics, -left, -top + stageHeight - 2.0, stageWidth, 2.0, a_color, 1.0);
-		Fill(graphics, -left, -top, 2.0, stageHeight, a_color, 1.0);
-		Fill(graphics, -left + stageWidth - 2.0, -top, 2.0, stageHeight, a_color, 1.0);
-		constexpr double mark = 24.0;
-		Fill(graphics, -left, -top, mark, mark, a_color, 1.0);
-		Fill(graphics, -left + stageWidth - mark, -top, mark, mark, a_color, 1.0);
-		Fill(graphics, -left, -top + stageHeight - mark, mark, mark, a_color, 1.0);
-		Fill(
-			graphics,
-			-left + stageWidth - mark,
-			-top + stageHeight - mark,
-			mark,
-			mark,
-			a_color,
-			1.0);
-		Fill(
-			graphics,
-			-left + stageWidth / 2.0 - mark / 2.0,
-			-top + stageHeight / 2.0 - mark / 2.0,
-			mark,
-			mark,
-			a_color,
-			1.0);
-	}
 
 	// A plate behind everything only on request. The game draws no such
 	// slab anywhere, and the cells read well enough without one.

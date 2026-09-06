@@ -1,24 +1,45 @@
 # Favorites Menu Grid - F4SE
 
 A Fallout 4 port of [Favorites Menu Grid for Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid):
-several rows of twelve favorites, drawn all at once as a grid you can click.
+all of your favorite pages at once, on a grid you can point at.
 
-**This is not a working mod yet.** The repository currently holds milestone 0 -
-a plugin that only reads and logs, so the two questions the headers cannot
-answer get answered in the running game. See [HANDOFF.md](HANDOFF.md) for the
-state of the work.
+Still being built, and tested only on one machine so far. See
+[HANDOFF.md](HANDOFF.md) for where the work stands and how each piece was
+arrived at.
 
-## What the port aims for
+## What it does
 
-- **The game's own favorites.** The grid writes into Fallout 4's twelve real
-  favorite slots, so the number keys, the ammo counters and the equipped state
-  keep working the way the game intends.
-- **No replaced interface file.** The grid is drawn into the menu at runtime,
-  as an addition to the stage. Nothing in `Data\Interface` is shipped, so it
-  sits alongside DEF_UI, FallUI, HUDFramework and anything else that owns
-  those files.
+- **Several pages of twelve favorites**, drawn together, one row per page. The
+  pages travel in the save game through F4SE's co-save, so every character
+  keeps their own.
+- **Every cell is one move away.** The mouse or the keys reach any key on any
+  page, and using one turns to its page on the way. There is no scrolling
+  between pages while the grid is up.
+- **The game's own favorites.** Everything is written into Fallout 4's twelve
+  real favorite slots through the engine's own routines, so the number keys,
+  the ammo counters and the equipped state keep working the way the game
+  intends.
+- **Pick up and put down.** A cell can be exchanged with another, across
+  pages, without going through the Pip-Boy. A second press on something you
+  are already holding takes it off again.
+- **What a thing is and what it does.** The name of the marked item stands
+  above the grid, and under it what it does: damage and ammunition for a
+  weapon, resistances for a piece of armour.
+- **Icons from the setup you already have.** If an item sorter and an icon
+  library are installed, the cells carry the same symbols you see in your
+  other menus. Nothing of that is shipped with this mod -- it is read where
+  you already have it, the way FallUI's own auto-detect does, and everything
+  works without it.
 - **The game's own look.** Fallout 4 lets you colour the interface, and the
   grid follows that colour rather than bringing its own.
+
+## What it puts in your game folder
+
+- `F4SE\Plugins\FavoritesMenuGrid.dll` and its INI.
+- `Interface\FavoritesMenuGrid.swf` -- 36 bytes, an empty stage with no
+  timeline and no ActionScript. It belongs to no vanilla menu, so it replaces
+  nothing and cannot collide with DEF_UI, FallUI, HUDFramework or anything
+  else that owns those files. The grid itself is drawn into it from C++.
 
 ## Requirements
 
@@ -39,8 +60,9 @@ cmake --build build --config Release
 py -3 deploy.py
 ```
 
-`deploy.py` copies the DLL and its PDB into `Data\F4SE\Plugins` of the game
-found at `FALLOUT4_DATA`, or of the default Steam install.
+`deploy.py` copies the DLL, its PDB and the movie into the game found at
+`FALLOUT4_DATA`, or at the default Steam install. It never overwrites an INI
+that is already there, because that one holds your keys.
 
 ## Licence
 

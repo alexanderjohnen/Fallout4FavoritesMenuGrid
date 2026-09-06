@@ -51,17 +51,6 @@ namespace grid
 		// Below zero means "centred on the stage".
 		double x{ -1.0 };
 		double y{ -1.0 };
-		// Outlines the whole stage and its corners, to see which parts of it
-		// reach the screen at all.
-		bool probeStage{ false };
-
-		// Hanging the panel in the menu's own root clip was tried and is a
-		// dead end: the favorites menu vanished entirely and the panel
-		// reported a position of -107374182. Bethesda's UI components do not
-		// take kindly to foreign children -- the same lesson the cross gave
-		// when a text field kept the menu from ever closing. Kept only as a
-		// switch, never as the default.
-		bool inMenuRoot{ false };
 
 		// A plate behind the whole panel. Fallout 4 draws its interface
 		// without one -- the cross has no backdrop either -- and a slab is
@@ -125,10 +114,6 @@ namespace grid
 		// is white so that something can. Off leaves it white.
 		bool iconColors{ true };
 
-		// Which menu the panel is drawn on. The favorites menu paints only a
-		// strip around its own cross, so anything of ours outside that never
-		// arrives; the HUD covers the whole screen and is repainted all over.
-		std::string canvas{ "HUDMenu" };
 	};
 
 	// `a_canvas` is drawn on, `a_favorites` is the menu the cross lives in;
