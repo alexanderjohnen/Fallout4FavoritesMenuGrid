@@ -1502,3 +1502,53 @@ Gleichzeitig rechnet er nicht mehr über den Viewport, sondern über
 `minCursorX`…`maxCursorX`, die der Cursor selbst mitbringt. Das bleibt richtig,
 in welcher Einheit er auch zählt — und genau eine solche Annahme hat dieses
 Projekt schon einmal einen Abend gekostet (`GridX=-1` als `UINT`).
+
+## 25. Der Zeiger stimmt (2026-09-06)
+
+**Gemessen:**
+
+```
+grid: the cursor is at 1919,1073 of 0,0 to 2560,1440 (1 registered);
+the viewport is 2560x1440 at 0,0 and the frame 0,0 to 1280,720;
+that makes 960,536 on the stage, and the panel runs 313,254 to 967,456
+```
+
+Der Cursor zählt also **Bildschirmpixel**, ein Cursor ist registriert, und die
+Umrechnung über `minCursorX`…`maxCursorX` trifft. Im Spiel sitzt die Markierung
+jetzt unter dem Pfeil. Die vorherige Rechnung über den Viewport war nicht
+falsch, aber sie hätte nur zufällig gestimmt; die Grenzen bringt der Cursor
+selbst mit.
+
+### Der Dump war ein Bruchstück
+
+`peek::Note` mit Länge 0 nimmt „die Funktion um die Adresse" aus der
+Ausnahmetabelle — und die listet eine aus Stücken gebaute Funktion **je Stück**.
+Von `OnButtonEvent` kamen so **35 Bytes**, die mitten in der Antwort aufhörten:
+
+```
+0x0126f930  push rdi
+0x0126f936  xorps xmm0, xmm0
+0x0126f939  mov  rdi, rdx
+0x0126f93c  ucomiss xmm0, [rdx + 0x38]   ; value == 0 ?
+0x0126f940  jne  0x126fa67
+0x0126f946  comiss  xmm0, [rdx + 0x3c]   ; heldDownSecs
+0x0126f94a  ja   0x126fa67
+0x0126f950  mov  rax, [rdx]              ; -- hier war Schluss
+```
+
+Man sieht immerhin schon, dass die Funktion `QJustPressed` von Hand prüft. Der
+Rest kommt mit einer **festen Länge** von 0x280 statt der Ausnahmetabelle; die
+nächste Funktion, die die Vtable nennt, liegt 0x150 dahinter.
+
+### Zwei Dinge weniger auf dem Bild
+
+- **Kein Titel mehr.** „Favorites" über einem Gitter aus Favoriten sagt nichts,
+  was das Gitter nicht sagt. Der Streifen darüber fällt mit weg (`titleHeight`
+  ist 0, wenn kein Titel da ist) und gehört künftig dem Namen und der Anzahl
+  dessen, was markiert ist.
+- **Das Crosshair verschwindet**, solange das Favoritenmenü offen ist. Es steht
+  in der Mitte des Bildschirms, wo das Gitter ist, und zielt auf nichts. Der
+  Name `HUDCrosshair_mc` stammt aus der Vanilla-`HUDMenu.swf`; wer einen
+  ersetzten HUD fährt, behält sein Crosshair, und das Log zählt dann die Kinder
+  des HUD auf, damit der nächste Name feststeht statt geraten wird.
+  Schalter: `[Display] HideCrosshair`.

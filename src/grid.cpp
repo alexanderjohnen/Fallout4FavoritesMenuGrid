@@ -470,7 +470,14 @@ void grid::Draw(
 		return;
 	}
 
-	const auto m = MetricsFor(a_where.cellSize);
+	auto m = MetricsFor(a_where.cellSize);
+	// No title, no band for one. The word "Favorites" over a grid of
+	// favorites says nothing the grid does not, and the space above the keys
+	// belongs to what is picked -- its name and its count -- as soon as
+	// there is something to put there.
+	if (a_title.empty()) {
+		m.titleHeight = 0.0;
+	}
 	const auto width = PanelWidth(m);
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size());

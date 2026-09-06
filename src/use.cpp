@@ -15,6 +15,10 @@ namespace
 	constexpr std::size_t kShouldHandleEvent = 1;
 	constexpr std::size_t kOnButtonEvent = 8;
 
+	// Enough to run past the end of either handler: the next function the
+	// vtable names sits 0x150 bytes after OnButtonEvent begins.
+	constexpr std::size_t kSample = 0x280;
+
 	void (*g_useQuickkey)(RE::FavoritesManager*, std::uint32_t) = nullptr;
 
 	[[nodiscard]] bool InText(std::uintptr_t a_address)
@@ -77,10 +81,12 @@ namespace
 				name,
 				address - base,
 				IdentityOf(address));
-			// The whole function, not a sample: the call we are after is
-			// somewhere in it, and a cut-off dump would only mean another
-			// start of the game.
-			peek::Note(name, address, 0);
+			// A fixed length rather than "the whole function". The
+			// exception directory lists a function built from separate
+			// chunks once per chunk, and OnButtonEvent's first chunk is 35
+			// bytes -- it ended in the middle of the answer. This much
+			// reaches the next entry of the vtable either way.
+			peek::Note(name, address, kSample);
 		}
 	}
 

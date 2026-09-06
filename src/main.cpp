@@ -59,6 +59,10 @@ namespace
 	// favorite leaves you standing in a menu.
 	bool g_closeAfterUse = true;
 
+	// The crosshair belongs to the HUD, and the HUD has no idea the favorites
+	// menu is open.
+	bool g_hideCrosshair = true;
+
 	// The page marker inside the favorites menu.
 	bool g_showPageIndicator = true;
 	std::string g_indicatorText = "Favorites";
@@ -292,6 +296,9 @@ namespace
 			96);
 		g_gridWhere.backdrop =
 			GetPrivateProfileIntW(L"Display", L"GridBackdrop", 0, path.c_str()) != 0;
+		g_hideCrosshair =
+			GetPrivateProfileIntW(
+				L"Display", L"HideCrosshair", 1, path.c_str()) != 0;
 		g_showPageIndicator =
 			GetPrivateProfileIntW(
 				L"Display", L"ShowPageIndicator", 1, path.c_str()) != 0;
@@ -1272,19 +1279,83 @@ namespace
 			return;
 		}
 
-		// The title carries no page number any more. With every page drawn
-		// alike there is no "here" to count from, and a number that said
-		// which page the digits still belong to would be the one thing on
-		// the panel a player could not act on.
+		// No title. The word "Favorites" over a grid of favorites says
+		// nothing the grid does not, and a page number would count from a
+		// "here" that no longer exists now that every page is drawn alike.
+		// The space above the keys is where the name and the count of
+		// whatever is marked will go.
 		grid::Draw(
 			canvas,
 			menu,
 			font,
-			g_indicatorText,
+			std::string{},
 			BuildGridPages(),
 			g_marked,
 			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor(),
 			g_gridWhere);
+	}
+
+	// ---- The crosshair steps aside ---------------------------------------
+	//
+	// It sits in the middle of the screen, which is where the grid is, and it
+	// aims at nothing while a menu is open. The HUD is not ours and is not
+	// asked to change: one clip is put out of sight and put back, the same
+	// way the cross is.
+
+	RE::Scaleform::GFx::Value g_hiddenCrosshair;
+
+	void HideCrosshair()
+	{
+		if (!g_hideCrosshair || g_hiddenCrosshair.IsDisplayObject()) {
+			return;
+		}
+		auto* hud = GetMenu("HUDMenu");
+		if (!hud || !hud->menuObj.IsObject()) {
+			return;
+		}
+
+		// The name is out of the vanilla HUDMenu.swf. A player running a
+		// replaced HUD may have something else there, and then the crosshair
+		// simply stays -- the children are listed once so the next name is
+		// known rather than guessed.
+		if (hud->menuObj.GetMember("HUDCrosshair_mc", &g_hiddenCrosshair) &&
+			g_hiddenCrosshair.IsDisplayObject()) {
+			g_hiddenCrosshair.SetMember("visible", RE::Scaleform::GFx::Value(false));
+			return;
+		}
+
+		g_hiddenCrosshair = RE::Scaleform::GFx::Value();
+		static bool listed = false;
+		if (listed) {
+			return;
+		}
+		listed = true;
+		RE::Scaleform::GFx::Value count;
+		std::string names;
+		if (hud->menuObj.GetMember("numChildren", &count)) {
+			const auto total = count.IsNumber() ? static_cast<int>(count.GetNumber())
+												: count.GetInt();
+			for (int index = 0; index < total; ++index) {
+				const RE::Scaleform::GFx::Value at{ index };
+				RE::Scaleform::GFx::Value child;
+				RE::Scaleform::GFx::Value name;
+				if (hud->menuObj.Invoke("getChildAt", &child, &at, 1) &&
+					child.IsDisplayObject() && child.GetMember("name", &name) &&
+					name.IsString()) {
+					names += std::format("{}  ", name.GetString());
+				}
+			}
+		}
+		logger::info(
+			"crosshair: the HUD has no HUDCrosshair_mc -- it holds {}", names);
+	}
+
+	void ShowCrosshair()
+	{
+		if (g_hiddenCrosshair.IsDisplayObject()) {
+			g_hiddenCrosshair.SetMember("visible", RE::Scaleform::GFx::Value(true));
+		}
+		g_hiddenCrosshair = RE::Scaleform::GFx::Value();
 	}
 
 	// ---- Choosing a cell -------------------------------------------------
@@ -1704,6 +1775,7 @@ namespace
 				// is dropped on close and built again on the next open.
 				if (!a_event.opening) {
 					input::Listen(false);
+					ShowCrosshair();
 					g_marked.reset();
 					ForgetPointer();
 					ReleaseIndicator();
@@ -1748,6 +1820,7 @@ namespace
 		menu::Register();
 		menu::SetOnReady([]() {
 			ShowGrid();
+			HideCrosshair();
 			// Only now: the keys mean pages and cells while the grid is up,
 			// and walking again the moment it is gone.
 			input::Listen(true);
