@@ -4,99 +4,125 @@
 
 namespace
 {
-	// The second of the four vtables CommonLibF4 lists for FavoritesManager
-	// is the one with the input handlers: nine entries, of which only two --
-	// ShouldHandleEvent and OnButtonEvent -- are the manager's own, the rest
-	// being the empty defaults that sit together in memory. Measured with
-	// tools/f4dis.py rather than taken on trust, because the library's slot
-	// numbers have been wrong twice in this project already.
-	constexpr std::uint64_t kInputVTable = 892289;
+	input::Keys g_keys;
+	void (*g_action)(input::Action) = nullptr;
+	std::atomic_bool g_listening{ false };
 
-	constexpr std::size_t kShouldHandleEvent = 1;
-	constexpr std::size_t kOnMouseMoveEvent = 6;
-	constexpr std::size_t kOnButtonEvent = 8;
+	// The mouse numbers its own buttons from zero, so the left one is zero.
+	constexpr std::int32_t kLeftMouseButton = 0;
 
-	input::Hooks g_hooks;
-
-	REL::Relocation<bool (*)(RE::BSInputEventUser*, const RE::InputEvent*)>
-		g_shouldHandle;
-	REL::Relocation<void (*)(RE::BSInputEventUser*, const RE::MouseMoveEvent*)>
-		g_onMouseMove;
-	REL::Relocation<void (*)(RE::BSInputEventUser*, const RE::ButtonEvent*)>
-		g_onButton;
-
-	bool ShouldHandleEvent(RE::BSInputEventUser* a_this, const RE::InputEvent* a_event)
+	// Which of the grid's actions a press means, if any. Keyboard codes are
+	// virtual key codes -- BS_BUTTON_CODE spells the letters the same way --
+	// so what the INI reads and what the event carries are one number.
+	[[nodiscard]] std::optional<input::Action> Claimed(const RE::ButtonEvent& a_event)
 	{
-		return g_shouldHandle(a_this, a_event);
-	}
+		switch (a_event.device.get()) {
+		case RE::INPUT_DEVICE::kMouse:
+			if (g_keys.useOnClick && a_event.idCode == kLeftMouseButton) {
+				return input::Action::kUse;
+			}
+			return std::nullopt;
 
-	void OnMouseMoveEvent(
-		RE::BSInputEventUser* a_this,
-		const RE::MouseMoveEvent* a_event)
-	{
-		if (a_event && g_hooks.mouse) {
-			g_hooks.mouse(a_event->mouseInputX, a_event->mouseInputY);
+		case RE::INPUT_DEVICE::kKeyboard:
+			break;
+
+		default:
+			// The gamepad still goes to the cross. Its own way through the
+			// grid is a question of its own, and one wrong answer there
+			// would take the menu away from a controller entirely.
+			return std::nullopt;
 		}
-		g_onMouseMove(a_this, a_event);
+
+		const auto code = a_event.idCode;
+		if (code == g_keys.pageUp) {
+			return input::Action::kPageUp;
+		}
+		if (code == g_keys.pageDown) {
+			return input::Action::kPageDown;
+		}
+		if (code == g_keys.slotLeft) {
+			return input::Action::kSlotLeft;
+		}
+		if (code == g_keys.slotRight) {
+			return input::Action::kSlotRight;
+		}
+		if (code == g_keys.use) {
+			return input::Action::kUse;
+		}
+		return std::nullopt;
 	}
 
-	void OnButtonEvent(RE::BSInputEventUser* a_this, const RE::ButtonEvent* a_event)
+	class Handler : public RE::BSInputEventUser
 	{
-		if (a_event && g_hooks.button && g_hooks.button(*a_event)) {
-			return;
+	public:
+		// Says whether this handler owns the event. Answering yes to
+		// everything would swallow the digits and the key that closes the
+		// menu, so it is asked of each event on its own.
+		bool ShouldHandleEvent(const RE::InputEvent* a_event) override
+		{
+			if (!g_listening || !a_event) {
+				return false;
+			}
+			const auto* button = a_event->As<RE::ButtonEvent>();
+			return button && Claimed(*button).has_value();
 		}
-		g_onButton(a_this, a_event);
-	}
+
+		void OnButtonEvent(const RE::ButtonEvent* a_event) override
+		{
+			if (!a_event || !g_listening || !g_action) {
+				return;
+			}
+			// The press, not the holding of it: a key held down repeats as
+			// events, and a grid that walked a cell per frame would be
+			// unusable.
+			if (!a_event->QJustPressed()) {
+				return;
+			}
+			if (const auto action = Claimed(*a_event)) {
+				g_action(*action);
+			}
+		}
+	};
+
+	Handler g_handler;
 }
 
-void input::Install(const Hooks& a_hooks)
+void input::SetKeys(const Keys& a_keys)
 {
-	g_hooks = a_hooks;
+	g_keys = a_keys;
+}
 
-	// Which vtable the living object actually uses. Patching one it does not
-	// carry changes nothing at all, which is exactly what the first attempt
-	// achieved: the hook reported itself installed and not one event ever
-	// arrived. The four the library lists are printed beside it, so the
-	// answer is a comparison rather than another guess.
-	if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
-		const auto base = REL::Module::get().base();
-		const auto live = *reinterpret_cast<const std::uintptr_t*>(manager);
-		std::string known;
-		for (const auto& candidate : RE::VTABLE::FavoritesManager) {
-			known += std::format("{:#x} ", candidate.address() - base);
-		}
-		logger::info(
-			"input: the manager carries vtable {:#x}; the library lists {}",
-			live - base,
-			known);
-		logger::info(
-			"input: its input handling is {}",
-			manager->inputEventHandlingEnabled ? "on" : "off");
+void input::SetOnAction(void (*a_action)(Action))
+{
+	g_action = a_action;
+}
 
-		// One vtable pointer per base that has virtuals, and the object
-		// carries them at different offsets. The one with the nine input
-		// handlers has to be found among them rather than assumed to be
-		// first: what sits at offset 0 has a single entry.
-		const auto* words = reinterpret_cast<const std::uintptr_t*>(manager);
-		std::string layout;
-		for (std::size_t index = 0; index < 8; ++index) {
-			const auto word = words[index];
-			const auto rdata = REL::Module::get().segment(REL::Segment::rdata);
-			const bool looksLikeVTable = word >= rdata.address() &&
-				word < rdata.address() + rdata.size();
-			layout += std::format(
-				"+{:#04x}={:#x}{}  ",
-				index * sizeof(std::uintptr_t),
-				looksLikeVTable ? word - base : word,
-				looksLikeVTable ? " (vtable)" : "");
-		}
-		logger::info("input: the manager begins with {}", layout);
+void input::Listen(bool a_on)
+{
+	g_listening = a_on;
+}
+
+void input::Install()
+{
+	auto* controls = RE::MenuControls::GetSingleton();
+	if (!controls) {
+		logger::error("input: there are no menu controls to join");
+		return;
 	}
 
-	REL::Relocation<std::uintptr_t> vtable{ REL::ID(kInputVTable) };
-	g_shouldHandle = vtable.write_vfunc(kShouldHandleEvent, &ShouldHandleEvent);
-	g_onMouseMove = vtable.write_vfunc(kOnMouseMoveEvent, &OnMouseMoveEvent);
-	g_onButton = vtable.write_vfunc(kOnButtonEvent, &OnButtonEvent);
+	// At the front. The array is walked in order and the first handler that
+	// owns an event ends the walk, so what the grid claims never reaches
+	// anyone behind it.
+	controls->handlers.emplace(controls->handlers.begin(), &g_handler);
 
-	logger::info("input: the favorites keys come through here now");
+	logger::info(
+		"input: the grid listens first of {} handlers; w/a/s/d are {:#04x} "
+		"{:#04x} {:#04x} {:#04x}, use is {:#04x}{}",
+		controls->handlers.size(),
+		g_keys.pageUp,
+		g_keys.slotLeft,
+		g_keys.pageDown,
+		g_keys.slotRight,
+		g_keys.use,
+		g_keys.useOnClick ? " and the left mouse button" : "");
 }

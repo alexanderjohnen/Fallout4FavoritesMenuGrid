@@ -277,3 +277,35 @@ void peek::Run(const std::filesystem::path& a_settings)
 
 	logger::info("peek: wrote {}", path.string());
 }
+
+void peek::Note(
+	std::string_view a_label,
+	std::uintptr_t a_address,
+	std::size_t a_length)
+{
+	if (!InSegment(a_address, REL::Segment::text)) {
+		logger::warn("peek: {} is not in the code section", a_label);
+		return;
+	}
+
+	auto directory = logger::log_directory();
+	if (!directory) {
+		return;
+	}
+	const auto path = *directory / std::format("{}.found.txt", PLUGIN_LOG_NAME);
+
+	// Emptied once per run of the game and added to after that, so several
+	// findings of one session stand together and yesterday's do not.
+	static bool started = false;
+	std::ofstream out(path, started ? std::ios::app : std::ios::trunc);
+	if (!out) {
+		logger::error("peek: could not write next to the log");
+		return;
+	}
+	if (!started) {
+		started = true;
+		out << std::format("# base {:#x}\n", REL::Module::get().base());
+	}
+
+	WriteBlock(out, a_label, a_address, a_length);
+}

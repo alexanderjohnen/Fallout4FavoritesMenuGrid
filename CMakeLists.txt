@@ -49,6 +49,8 @@ add_library(
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h
+	src/use.cpp
+	src/use.h
 	src/PCH.h
 )
 

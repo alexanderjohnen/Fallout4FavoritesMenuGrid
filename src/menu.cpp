@@ -8,6 +8,7 @@ namespace
 	constexpr auto kMoviePath = "Interface/FavoritesMenuGrid.swf";
 
 	void (*g_ready)() = nullptr;
+	void (*g_advance)() = nullptr;
 
 	class GridMenu : public RE::IMenu
 	{
@@ -65,6 +66,17 @@ namespace
 			}
 		}
 
+		// Every frame the menu is up. The base class does the drawing; what
+		// is added is the one question that has to be asked again and again
+		// -- where the pointer is now.
+		void AdvanceMovie(float a_timeDelta, std::uint64_t a_time) override
+		{
+			RE::IMenu::AdvanceMovie(a_timeDelta, a_time);
+			if (g_advance) {
+				g_advance();
+			}
+		}
+
 		static RE::IMenu* Create(const RE::UIMessage&)
 		{
 			return new GridMenu();
@@ -86,6 +98,11 @@ void menu::Register()
 void menu::SetOnReady(void (*a_ready)())
 {
 	g_ready = a_ready;
+}
+
+void menu::SetOnAdvance(void (*a_advance)())
+{
+	g_advance = a_advance;
 }
 
 void menu::Show()

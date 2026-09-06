@@ -1,41 +1,61 @@
 #pragma once
 
-// Taking the favorites input away from the cross.
+// The keys of the grid, taken before anyone else sees them.
 //
-// While the grid is up, the keys should mean what the grid needs: w and s
-// between pages, a and d between the keys of a page -- and, the point of the
-// whole thing, a pointer that goes straight to a cell. The cross has its own
-// idea of all of that, and it gets there first: FavoritesManager is an input
-// event user, and the game hands it every event while the menu is open.
+// The first attempt hooked FavoritesManager's own input handlers. The vtable
+// was right -- it sits at object offset 0x10, which the memory dump in the
+// log shows -- and not one event ever arrived: the manager is a single user,
+// and the game only feeds it while its own menu owns the input. With a menu
+// of our own that question is settled differently.
 //
-// So its own handlers are redirected through here. Nothing is disabled
-// wholesale -- the digits, the close key and the gamepad keep working
-// through the game's own path -- but what the grid claims never reaches the
-// cross.
+// MenuControls keeps an array of input event users and walks it in order,
+// and the first one that owns an event ends the walk. So the grid stands at
+// the front of that array and claims exactly the keys it needs. Everything
+// else -- the digits, the close key, the gamepad -- goes past untouched, to
+// the same places as before.
 //
-// Two things fall out of the same hook. FavoritesManager ignores mouse
-// movement (its handler for it is the empty default), which means the events
-// arrive and go nowhere: exactly what a pointer of our own needs.
-//
-// FavoritesMenuEx pointed the way -- its strings name
-// `FavoritesManager__inputEventUser__ShouldHandleEvent` -- and the vtable was
-// measured rather than trusted: CommonLibF4 lists four vtables for
-// FavoritesManager, and the one carrying the input handlers is the second.
-// Of its nine entries only two are the manager's own; the rest are the empty
-// defaults, sitting together in memory, which is how the right one was
-// recognised.
+// FavoritesMenuEx does the same thing: its strings name a class of its own,
+// `FavoritesMenuExInput`, with a line for registering and one for
+// unregistering. A menu does not get the keys by being a menu.
 namespace input
 {
-	struct Hooks
+	// What the grid does with the keys it claims. Named rather than spelled
+	// as key codes, because the player decides which key means which.
+	enum class Action
 	{
-		// Return true to swallow the event, so the cross never sees it.
-		bool (*button)(const RE::ButtonEvent&){ nullptr };
-
-		// Mouse movement, in whatever units the device reports.
-		void (*mouse)(std::int32_t a_deltaX, std::int32_t a_deltaY){ nullptr };
+		kPageUp,
+		kPageDown,
+		kSlotLeft,
+		kSlotRight,
+		kUse
 	};
 
-	// Runs on the game's input thread: decide here, and leave the doing to a
-	// UI task. Nothing here may touch Scaleform or the inventory.
-	void Install(const Hooks& a_hooks);
+	// Virtual key codes, the way the INI spells them.
+	struct Keys
+	{
+		int pageUp{ 'W' };
+		int pageDown{ 'S' };
+		int slotLeft{ 'A' };
+		int slotRight{ 'D' };
+		int use{ VK_RETURN };
+
+		// The left mouse button uses whatever the pointer marks. Its own
+		// switch, because a pointer is the one part of this a player may
+		// well want off.
+		bool useOnClick{ true };
+	};
+
+	// Joins the front of the handler array, once. Nothing is claimed until
+	// Listen is on.
+	void Install();
+
+	void SetKeys(const Keys& a_keys);
+
+	// Runs on the game's input thread: decide here and leave the doing to a
+	// UI task. Nothing behind this may touch Scaleform or the inventory.
+	void SetOnAction(void (*a_action)(Action));
+
+	// On while the grid is up, off the rest of the time -- outside the
+	// favorites menu, w and s are walking again.
+	void Listen(bool a_on);
 }

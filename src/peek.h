@@ -25,4 +25,11 @@ namespace peek
 	// every place in the code that points at one -- that is where the engine
 	// builds such an object for itself.
 	void Run(const std::filesystem::path& a_settings);
+
+	// The same, for a place the plugin found by itself rather than one named
+	// in the INI. It goes into a file of its own -- FavoritesMenuGrid.found
+	// .txt, which tools/f4dis.py reads exactly like the other one -- and it
+	// is written the moment the address is found, so it survives whatever
+	// the first call to it does.
+	void Note(std::string_view a_label, std::uintptr_t a_address, std::size_t a_length);
 }

@@ -23,6 +23,17 @@ namespace grid
 
 	using Page = std::array<Cell, 12>;
 
+	// One cell of the panel: which page it belongs to, which of the twelve
+	// keys it is. What the pointer lands on and what the keys walk between
+	// are the same thing, so they are the same type.
+	struct Spot
+	{
+		std::size_t page{ 0 };
+		std::size_t slot{ 0 };
+
+		[[nodiscard]] bool operator==(const Spot&) const = default;
+	};
+
 	// Draws or redraws the panel, in the middle of the screen, and puts the
 	// cross out of sight while it is up: two ways to read the same twelve
 	// keys, in two corners, is one too many.
@@ -74,8 +85,23 @@ namespace grid
 		const std::string& a_title,
 		const std::vector<Page>& a_pages,
 		std::size_t a_current,
+		const std::optional<Spot>& a_marked,
 		std::uint32_t a_color,
 		const Placement& a_where);
+
+	// Where the game's own pointer sits, in the stage units the panel is
+	// laid out in. The menu carries a cursor because it asked for one, so
+	// there is nothing to track: the engine already knows, and it knows it
+	// in screen pixels, which is what has to be converted.
+	[[nodiscard]] bool Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y);
+
+	// Which cell a point falls on. Nothing when it lands in a gap, on the
+	// margin, or off the panel altogether -- a near miss is not a choice.
+	[[nodiscard]] std::optional<Spot> At(double a_x, double a_y);
+
+	// Picks a cell out. Cheap enough for every frame: the outline is a child
+	// of its own that only ever moves, so nothing is drawn again for it.
+	void Mark(const std::optional<Spot>& a_spot);
 
 	// Forgets the panel. The display objects belong to the movie that is
 	// going away, so this runs when the menu closes.

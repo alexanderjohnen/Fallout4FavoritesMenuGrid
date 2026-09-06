@@ -1238,3 +1238,106 @@ raus, sobald die Eingabe über das Menü läuft.
 | `tools/swfnames.py` | Symbole einer SWF auflisten, Sorter-Tags dagegen prüfen |
 | `tools/build_swf.py` | die leere Bühne des eigenen Menüs schreiben |
 | `src/peek.cpp` | Maschinencode aus dem laufenden Spiel kopieren (F10) |
+
+## 22. Das Grid nimmt die Eingabe (2026-09-06)
+
+**Der Stand:** Die Punkte 1 und 2 aus Abschnitt 21 sind gebaut. `w`/`s`
+blättert zwischen den Zeilen, `a`/`d` zwischen den Zwölf einer Zeile, der
+Zeiger markiert die Zelle, über der er steht, und Return oder ein Linksklick
+benutzt sie. Der Bau ist sauber (`/W4 /WX`) und deployed. **Im Spiel getestet
+ist er noch nicht.**
+
+### Warum die Eingabe nicht am Menü hängt
+
+Ein Menü bekommt die Tasten nicht dadurch, dass es ein Menü ist. `MenuControls`
+hält ein Feld von `BSInputEventUser*`, läuft es der Reihe nach durch, und der
+erste, der ein Ereignis für seines erklärt, beendet den Durchlauf. Genau
+dorthin setzt sich das Grid — **an den Anfang** (`handlers.emplace(begin(),
+…)`), und `ShouldHandleEvent` antwortet **pro Ereignis**: nur für die fünf
+Tasten und den linken Mausknopf. Alles andere — die Ziffern, die Schließtaste,
+das Gamepad — läuft unverändert an uns vorbei. Ein pauschales Ja hätte das
+Menü unverschließbar gemacht.
+
+FavoritesMenuEx macht es genauso: seine Zeichenketten nennen eine eigene
+Klasse `FavoritesMenuExInput` mit je einer Zeile fürs An- und Abmelden.
+
+**Der alte Haken auf `FavoritesManager` ist raus.** Die Vtable war richtig; die
+Ereignisse kamen nie, weil der Manager ein *single user* ist und nur bedient
+wird, solange sein eigenes Menü die Eingabe hat. `src/input.cpp` ist jetzt der
+neue Weg, die Messung steht als Kommentar darin.
+
+### Der Zeiger kostet nichts
+
+`MenuCursor::GetSingleton()` führt den Cursor bereits, weil das Menü ihn mit
+`kUsesCursor` angefordert hat — **in Bildschirmpixeln**. Der Panel liegt in
+Bühneneinheiten. Beides beantwortet das Menü selbst: `GetViewport()` gibt das
+eine (hier 2560x1440), `GetVisibleFrameRect()` das andere (0,0 bis 1280,720).
+Damit ist die Umrechnung auflösungsunabhängig, und niemand muss Mausbewegungen
+mitzählen.
+
+Gelesen wird einmal pro Bild in `AdvanceMovie` unseres Menüs — auf dem
+UI-Thread, wo Scaleform sowieso erlaubt ist. Hat sich der Zeiger nicht bewegt,
+passiert nichts; sonst wird die getroffene Zelle bestimmt.
+
+**Die Markierung ist ein eigener Sprite**, einmal gezeichnet und danach nur
+noch verschoben. Vierzig Textfelder pro Mausbewegung neu zu bauen wäre der
+naheliegende und der falsche Weg.
+
+**Wer zuletzt bewegt hat, hat die Marke.** Der Zeiger meldet sich nur, während
+er über einer Zelle steht, also wirft ein Verlassen des Panels keine
+Tastenwahl weg. Umgekehrt vergisst eine Taste die letzte Zeigerposition, damit
+die stillliegende Maus die Wahl nicht sofort zurückholt.
+
+### `UseQuickkeyItem` — gefunden, aber noch nicht bewiesen
+
+Es gibt keine Address-Library-ID dafür. FavoritesMenuEx trägt die Signatur in
+sich:
+
+```
+FavoritesManager_useQuickkey (FavoritesManager::UseQuickkeyItem)
+E8 ? ? ? ? 83 F8 0C 74 04
+```
+
+Ein Aufruf, dessen Antwort mit **zwölf** verglichen wird — der Zahl der
+Tasten. `src/use.cpp` sucht das Muster im Codeabschnitt des **laufenden**
+Spiels (die EXE ist auf der Platte gepackt), löst das `E8` auf und verlangt,
+dass **alle** Fundstellen auf **eine** Funktion zeigen. Sind es mehrere, wird
+nichts aufgerufen und die Adressen stehen im Log.
+
+**Der Beweis wird vor dem ersten Aufruf geschrieben.** `peek::Note` legt
+0x140 Bytes der Funktion und 0x40 Bytes um die Fundstelle in
+`FavoritesMenuGrid.found.txt` neben dem Log — im selben Format, das
+`tools/f4dis.py peek` liest. Stürzt der erste Aufruf das Spiel ab, steht
+trotzdem da, was aufgerufen wurde.
+
+**Also beim nächsten Start zuerst:**
+
+```
+py -3 tools/f4dis.py peek "...\FavoritesMenuGrid.found.txt"
+```
+
+Erwartet wird eine Funktion, die `this` und einen Index nimmt. Sieht sie nach
+etwas anderem aus, ist der Aufruf in `use::Quickkey` die eine Zeile, die
+zurückgebaut werden muss. Das Log nennt zusätzlich die ID, falls die Address
+Library die Adresse exakt kennt — dann kann sie in Zukunft fest verdrahtet
+werden statt gesucht.
+
+### Neue Einstellungen
+
+Ein Abschnitt `[Controls]`: `GridPageUpKey` (W), `GridPageDownKey` (S),
+`GridLeftKey` (A), `GridRightKey` (D), `GridUseKey` (RETURN),
+`GridUseOnClick` (1), `GridCloseAfterUse` (1). `ParseVirtualKey` kennt jetzt
+auch RETURN/ENTER, ESCAPE und die vier Pfeiltasten.
+
+`deploy.py` überschreibt die installierte INI nie, weil sie die Tasten des
+Spielers hält — der Abschnitt wurde ihr diesmal von Hand angehängt.
+
+### Was offen bleibt
+
+- **Punkt 3, das Item-Label.** Ohne es sagt das Grid weiterhin nur *dass* eine
+  Zelle belegt ist, nicht *womit*. Die Markierung zeigt also auf etwas
+  Namenloses. Das ist jetzt der nächste Schritt, und die Auswahl, die es
+  speisen soll, steht bereit: `g_marked` in `main.cpp`.
+- **Das Gamepad** ist bewusst außen vor. Es geht weiter ans Kreuz; ein
+  falscher Griff dort nähme dem Controller das Menü ganz.
+- Punkte 4 bis 6 aus Abschnitt 21 unverändert.

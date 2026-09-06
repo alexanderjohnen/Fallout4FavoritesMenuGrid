@@ -80,9 +80,33 @@ namespace
 		return a_m.cell + a_m.gap;
 	}
 
+	// Where one cell begins inside the panel. The drawing and the hit test
+	// have to agree to the unit, so they read it from the same two lines.
+	[[nodiscard]] double CellLeft(const Metrics& a_m, std::size_t a_slot)
+	{
+		return a_m.padding + a_m.rowLabelWidth +
+			(a_m.cell + a_m.gap) * static_cast<double>(a_slot);
+	}
+
+	[[nodiscard]] double RowTop(const Metrics& a_m, std::size_t a_row)
+	{
+		return a_m.padding + a_m.titleHeight +
+			RowHeight(a_m) * static_cast<double>(a_row);
+	}
+
 	RE::Scaleform::GFx::Value g_panel;
+	// The outline around the chosen cell. A child of its own, so choosing
+	// costs a move rather than forty new text fields.
+	RE::Scaleform::GFx::Value g_marker;
 	// Kept so the cross can be put back the way it was found.
 	RE::Scaleform::GFx::Value g_hiddenCross;
+
+	// The layout of the panel as it was last drawn, so a point on the stage
+	// can be turned back into a cell without asking the movie anything.
+	Metrics g_metrics;
+	double g_left{ 0.0 };
+	double g_top{ 0.0 };
+	std::size_t g_rows{ 0 };
 
 	// Scaleform hands numbers over as Int as often as as Number, so both
 	// have to be accepted or every read comes back as the fallback.
@@ -140,10 +164,11 @@ namespace
 		double a_width,
 		double a_height,
 		std::uint32_t a_color,
-		double a_alpha)
+		double a_alpha,
+		double a_thickness = 1.0)
 	{
 		const std::array stroke{
-			RE::Scaleform::GFx::Value(1.0),
+			RE::Scaleform::GFx::Value(a_thickness),
 			RE::Scaleform::GFx::Value(static_cast<double>(a_color)),
 			RE::Scaleform::GFx::Value(a_alpha)
 		};
@@ -246,6 +271,10 @@ void grid::Release()
 		}
 	}
 	g_panel = RE::Scaleform::GFx::Value();
+	g_marker = RE::Scaleform::GFx::Value();
+	// Without a panel there are no cells, and a hit test against the layout
+	// of a panel that is gone would answer for cells nobody can see.
+	g_rows = 0;
 }
 
 void grid::Draw(
@@ -255,6 +284,7 @@ void grid::Draw(
 	const std::string& a_title,
 	const std::vector<Page>& a_pages,
 	std::size_t a_current,
+	const std::optional<Spot>& a_marked,
 	std::uint32_t a_color,
 	const Placement& a_where)
 {
@@ -450,6 +480,14 @@ void grid::Draw(
 		placed = second;
 	}
 
+	// What the pointer will be measured against. Kept from the drawing
+	// rather than worked out again, so a cell can never be somewhere else
+	// for the mouse than it is for the eye.
+	g_metrics = m;
+	g_left = left;
+	g_top = top;
+	g_rows = a_pages.size();
+
 	// The stage, outlined. The panel is demonstrably drawn where it should
 	// be and only part of it arrives, so the question is no longer where the
 	// panel is but which parts of the stage reach the screen at all. An
@@ -503,8 +541,7 @@ void grid::Draw(
 	}
 
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
-		const auto rowTop = m.padding + m.titleHeight +
-			RowHeight(m) * static_cast<double>(row);
+		const auto rowTop = RowTop(m, row);
 		const bool playing = row == a_current;
 
 		Label(
@@ -519,8 +556,7 @@ void grid::Draw(
 			playing ? 1.0 : 0.5);
 
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
-			const auto cellLeft = m.padding + m.rowLabelWidth +
-				(m.cell + m.gap) * static_cast<double>(slot);
+			const auto cellLeft = CellLeft(m, slot);
 			const auto& cell = a_pages[row][slot];
 			const bool taken = !cell.name.empty();
 
@@ -566,6 +602,24 @@ void grid::Draw(
 		}
 	}
 
+	// The chosen cell, drawn once and afterwards only moved. It is added
+	// last, so it lies over the plates rather than under them, and it is a
+	// brighter version of the same white sheet the game itself uses -- a
+	// colour of its own here would say "this cell is different", where what
+	// is meant is "this cell is the one".
+	a_canvas->uiMovie->CreateObject(&g_marker, "flash.display.Sprite");
+	if (g_marker.IsDisplayObject()) {
+		g_marker.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+		g_marker.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		RE::Scaleform::GFx::Value pen;
+		if (g_marker.GetMember("graphics", &pen) && pen.IsObject()) {
+			Fill(pen, 0.0, 0.0, m.cell, m.cell, kPlate, 0.15);
+			Outline(pen, 0.0, 0.0, m.cell, m.cell, kPlate, 0.9, 2.0);
+		}
+		g_panel.Invoke("addChild", nullptr, &g_marker, 1);
+	}
+	Mark(a_marked);
+
 	// What was asked for, and what the movie made of it. The two drifting
 	// apart is the only way to tell a layout mistake from a drawing one.
 	// Centred under the panel, the name above the ammo line. The fields are
@@ -591,4 +645,79 @@ void grid::Draw(
 		ReadNumber(g_panel, "x", -1.0),
 		ReadNumber(g_panel, "y", -1.0),
 		ReadNumber(g_panel, "numChildren", -1.0));
+}
+
+bool grid::Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y)
+{
+	const auto* cursor = RE::MenuCursor::GetSingleton();
+	if (!cursor || !a_canvas || !a_canvas->uiMovie) {
+		return false;
+	}
+
+	// The cursor counts screen pixels -- 2560 by 1440 on the machine this
+	// was measured on -- and the panel is laid out in the movie's own units,
+	// of which there are 1280 by 720. The viewport is the first, the visible
+	// frame the second, and the menu answers for both, so nothing here has
+	// to assume a resolution.
+	RE::Scaleform::GFx::Viewport view{};
+	a_canvas->uiMovie->GetViewport(&view);
+	if (view.width <= 0 || view.height <= 0) {
+		return false;
+	}
+	const auto frame = a_canvas->uiMovie->GetVisibleFrameRect();
+
+	a_x = frame.x1 +
+		(static_cast<double>(cursor->cursorPosX) - view.left) *
+			(frame.x2 - frame.x1) / view.width;
+	a_y = frame.y1 +
+		(static_cast<double>(cursor->cursorPosY) - view.top) *
+			(frame.y2 - frame.y1) / view.height;
+	return true;
+}
+
+std::optional<grid::Spot> grid::At(double a_x, double a_y)
+{
+	if (g_rows == 0) {
+		return std::nullopt;
+	}
+
+	const auto& m = g_metrics;
+	const auto fromLeft = a_x - g_left - m.padding - m.rowLabelWidth;
+	const auto fromTop = a_y - g_top - m.padding - m.titleHeight;
+	if (fromLeft < 0.0 || fromTop < 0.0) {
+		return std::nullopt;
+	}
+
+	const auto column = m.cell + m.gap;
+	const auto slot = static_cast<std::size_t>(fromLeft / column);
+	const auto row = static_cast<std::size_t>(fromTop / RowHeight(m));
+	if (slot >= kSlots || row >= g_rows) {
+		return std::nullopt;
+	}
+
+	// Inside the cell, not in the gap beside or below it. A grid answers
+	// for what it draws; the space between two cells belongs to neither.
+	if (fromLeft - static_cast<double>(slot) * column > m.cell ||
+		fromTop - static_cast<double>(row) * RowHeight(m) > m.cell) {
+		return std::nullopt;
+	}
+
+	return Spot{ row, slot };
+}
+
+void grid::Mark(const std::optional<Spot>& a_spot)
+{
+	if (!g_marker.IsDisplayObject()) {
+		return;
+	}
+	if (!a_spot || a_spot->page >= g_rows || a_spot->slot >= kSlots) {
+		g_marker.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		return;
+	}
+
+	g_marker.SetMember(
+		"x", RE::Scaleform::GFx::Value(CellLeft(g_metrics, a_spot->slot)));
+	g_marker.SetMember(
+		"y", RE::Scaleform::GFx::Value(RowTop(g_metrics, a_spot->page)));
+	g_marker.SetMember("visible", RE::Scaleform::GFx::Value(true));
 }

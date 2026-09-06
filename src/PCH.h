@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <set>

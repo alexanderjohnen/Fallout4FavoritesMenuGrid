@@ -21,6 +21,7 @@
 #include "input.h"
 #include "menu.h"
 #include "peek.h"
+#include "use.h"
 
 namespace
 {
@@ -47,6 +48,16 @@ namespace
 	// The whole set of pages, drawn beside the cross.
 	bool g_useGrid = true;
 	grid::Placement g_gridWhere;
+
+	// Walking the grid and using what is under the mark. Keys rather than
+	// fixed letters: w and s are only obvious to someone who never moved
+	// them.
+	input::Keys g_gridKeys;
+
+	// The cross closes the menu when a key is used, and a grid that stayed
+	// open afterwards would be the one place in the game where using a
+	// favorite leaves you standing in a menu.
+	bool g_closeAfterUse = true;
 
 	// The page marker inside the favorites menu.
 	bool g_showPageIndicator = true;
@@ -126,7 +137,15 @@ namespace
 			}
 		}
 
-		const std::array<std::pair<std::wstring_view, int>, 20> names{
+		const std::array<std::pair<std::wstring_view, int>, 28> names{
+			std::pair{ L"RETURN"sv, VK_RETURN },
+			std::pair{ L"ENTER"sv, VK_RETURN },
+			std::pair{ L"ESCAPE"sv, VK_ESCAPE },
+			std::pair{ L"ESC"sv, VK_ESCAPE },
+			std::pair{ L"UP"sv, VK_UP },
+			std::pair{ L"DOWN"sv, VK_DOWN },
+			std::pair{ L"LEFT"sv, VK_LEFT },
+			std::pair{ L"RIGHT"sv, VK_RIGHT },
 			std::pair{ L"PAGEUP"sv, VK_PRIOR },
 			std::pair{ L"PGUP"sv, VK_PRIOR },
 			std::pair{ L"PAGEDOWN"sv, VK_NEXT },
@@ -230,12 +249,25 @@ namespace
 		read(L"Pages", L"NextPageKey", g_nextPageKey);
 		read(L"Pages", L"PreviousPageKey", g_previousPageKey);
 
+		read(L"Controls", L"GridPageUpKey", g_gridKeys.pageUp);
+		read(L"Controls", L"GridPageDownKey", g_gridKeys.pageDown);
+		read(L"Controls", L"GridLeftKey", g_gridKeys.slotLeft);
+		read(L"Controls", L"GridRightKey", g_gridKeys.slotRight);
+		read(L"Controls", L"GridUseKey", g_gridKeys.use);
+
 		read(L"Debug", L"InventoryProbeKey", g_inventoryKey);
 		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
 		read(L"Debug", L"RotateFavoritesKey", g_rotateKey);
 		read(L"Debug", L"PeekKey", g_peekKey);
 
 		// What the cross shows.
+		g_gridKeys.useOnClick =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridUseOnClick", 1, path.c_str()) != 0;
+		g_closeAfterUse =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridCloseAfterUse", 1, path.c_str()) != 0;
+
 		g_stripItemTags = GetPrivateProfileIntW(
 							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
 		g_useGrid =
@@ -835,6 +867,11 @@ namespace
 	std::vector<Page> g_pages;
 	std::size_t g_currentPage = 0;
 
+	// The cell the grid is pointing at. Empty until the pointer finds one or
+	// a key is pressed: a menu that opens with something already chosen
+	// invites using it by accident.
+	std::optional<grid::Spot> g_marked;
+
 	// Defined below, with the rest of the page marker: they need the pages,
 	// and the pages need to show themselves.
 	void ShowPageIndicator();
@@ -1242,8 +1279,165 @@ namespace
 			PageWording(g_indicatorText),
 			BuildGridPages(),
 			g_currentPage,
+			g_marked,
 			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor(),
 			g_gridWhere);
+	}
+
+	// ---- Choosing a cell -------------------------------------------------
+	//
+	// Two ways to the same mark: the pointer, which the menu carries because
+	// it asked for a cursor, and the keys, which walk from wherever the mark
+	// stands. They do not fight over it -- whichever moved last has it -- and
+	// the pointer only ever speaks when it is over a cell, so leaving the
+	// panel with the mouse does not throw away what the keys chose.
+
+	// The last place the pointer was seen, so a mouse lying still does not
+	// overwrite a choice made with the keys sixty times a second.
+	double g_pointerX = std::numeric_limits<double>::lowest();
+	double g_pointerY = std::numeric_limits<double>::lowest();
+
+	void ForgetPointer()
+	{
+		g_pointerX = std::numeric_limits<double>::lowest();
+		g_pointerY = std::numeric_limits<double>::lowest();
+	}
+
+	// Every frame the grid is up.
+	void TrackPointer()
+	{
+		if (!g_useGrid) {
+			return;
+		}
+		auto* canvas = GetMenu(g_gridWhere.canvas);
+		if (!canvas) {
+			return;
+		}
+
+		double x = 0.0;
+		double y = 0.0;
+		if (!grid::Pointer(canvas, x, y) || (x == g_pointerX && y == g_pointerY)) {
+			return;
+		}
+		g_pointerX = x;
+		g_pointerY = y;
+
+		const auto over = grid::At(x, y);
+		if (!over || over == g_marked) {
+			return;
+		}
+		g_marked = over;
+		grid::Mark(g_marked);
+	}
+
+	// One step with the keys. Wrapping around in both directions: twelve
+	// keys and three pages are a ring, not a page of text, and a mark that
+	// stops at the edge means reaching for the mouse.
+	void MoveMark(int a_pages, int a_slots)
+	{
+		EnsurePages();
+		if (g_pages.empty()) {
+			return;
+		}
+
+		// The first press lands on the key the player is already playing
+		// rather than somewhere they have to look for.
+		const auto from = g_marked.value_or(grid::Spot{ g_currentPage, 0 });
+		const auto rows = static_cast<int>(g_pages.size());
+		constexpr int slots = 12;
+
+		grid::Spot to{
+			static_cast<std::size_t>(
+				((static_cast<int>(from.page) + a_pages) % rows + rows) % rows),
+			static_cast<std::size_t>(
+				((static_cast<int>(from.slot) + a_slots) % slots + slots) % slots)
+		};
+
+		g_marked = to;
+		grid::Mark(g_marked);
+		// The keys have the mark now; the mouse takes it back by moving.
+		ForgetPointer();
+	}
+
+	// Using what is marked. A cell on another page is used by going there
+	// first -- the engine is what hands out the twelve keys, and it only
+	// ever hands out one page of them.
+	void UseMarked()
+	{
+		if (!g_marked) {
+			logger::info("use: nothing is marked");
+			return;
+		}
+		EnsurePages();
+
+		const auto spot = *g_marked;
+		if (spot.page >= g_pages.size() || spot.slot >= 12) {
+			return;
+		}
+
+		// The page being played is only in the inventory, so it is read back
+		// before anything on it is looked up.
+		RememberCurrentPage();
+		auto* object = g_pages[spot.page][spot.slot];
+		if (!object) {
+			logger::info(
+				"use: [{}] on page {} holds nothing",
+				KeyLabel(spot.slot),
+				spot.page + 1);
+			return;
+		}
+
+		if (!use::Ready()) {
+			logger::warn(
+				"use: the engine's own UseQuickkeyItem was never found -- "
+				"\"{}\" stays where it is",
+				RE::TESFullName::GetFullName(*object));
+			return;
+		}
+
+		if (spot.page != g_currentPage) {
+			GoToPage(spot.page);
+		}
+
+		logger::info(
+			"use: [{}] \"{}\" on page {}",
+			KeyLabel(spot.slot),
+			RE::TESFullName::GetFullName(*object),
+			spot.page + 1);
+		use::Quickkey(static_cast<std::uint32_t>(spot.slot));
+
+		if (g_closeAfterUse) {
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
+			}
+		}
+	}
+
+	// From the input thread. Everything the actions do touches Scaleform or
+	// the inventory, so none of it happens here.
+	void OnAction(input::Action a_action)
+	{
+		const auto* tasks = F4SE::GetTaskInterface();
+		if (!tasks) {
+			return;
+		}
+		switch (a_action) {
+		case input::Action::kPageUp:
+			tasks->AddUITask([]() { MoveMark(-1, 0); });
+			break;
+		case input::Action::kPageDown:
+			tasks->AddUITask([]() { MoveMark(1, 0); });
+			break;
+		case input::Action::kSlotLeft:
+			tasks->AddUITask([]() { MoveMark(0, -1); });
+			break;
+		case input::Action::kSlotRight:
+			tasks->AddUITask([]() { MoveMark(0, 1); });
+			break;
+		case input::Action::kUse:
+			tasks->AddUITask([]() { UseMarked(); });
+			break;
+		}
 	}
 
 	// ---- Keeping the pages in the save -----------------------------------
@@ -1399,52 +1593,6 @@ namespace
 		g_probeIndex = -1;
 	}
 
-	// ---- What the cross's own keys are called ----------------------------
-	//
-	// Listening before taking over. The names come from the player's own
-	// bindings, so reading them off the events is the only way to know which
-	// ones to claim -- guessing "W" would break for anyone who moved their
-	// keys, and it would miss the gamepad entirely.
-	//
-	// Reported once per name, with the key that produced it, and nothing is
-	// swallowed yet.
-	std::mutex g_seenLock;
-	std::set<std::string> g_seenEvents;
-
-	bool WatchButton(const RE::ButtonEvent& a_event)
-	{
-		if (!GetFavoritesMenu()) {
-			return false;
-		}
-
-		auto name = std::string(a_event.QUserEvent());
-		{
-			const std::scoped_lock guard{ g_seenLock };
-			if (!g_seenEvents.insert(name).second) {
-				return false;
-			}
-		}
-		logger::info(
-			"input: \"{}\" from key {:#x} on device {}",
-			name,
-			a_event.idCode,
-			static_cast<int>(a_event.device.get()));
-		return false;
-	}
-
-	std::atomic_int g_mouseEvents{ 0 };
-
-	void WatchMouse(std::int32_t a_deltaX, std::int32_t a_deltaY)
-	{
-		if (!GetFavoritesMenu()) {
-			return;
-		}
-		// Only the first few, or the log becomes a mouse trail.
-		if (g_mouseEvents.fetch_add(1) < 3) {
-			logger::info("input: the mouse moves by {},{}", a_deltaX, a_deltaY);
-		}
-	}
-
 	// ---- Input -----------------------------------------------------------
 
 	[[nodiscard]] bool IsGameForeground()
@@ -1548,6 +1696,9 @@ namespace
 				// The field belongs to the movie that is going away, so it
 				// is dropped on close and built again on the next open.
 				if (!a_event.opening) {
+					input::Listen(false);
+					g_marked.reset();
+					ForgetPointer();
 					ReleaseIndicator();
 					grid::Release();
 					if (g_useGrid) {
@@ -1588,9 +1739,21 @@ namespace
 		peek::Run(GetSettingsPath());
 
 		menu::Register();
-		menu::SetOnReady([]() { ShowGrid(); });
+		menu::SetOnReady([]() {
+			ShowGrid();
+			// Only now: the keys mean pages and cells while the grid is up,
+			// and walking again the moment it is gone.
+			input::Listen(true);
+		});
+		menu::SetOnAdvance(&TrackPointer);
 
-		input::Install(input::Hooks{ &WatchButton, &WatchMouse });
+		// The one call the grid cannot make up for itself. Looked for once,
+		// here, so a failure is in the log before anyone clicks anything.
+		use::Find();
+
+		input::SetKeys(g_gridKeys);
+		input::SetOnAction(&OnAction);
+		input::Install();
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info("ready -- the keys are in FavoritesMenuGrid.ini");

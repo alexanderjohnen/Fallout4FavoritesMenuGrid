@@ -31,6 +31,12 @@ namespace menu
 	// so drawing has to wait for this rather than for Show() returning.
 	void SetOnReady(void (*a_ready)());
 
+	// Called on every frame the menu is drawn, on the UI thread. That is
+	// where the pointer is read: the game moves its own cursor and nobody
+	// has to be told when, so asking once a frame is both the simplest way
+	// and the one that cannot fall behind.
+	void SetOnAdvance(void (*a_advance)());
+
 	// Opens and closes it. Both are messages to the UI queue, so they take
 	// effect on the game's own terms rather than immediately.
 	void Show();
