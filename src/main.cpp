@@ -79,6 +79,9 @@ namespace
 	// kind of thing it is.
 	bool g_iconFallback = true;
 
+	// Whether a second press on something already worn takes it off again.
+	bool g_toggleEquip = true;
+
 	// The page that goes back into the engine's twelve keys when the menu
 	// closes, counted from 1. Zero leaves whatever page was last used there.
 	//
@@ -390,6 +393,9 @@ namespace
 				L"Controls", L"GridRepeatRate", 90, path.c_str())),
 			20,
 			1000) / 1000.0;
+		g_toggleEquip =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridToggleEquip", 1, path.c_str()) != 0;
 		g_wrapNavigation =
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
@@ -1921,6 +1927,72 @@ namespace
 		ForgetPointer();
 	}
 
+	// Which stack of a thing the player is wearing or holding, if any, and
+	// where in its chain it sits. The chain position is the stack ID -- that
+	// is literally what GetStackByID walks -- and the equip manager wants it
+	// alongside the object itself.
+	[[nodiscard]] bool WornStack(
+		RE::TESBoundObject* a_object,
+		std::uint32_t& a_stackID,
+		RE::TBO_InstanceData*& a_data)
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!a_object || !player || !player->inventoryList) {
+			return false;
+		}
+
+		bool worn = false;
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (worn || !a_stack.IsEquipped()) {
+					return true;
+				}
+
+				std::uint32_t index = 0;
+				for (auto* walk = a_item.stackData.get(); walk;
+					 walk = walk->nextStack.get(), ++index) {
+					if (walk == &a_stack) {
+						worn = true;
+						a_stackID = index;
+						a_data = nullptr;
+						if (a_stack.extra) {
+							if (auto* instance =
+									a_stack.extra->GetByType<RE::ExtraInstanceData>()) {
+								a_data = instance->data.get();
+							}
+						}
+						return false;
+					}
+				}
+				return true;
+			});
+		return worn;
+	}
+
+	// Takes off what is already on. A second press on something you are
+	// wearing or holding is the same gesture as holstering, and every other
+	// menu in this game treats it that way; without it the only thing a
+	// favorite could not do is undo itself.
+	[[nodiscard]] bool TakeOff(RE::TESBoundObject* a_object)
+	{
+		std::uint32_t stackID = 0;
+		RE::TBO_InstanceData* data = nullptr;
+		if (!WornStack(a_object, stackID, data)) {
+			return false;
+		}
+
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		auto* equipment = RE::ActorEquipManager::GetSingleton();
+		if (!player || !equipment) {
+			return false;
+		}
+
+		const RE::BGSObjectInstance instance{ a_object, data };
+		return equipment->UnequipObject(
+			player, &instance, 1, nullptr, stackID, false, false, true, true, nullptr);
+	}
+
 	// Using what is marked. A cell on another page is used by going there
 	// first -- the engine is what hands out the twelve keys, and it only
 	// ever hands out one page of them.
@@ -1959,6 +2031,20 @@ namespace
 
 		if (spot.page != g_currentPage) {
 			GoToPage(spot.page);
+		}
+
+		// Already on? Then this press takes it off.
+		if (g_toggleEquip && spot.page == g_currentPage && TakeOff(object)) {
+			logger::info(
+				"use: [{}] \"{}\" was already on -- taken off",
+				KeyLabel(spot.slot),
+				RE::TESFullName::GetFullName(*object));
+			if (g_closeAfterUse) {
+				if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+					queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
+				}
+			}
+			return;
 		}
 
 		const auto used = use::Quickkey(static_cast<std::uint32_t>(spot.slot));
