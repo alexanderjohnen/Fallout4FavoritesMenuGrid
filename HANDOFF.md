@@ -1782,3 +1782,44 @@ ihm, und damit auch die geladenen Klassen — `icons::Release` räumt den Loader
 weg, bevor das Movie geht.
 
 Neue Einstellung `[Display] IconLibrary`, leer schaltet Symbole ab.
+
+## 30. Der Loader schweigt, also wird er gefragt (2026-09-06)
+
+```
+icons: asked for FallUI_IconLib.swf
+icons: nothing arrived in 600 frames -- 0 bytes of 0
+```
+
+`0 von 0` heißt: der Ladevorgang ist **nie angelaufen**. Warum, sagen Bytes
+nicht — und das war der Fehler im ersten Anlauf. Ein Loader hat Ereignisse, und
+die tragen den Grund in Worten.
+
+### Aus C++ eine Funktion machen, die ActionScript aufrufen kann
+
+`Scaleform::GFx::Movie::CreateFunction(Value*, FunctionHandler*)` — ein
+`FunctionHandler` ist eine Klasse mit einer einzigen virtuellen Methode `Call`,
+und was dabei herauskommt, lässt sich an `addEventListener` übergeben wie jede
+andere Funktion. Damit hängen jetzt `complete`, `ioError` und `securityError`
+am `contentLoaderInfo`, und die Fehlermeldung steht im Klartext im Log.
+
+Der Handler ist ein **statisches** Objekt: `CreateFunction` behält eine
+Referenz, solange der Listener hängt, und ein Objekt pro Menüöffnung neu
+anzulegen wäre ein Leck mit Ansage. Geschrieben wird darin nur, *was* passiert
+ist; gehandelt wird ein Bild später in `Poll`, wo das Menü nachweislich noch
+steht.
+
+### Und der Pfad wird nicht mehr geraten
+
+Zwei Dinge auf einmal:
+
+- **Das Movie sagt selbst, woher es kam.** `root.loaderInfo.url` steht jetzt
+  im Log — damit ist klar, welche Form ein Pfad in diesem Player hat, und das
+  ist genau die Frage, die Raten nicht beantwortet.
+- **Vier Formen werden der Reihe nach probiert**, wenn der Name keinen
+  Schrägstrich enthält: `FallUI_IconLib.swf`, `Interface/…`, `../…`,
+  `Data/Interface/…`. Ein `ioError` schaltet zur nächsten weiter, ein
+  `complete` beendet die Suche. Ist der Name mit Pfad angegeben, wird genau
+  der genommen und nichts geraten.
+
+Ein Nebenbefund steht auch schon fest: `loader.load(...)` meldet, ob der Aufruf
+selbst durchging. Ging er nicht durch, liegt es nicht am Pfad.
