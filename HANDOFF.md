@@ -1990,3 +1990,88 @@ Das ist eine Grenze, die dokumentiert gehört: was das Grid beansprucht, wird
 nur dem genommen, was durch die Eingabekette des Spiels läuft. Gegen eine Mod
 mit `GetAsyncKeyState` hilft das nicht, und deshalb ist jede Vorgabe hier
 besser keine Buchstabentaste.
+
+## 33. Was die Zahlen sagen sollten (2026-09-06)
+
+Die Symbole stehen, die Zeile steht, und beim Lesen fiel auf, was daran noch
+nicht stimmt.
+
+### `DMG 1` bei Dynamit
+
+`attackDamage` ist bei einer Wurfwaffe der Schaden, den der geworfene
+Gegenstand macht, **wenn er jemanden trifft** — nicht die Explosion. Deshalb
+stand da 1, und eine 1 neben einer Granate lässt einen Leser jeder anderen Zahl
+auf dem Panel misstrauen.
+
+Der Weg zur echten Zahl ist eine Kette aus reinen Datenlesungen:
+
+```
+InstanceData.rangedData->overrideProjectile      (sonst ammo->data.projectile)
+   -> BGSProjectile::data.explosionType
+   -> BGSExplosion::data.damage
+```
+
+Genommen wird sie nur bei `WEAPON_TYPE::kGrenade` und `kMine`; bei allem
+anderen bleibt `attackDamage` richtig.
+
+### `ER 0` war eine Fehllesung, keine Rüstung ohne Widerstand
+
+Der Wert in `damageTypes` steckt in einer `union SharedVal` aus Ganzzahl und
+Float, und nirgends steht, welche Hälfte gemeint ist. Ich hatte das Float
+gelesen. Das Float einer Ganzzahl ist eine **Denormale** — eine Zahl knapp über
+null —, also kam sie durch die „größer als null"-Prüfung und wurde als `0`
+gedruckt. Genau so sah es aus wie eine Rüstung ohne Widerstand statt wie ein
+Lesefehler.
+
+Jetzt wird die **Ganzzahl** gelesen, und das Float nur dort, wo die Ganzzahl
+keine sein kann: ein echter Widerstand ist eine kleine Zahl, alles über 100000
+ist die andere Hälfte, die durchscheint. Nullen fallen ganz weg — der Pip-Boy
+zählt jede Art auf, weil er für jede eine Spalte hat; eine Zeile muss ihre
+Wörter verdienen.
+
+### Das Blättern im Pip-Boy war ein glatter Verlust
+
+Abschnitt 23 hat die Seitentasten abgeschaltet, „weil das Grid sie überflüssig
+macht". Das stimmt **nur, solange das Grid offen ist**. Im Pip-Boy schreibt
+„Favorit zuweisen" in die Seite, die die Engine gerade hält — ohne die Tasten
+kann man also nur noch auf eine einzige Seite zuweisen.
+
+Jetzt sind sie überall aktiv außer bei offenem Grid, und dort, wo das Panel die
+Seite nicht zeigen kann, sagt es die Eckmeldung des Spiels: `PageMessage` leer
+heißt jetzt nicht mehr „nie", sondern „nur wenn man es sonst nicht sehen
+könnte". Ein lautloser Seitenwechsel im Pip-Boy ist eine Falle.
+
+### Die Tastenleiste
+
+Unter dem Panel steht jetzt, worauf es hört — `WASD) MOVE   E) USE   INS) PICK
+UP   DEL) CLEAR   TAB) CLOSE` —, gebaut aus den Tasten, wie sie **tatsächlich
+gebunden** sind. `KeyHintExtra` ist freier Text, weil die Schließtaste dem
+Spiel gehört und nicht uns: was das Menü geöffnet hat, schließt es auch.
+
+Dazu `KeyRowGap`: Tastennamen und erste Zellenreihe standen ein Haar
+auseinander und lasen sich als ein gedrängter Block.
+
+### Zur Schriftfrage
+
+Alles auf dem Panel wird in derselben Schrift geschrieben, und die kommt aus
+dem Menü selbst: `Cross_mc.GetEntryClip(0).Quickkey_tf.getTextFormat().font`,
+also **AIN_Font_Bold** — dieselbe, die das Spiel für seine eigenen
+Tastennummern nimmt. Sie wird bei jedem Öffnen frisch gemessen und ist damit
+immer eine, die der Spieler wirklich hat. Neu: das steht jetzt einmal im Log,
+und `GridFont` kann sie überschreiben. Falls die Zahlen links und oben anders
+aussehen, liegt es nicht an der Schrift, sondern an der Größe.
+
+### Was offen bleibt
+
+**Symbole in der Zeile.** Der Wunsch — Munitionstyp, Widerstände, Schadensart
+je mit eigenem Zeichen, so wie die Karte im Pip-Boy — braucht mehr als ein
+Textfeld: die Zeile müsste aus Abschnitten gebaut werden, jeder mit optionalem
+Symbol, jeder gemessen (`textWidth`) und zusammen mittig gesetzt. Das Symbol
+für die Munition ist dabei das einfache, weil Munition ein Gegenstand mit Namen
+ist und damit durch dieselbe Tag-Kette läuft wie alles andere. Widerstände und
+Schadensarten haben in FIS keine Zeichen; die des Pip-Boys liegen in seiner
+eigenen SWF.
+
+**Die Zeile „Powerful | Quick | Instigating".** Die legendäre Wirkung und die
+Modnamen, die der Pip-Boy unter dem Namen zeigt. Sie kommen aus den
+Instanznamensregeln des Gegenstands und sind der nächste ernsthafte Brocken.

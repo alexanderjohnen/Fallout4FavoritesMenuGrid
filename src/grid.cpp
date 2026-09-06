@@ -22,6 +22,7 @@ namespace
 		double detailSize{ 11.0 };
 		double titleHeight{ 18.0 };
 		double keyRowHeight{ 22.0 };
+		double hintHeight{ 0.0 };
 		std::size_t nameRoom{ 10 };
 	};
 
@@ -40,6 +41,9 @@ namespace
 	// ammunition line in a smaller face rather than a dimmer one, but the
 	// game has a backdrop behind it and we have the wasteland.
 	constexpr double kDetailAlpha = 0.75;
+	// The key line is a reminder rather than a statement, and sits quieter
+	// still.
+	constexpr double kHintAlpha = 0.6;
 
 	// The marked cell: the same plate with more light in it.
 	constexpr double kMarkFillAlpha = 0.18;
@@ -67,6 +71,7 @@ namespace
 		m.titleSize = floorAt(a_cell * 0.27, 10.0);
 		m.titleHeight = m.titleSize + 5.0;
 		m.keyRowHeight = m.keySize + m.gap + 2.0;
+		m.hintHeight = 0.0;
 		// Roughly what fits at this size in a condensed face.
 		m.nameRoom = static_cast<std::size_t>(
 			std::max(4.0, a_cell / (m.nameSize * 0.48)));
@@ -592,9 +597,11 @@ void grid::Draw(
 	m.titleSize = a_where.labelSize;
 	m.detailSize = a_where.detailSize;
 	m.titleHeight = m.titleSize + m.detailSize + m.gap * 2.0;
+	m.keyRowHeight = m.keySize + a_where.keyRowGap;
+	m.hintHeight = a_where.hint.empty() ? 0.0 : a_where.hintSize + m.gap * 2.0;
 	const auto width = PanelWidth(m);
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
-		RowHeight(m) * static_cast<double>(a_pages.size());
+		RowHeight(m) * static_cast<double>(a_pages.size()) + m.hintHeight;
 
 	// In the middle of the screen by default, where the eye already is.
 	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
@@ -729,6 +736,22 @@ void grid::Draw(
 			Fill(graphics, cellLeft, rowTop, m.cell, m.cell, a_color, kCellAlpha);
 			Symbol(a_canvas, a_pages[row][slot], cellLeft, rowTop, m, a_where);
 		}
+	}
+
+	// The keys, under the panel, the way the game writes its own along the
+	// bottom of a screen. A grid that answers to five keys and says none of
+	// them is a grid nobody finds the keys of.
+	if (!a_where.hint.empty()) {
+		Label(
+			a_canvas,
+			a_font,
+			a_where.hint,
+			0.0,
+			RowTop(m, a_pages.size()) + m.gap,
+			width,
+			a_where.hintSize,
+			a_color,
+			kHintAlpha);
 	}
 
 	// The chosen cell, drawn once and afterwards only moved. It is added

@@ -65,6 +65,16 @@ namespace
 	// Whether cells carry icons at all.
 	bool g_useIcons = true;
 
+	// The line of keys under the panel, and whatever else should stand in it.
+	// The closing key belongs to the game rather than to us -- it is whatever
+	// the player bound the favorites menu to -- so it is text, not a binding.
+	bool g_showHint = true;
+	std::string g_hintExtra = "TAB) CLOSE";
+
+	// Empty means the font the cross labels its own keys with, which is the
+	// game's own and always present.
+	std::string g_gridFont;
+
 	// And whether something nobody has a symbol for still gets one, by what
 	// kind of thing it is.
 	bool g_iconFallback = true;
@@ -150,6 +160,52 @@ namespace
 		buffer.resize(length);
 		return std::filesystem::path(buffer).parent_path() / L"Data" / L"F4SE" /
 			L"Plugins" / L"FavoritesMenuGrid.ini";
+	}
+
+	// The other direction from ParseVirtualKey: what to call a key on screen.
+	// Short, the way the game labels its own -- "E)" and "INS)", not
+	// "E key" -- because the line has twelve cells' worth of width and five
+	// things to say in it.
+	[[nodiscard]] std::string KeyName(int a_key)
+	{
+		if ((a_key >= 'A' && a_key <= 'Z') || (a_key >= '0' && a_key <= '9')) {
+			return std::string(1, static_cast<char>(a_key));
+		}
+		if (a_key >= VK_F1 && a_key <= VK_F24) {
+			return std::format("F{}", a_key - VK_F1 + 1);
+		}
+		switch (a_key) {
+		case VK_RETURN:
+			return "ENTER";
+		case VK_ESCAPE:
+			return "ESC";
+		case VK_SPACE:
+			return "SPACE";
+		case VK_TAB:
+			return "TAB";
+		case VK_INSERT:
+			return "INS";
+		case VK_DELETE:
+			return "DEL";
+		case VK_PRIOR:
+			return "PGUP";
+		case VK_NEXT:
+			return "PGDN";
+		case VK_HOME:
+			return "HOME";
+		case VK_END:
+			return "END";
+		case VK_UP:
+			return "UP";
+		case VK_DOWN:
+			return "DOWN";
+		case VK_LEFT:
+			return "LEFT";
+		case VK_RIGHT:
+			return "RIGHT";
+		default:
+			return {};
+		}
 	}
 
 	// Data\Interface, where every menu movie and every sorter configuration
@@ -368,6 +424,20 @@ namespace
 				L"Display", L"LabelDetailSize", 22, path.c_str())),
 			8,
 			72);
+		g_showHint =
+			GetPrivateProfileIntW(L"Display", L"ShowKeyHints", 1, path.c_str()) != 0;
+		g_hintExtra = ReadText(path, L"Display", L"KeyHintExtra", L"TAB) CLOSE");
+		g_gridFont = ReadText(path, L"Display", L"GridFont", L"");
+		g_gridWhere.hintSize = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Display", L"KeyHintSize", 18, path.c_str())),
+			8,
+			48);
+		g_gridWhere.keyRowGap = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Display", L"KeyRowGap", 8, path.c_str())),
+			0,
+			64);
 		g_gridWhere.iconFit = std::clamp(
 			static_cast<int>(
 				GetPrivateProfileIntW(L"Display", L"IconFit", 78, path.c_str())),
@@ -965,6 +1035,10 @@ namespace
 	std::vector<Page> g_pages;
 	std::size_t g_currentPage = 0;
 
+	// Whether the favorites menu is open, for the input thread to read. The
+	// UI's own answer needs the UI thread.
+	std::atomic_bool g_favoritesMenuOpen{ false };
+
 	// The cell the grid is pointing at. Empty until the pointer finds one or
 	// a key is pressed: a menu that opens with something already chosen
 	// invites using it by accident.
@@ -1007,11 +1081,21 @@ namespace
 	// Says which page is being played, in the game's own corner message.
 	void AnnouncePage()
 	{
-		if (g_pageMessage.empty()) {
-			return;
+		// With the grid up the panel says which page is which by showing all
+		// of them, so nothing has to be announced. Everywhere else -- the
+		// Pip-Boy above all, where a favorite is assigned into whichever page
+		// the engine holds -- the player has no way at all to see it, and a
+		// silent page switch there is a trap. So the corner message is on by
+		// default in exactly that case.
+		auto lead = g_pageMessage;
+		if (lead.empty()) {
+			if (g_useGrid && g_favoritesMenuOpen.load()) {
+				return;
+			}
+			lead = g_indicatorText.empty() ? "Favorites" : g_indicatorText;
 		}
-		const auto line = std::format(
-			"{} {} / {}", g_pageMessage, g_currentPage + 1, g_pages.size());
+		const auto line =
+			std::format("{} {} / {}", lead, g_currentPage + 1, g_pages.size());
 		RE::SendHUDMessage::ShowHUDMessage(line.c_str(), nullptr, false, false);
 	}
 
@@ -1387,6 +1471,48 @@ namespace
 		}
 	}
 
+	// The line under the panel, built from the keys as they are actually
+	// bound rather than from what they were bound to when this was written.
+	[[nodiscard]] std::string BuildHint()
+	{
+		if (!g_showHint) {
+			return {};
+		}
+
+		std::string line;
+		const auto add = [&line](const std::string& a_key, std::string_view a_what) {
+			if (a_key.empty()) {
+				return;
+			}
+			if (!line.empty()) {
+				line += "      ";
+			}
+			line += std::format("{}) {}", a_key, a_what);
+		};
+
+		// Walking first: it is the one thing a player will try without being
+		// told, and seeing it named says the rest of the line is trustworthy.
+		const auto up = KeyName(g_gridKeys.pageUp);
+		const auto left = KeyName(g_gridKeys.slotLeft);
+		const auto down = KeyName(g_gridKeys.pageDown);
+		const auto right = KeyName(g_gridKeys.slotRight);
+		if (!up.empty() && !left.empty() && !down.empty() && !right.empty()) {
+			add(up + left + down + right, "MOVE");
+		}
+
+		add(KeyName(g_gridKeys.use), "USE");
+		add(KeyName(g_gridKeys.move), "PICK UP");
+		add(KeyName(g_gridKeys.clear), "CLEAR");
+
+		if (!g_hintExtra.empty()) {
+			if (!line.empty()) {
+				line += "      ";
+			}
+			line += g_hintExtra;
+		}
+		return line;
+	}
+
 	// Which icon libraries the page being drawn actually needs. Only these
 	// are asked for: a player with a dozen addon libraries installed has no
 	// use for eleven of them on any given screen.
@@ -1457,11 +1583,28 @@ namespace
 		}
 
 		// Whatever the marker measured, or the cross's own font if the
-		// marker is switched off and nothing has been measured yet.
+		// marker is switched off and nothing has been measured yet. Reported
+		// once: everything on the panel is written in it, and a font that
+		// quietly fell back to the player's default would look like a design
+		// decision rather than a miss.
 		auto font = g_indicatorFontInUse;
 		if (font == "?") {
 			font = CrossFont(cross);
 		}
+		if (!g_gridFont.empty()) {
+			font = g_gridFont;
+		}
+		static bool saidFont = false;
+		if (!saidFont) {
+			saidFont = true;
+			logger::info(
+				"grid: everything is written in \"{}\", taken from {}",
+				font,
+				g_gridFont.empty() ? "the cross's own key labels" : "the INI");
+		}
+
+		// The keys, so the line under the panel can name them.
+		g_gridWhere.hint = BuildHint();
 
 		// Drawn on the HUD by default: the favorites menu only paints a
 		// strip around its own cross, so anything of ours outside that never
@@ -1921,6 +2064,13 @@ namespace
 		GoToPage(wanted);
 	}
 
+	// Whether the panel is on screen. Read from the input thread, so it asks
+	// the one thing that is safe to ask there.
+	[[nodiscard]] bool GridIsShowing()
+	{
+		return g_useGrid && g_favoritesMenuOpen.load();
+	}
+
 	// From the input thread. Everything the actions do touches Scaleform or
 	// the inventory, so none of it happens here.
 	void OnAction(input::Action a_action)
@@ -2167,14 +2317,16 @@ namespace
 			if (tasks && rotate && !previousRotate) {
 				tasks->AddUITask([]() { RotateFavorites(); });
 			}
-			// Turning pages by hand is what the grid did away with: every
-			// cell of every page is one move from the pointer or the keys,
-			// and using one turns to its page on the way. The keys stay for
-			// anyone who runs with UseGrid=0 and the vanilla cross.
-			if (tasks && !g_useGrid && nextPage && !previousNext) {
+			// Turning pages by hand is what the grid did away with -- while
+			// the grid is up. Everywhere else the keys still matter, and the
+			// Pip-Boy is the place it matters most: assigning a favorite
+			// there writes into whichever page the engine holds, so without
+			// these keys a player could only ever assign to one of them.
+			// Switching them off outright was a straight loss.
+			if (tasks && !GridIsShowing() && nextPage && !previousNext) {
 				tasks->AddUITask([]() { TurnPage(1); });
 			}
-			if (tasks && !g_useGrid && previousPage && !previousBack) {
+			if (tasks && !GridIsShowing() && previousPage && !previousBack) {
 				tasks->AddUITask([]() { TurnPage(-1); });
 			}
 			// Reading memory only, so this one needs no UI task.
@@ -2210,6 +2362,7 @@ namespace
 			if (a_event.menuName == favoritesMenu) {
 				logger::info(
 					"FavoritesMenu {}", a_event.opening ? "opened" : "closed");
+				g_favoritesMenuOpen = a_event.opening;
 
 				// The field belongs to the movie that is going away, so it
 				// is dropped on close and built again on the next open.

@@ -73,10 +73,8 @@ namespace
 		a_line += a_piece;
 	}
 
-	// The resistances a damage type list carries, named by the actor value
-	// each one resists: "Damage Resistance", "Energy Resistance". The short
-	// form is the first letter of each word, which is how the Pip-Boy's own
-	// headers read once they run out of room.
+	// The initials of a resistance's name: "Energy Resistance" becomes ER,
+	// which is how the Pip-Boy's own headers read once they run out of room.
 	[[nodiscard]] std::string Initials(std::string_view a_name)
 	{
 		std::string initials;
@@ -87,8 +85,8 @@ namespace
 				continue;
 			}
 			if (atStart) {
-				initials.push_back(
-					static_cast<char>(std::toupper(static_cast<unsigned char>(character))));
+				initials.push_back(static_cast<char>(
+					std::toupper(static_cast<unsigned char>(character))));
 				atStart = false;
 			}
 		}
@@ -97,6 +95,26 @@ namespace
 
 	using ValuePairs =
 		RE::BSTArray<RE::BSTTuple<RE::TESForm*, RE::BGSTypedFormValuePair::SharedVal>>;
+
+	// The value in one of those pairs is a union of an integer and a float,
+	// and which half is meant is not written down anywhere. Reading the float
+	// half of an integer gives a denormal -- a number just above zero, which
+	// printed as "ER 0" and looked like an armour with no resistance rather
+	// than like a misreading. So the integer is the answer, and the float is
+	// only trusted where the integer cannot be one: a real resistance is a
+	// small number, and anything above this is the other half showing through.
+	constexpr std::uint32_t kNotAnAmount = 100000;
+
+	[[nodiscard]] float AmountOf(RE::BGSTypedFormValuePair::SharedVal a_value)
+	{
+		if (a_value.i < kNotAnAmount) {
+			return static_cast<float>(a_value.i);
+		}
+		const auto asFloat = a_value.f;
+		return std::isfinite(asFloat) && asFloat < static_cast<float>(kNotAnAmount)
+			? asFloat
+			: 0.0F;
+	}
 
 	void AddResistances(std::string& a_line, const ValuePairs* a_types)
 	{
@@ -109,10 +127,10 @@ namespace
 			if (!resisted) {
 				continue;
 			}
-			// The value is a float in this pair -- the same union carries an
-			// integer for other users of it, and reading the wrong half of a
-			// union gives a number that looks like an address.
-			const auto value = pair.second.f;
+			// A resistance of nothing is not worth the room it takes. The
+			// Pip-Boy lists every kind because it has a column for each;
+			// one line has to earn its words.
+			const auto value = AmountOf(pair.second);
 			if (value <= 0.0F) {
 				continue;
 			}
@@ -122,6 +140,27 @@ namespace
 					Initials(RE::TESFullName::GetFullName(*resisted)),
 					Number(value)));
 		}
+	}
+
+	// What a thing does when it goes off, rather than what it does when you
+	// hit somebody with it. A grenade's own attack damage is 1 -- that is the
+	// thrown object striking a body -- and reading it out as the damage was
+	// the sort of number that makes a reader distrust every other number on
+	// the panel.
+	[[nodiscard]] float ExplosionDamage(
+		const RE::TESObjectWEAP::InstanceData* a_data)
+	{
+		const RE::BGSProjectile* projectile = nullptr;
+		if (a_data->rangedData) {
+			projectile = a_data->rangedData->overrideProjectile;
+		}
+		if (!projectile && a_data->ammo) {
+			projectile = a_data->ammo->data.projectile;
+		}
+		if (!projectile || !projectile->data.explosionType) {
+			return 0.0F;
+		}
+		return projectile->data.explosionType->data.damage;
 	}
 
 	void DescribeWeapon(
@@ -135,16 +174,23 @@ namespace
 			? static_cast<const RE::TESObjectWEAP::InstanceData*>(a_instance)
 			: &a_weapon->weaponData;
 
-		if (data->attackDamage > 0) {
+		const auto thrown = data->type == RE::WEAPON_TYPE::kGrenade ||
+			data->type == RE::WEAPON_TYPE::kMine;
+		const auto blast = thrown ? ExplosionDamage(data) : 0.0F;
+
+		if (blast > 0.0F) {
+			Add(a_line, std::format("DMG {}", Number(blast)));
+		} else if (data->attackDamage > 0 && !thrown) {
 			Add(a_line, std::format("DMG {}", data->attackDamage));
 		}
 
+		// Ammunition, and how much of it is left -- the one number a player
+		// reaches for a weapon to find out.
 		if (const auto* ammo = data->ammo) {
-			auto name = std::string(RE::TESFullName::GetFullName(*ammo));
+			const auto name = std::string(RE::TESFullName::GetFullName(*ammo));
 			const auto held = Find(const_cast<RE::TESAmmo*>(ammo)).count;
 			Add(a_line,
-				held > 0 ? std::format("{} {}", WithoutTag(name, true), held)
-						 : std::string(WithoutTag(name, true)));
+				std::format("{} ({})", WithoutTag(name, true), held));
 		}
 
 		AddResistances(a_line, data->damageTypes);

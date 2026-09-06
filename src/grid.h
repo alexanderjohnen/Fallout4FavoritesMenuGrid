@@ -82,6 +82,15 @@ namespace grid
 		double labelSize{ 28.0 };
 		double detailSize{ 22.0 };
 
+		// The line of keys under the panel, in the shape the game writes its
+		// own: "E) USE   INS) MOVE". Empty leaves it off.
+		std::string hint;
+		double hintSize{ 18.0 };
+
+		// How far the first row of cells stands below the key names. The two
+		// were a hair apart and read as one crowded block.
+		double keyRowGap{ 8.0 };
+
 		// How much of a cell an icon fills, with its proportions kept. The
 		// game's own cell gives its icon nearly the whole square; a little
 		// air keeps the plates readable as a lattice.
