@@ -445,7 +445,7 @@ namespace
 		g_gridFont = ReadText(path, L"Display", L"GridFont", L"");
 		g_gridWhere.hintSize = std::clamp(
 			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"KeyHintSize", 18, path.c_str())),
+				GetPrivateProfileIntW(L"Display", L"KeyHintSize", 14, path.c_str())),
 			8,
 			48);
 		g_gridWhere.corners =
@@ -462,7 +462,7 @@ namespace
 			16);
 		g_gridWhere.cornerOutset = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerOutset", 3, path.c_str())),
+				L"Display", L"GridCornerOutset", 5, path.c_str())),
 			0,
 			64);
 		g_gridWhere.labelGap = std::clamp(

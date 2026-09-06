@@ -92,7 +92,7 @@ namespace grid
 		// heavier stroke reads as a border rather than as a mark.
 		double cornerArm{ 0.12 };       // of a cell
 		double cornerThickness{ 2.0 };  // stage units
-		double cornerOutset{ 3.0 };     // how far outside the cells they sit
+		double cornerOutset{ 5.0 };     // how far outside the cells they sit
 
 		// The air under the two lines, before the key names begin. A text
 		// field is taller than the size of the type in it -- there is room
@@ -109,7 +109,7 @@ namespace grid
 		// The line of keys under the panel, in the shape the game writes its
 		// own: "E) USE   INS) MOVE". Empty leaves it off.
 		std::string hint;
-		double hintSize{ 18.0 };
+		double hintSize{ 14.0 };
 
 		// How far the first row of cells stands below the key names. The two
 		// were a hair apart and read as one crowded block.
