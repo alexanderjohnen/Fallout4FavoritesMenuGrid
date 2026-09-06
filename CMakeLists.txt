@@ -40,6 +40,8 @@ find_package(spdlog REQUIRED CONFIG)
 add_library(
 	${PROJECT_NAME}
 	SHARED
+	src/detail.cpp
+	src/detail.h
 	src/grid.cpp
 	src/grid.h
 	src/icons.cpp

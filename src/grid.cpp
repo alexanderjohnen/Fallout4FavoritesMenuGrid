@@ -19,6 +19,7 @@ namespace
 		double keySize{ 9.0 };
 		double rowLabelSize{ 11.0 };
 		double titleSize{ 13.0 };
+		double detailSize{ 11.0 };
 		double titleHeight{ 18.0 };
 		double keyRowHeight{ 22.0 };
 		std::size_t nameRoom{ 10 };
@@ -34,6 +35,11 @@ namespace
 	// twelve numbers three times over are a pattern the eye has to read past
 	// to see what is actually there. A column is labelled at its head.
 	constexpr double kKeyTextSize = 0.36;
+
+	// The second line is the same colour, quieter. The game draws its own
+	// ammunition line in a smaller face rather than a dimmer one, but the
+	// game has a backdrop behind it and we have the wasteland.
+	constexpr double kDetailAlpha = 0.75;
 
 	// The marked cell: the same plate with more light in it.
 	constexpr double kMarkFillAlpha = 0.18;
@@ -133,10 +139,12 @@ namespace
 	RE::Scaleform::GFx::Value g_marker;
 	// And around the cell that has been picked up.
 	RE::Scaleform::GFx::Value g_holder;
-	// What the marked cell holds, written once above the grid. It is kept
-	// because the mark moves without the panel being drawn again -- the whole
-	// point of a mark that only moves.
+	// What the marked cell holds, above the grid: its name, and under it in a
+	// quieter size what it does. Both are kept, because the mark moves
+	// without the panel being drawn again -- the whole point of a mark that
+	// only moves.
 	RE::Scaleform::GFx::Value g_note;
+	RE::Scaleform::GFx::Value g_detail;
 	// Kept so the cross can be put back the way it was found.
 	RE::Scaleform::GFx::Value g_hiddenCross;
 
@@ -404,6 +412,7 @@ void grid::Release()
 	g_marker = RE::Scaleform::GFx::Value();
 	g_holder = RE::Scaleform::GFx::Value();
 	g_note = RE::Scaleform::GFx::Value();
+	g_detail = RE::Scaleform::GFx::Value();
 	// Without a panel there are no cells, and a hit test against the layout
 	// of a panel that is gone would answer for cells nobody can see.
 	g_rows = 0;
@@ -413,7 +422,6 @@ void grid::Draw(
 	RE::IMenu* a_canvas,
 	RE::IMenu* a_favorites,
 	const std::string& a_font,
-	const std::string& a_title,
 	const std::vector<Page>& a_pages,
 	const std::optional<Spot>& a_marked,
 	std::uint32_t a_color,
@@ -578,7 +586,12 @@ void grid::Draw(
 		return;
 	}
 
-	const auto m = MetricsFor(a_where.cellSize);
+	auto m = MetricsFor(a_where.cellSize);
+	// The two lines above the grid are the game's own sizes rather than a
+	// fraction of a cell, so the band they need is measured from them.
+	m.titleSize = a_where.labelSize;
+	m.detailSize = a_where.detailSize;
+	m.titleHeight = m.titleSize + m.detailSize + m.gap * 2.0;
 	const auto width = PanelWidth(m);
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size());
@@ -659,19 +672,22 @@ void grid::Draw(
 		Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
 	}
 
-	// Above the keys, the middle of the panel: what the mark is on. Built
-	// even when there is nothing to say, because the mark moves without the
-	// panel being drawn again and the field has to be there when it does.
+	// Above the keys, the middle of the panel: what the mark is on, and under
+	// it what it does. Built even when there is nothing to say, because the
+	// mark moves without the panel being drawn again and the fields have to
+	// be there when it does.
 	g_note = Label(
+		a_canvas, a_font, {}, 0.0, m.padding, width, m.titleSize, a_color, 1.0);
+	g_detail = Label(
 		a_canvas,
 		a_font,
-		a_title,
+		{},
 		0.0,
-		m.padding,
+		m.padding + m.titleSize + m.gap,
 		width,
-		m.titleSize,
+		m.detailSize,
 		a_color,
-		1.0);
+		kDetailAlpha);
 
 	// The twelve key names, once, at the head of their columns. They are the
 	// only thing on the panel that is the same on every page, so they are the
@@ -898,12 +914,16 @@ void grid::Mark(const std::optional<Spot>& a_spot)
 	g_marker.SetMember("visible", RE::Scaleform::GFx::Value(true));
 }
 
-void grid::Say(std::string_view a_text)
+void grid::Say(std::string_view a_name, std::string_view a_what)
 {
-	if (g_note.IsDisplayObject()) {
-		g_note.SetMember(
-			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
-	}
+	const auto write = [](RE::Scaleform::GFx::Value& a_field, std::string_view a_text) {
+		if (a_field.IsDisplayObject()) {
+			a_field.SetMember(
+				"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+		}
+	};
+	write(g_note, a_name);
+	write(g_detail, a_what);
 }
 
 void grid::Hold(const std::optional<Spot>& a_spot)

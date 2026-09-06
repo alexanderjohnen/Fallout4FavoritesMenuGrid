@@ -43,9 +43,9 @@ namespace grid
 	// keys, in two corners, is one too many.
 	//
 	// `a_font` is a font the menu really has -- which one is settled by
-	// measuring. `a_title` goes above the rows and says what the marked cell
-	// holds; it carried the word "Favorites" once, which said nothing a grid
-	// of favorites does not.
+	// measuring. What stands above the rows is written by Say, not handed to
+	// Draw: it changes as the mark moves, and the mark moves without the
+	// panel being drawn again.
 	struct Placement
 	{
 		// Below zero means "centred on the stage".
@@ -74,6 +74,14 @@ namespace grid
 		// where ours still hold a cut-off name.
 		double cellSize{ 48.0 };
 
+		// The two lines above the grid, in stage units. Fallout 4 draws its
+		// own item name at 28 and the line under it at 24, on the same
+		// 1280x720 stage -- so these are the game's own numbers rather than
+		// a fraction of a cell, and they stay readable when the cells are
+		// made small.
+		double labelSize{ 28.0 };
+		double detailSize{ 22.0 };
+
 		// How much of a cell an icon fills, with its proportions kept. The
 		// game's own cell gives its icon nearly the whole square; a little
 		// air keeps the plates readable as a lattice.
@@ -97,7 +105,6 @@ namespace grid
 		RE::IMenu* a_canvas,
 		RE::IMenu* a_favorites,
 		const std::string& a_font,
-		const std::string& a_title,
 		const std::vector<Page>& a_pages,
 		const std::optional<Spot>& a_marked,
 		std::uint32_t a_color,
@@ -113,10 +120,12 @@ namespace grid
 	// margin, or off the panel altogether -- a near miss is not a choice.
 	[[nodiscard]] std::optional<Spot> At(double a_x, double a_y);
 
-	// Writes above the grid what the marked cell holds. Separate from Draw
-	// because the mark moves without the panel being drawn again -- that is
-	// what makes following the pointer cheap.
-	void Say(std::string_view a_text);
+	// Writes above the grid what the marked cell holds: its name, and in a
+	// second, quieter line what it does -- damage and ammunition for a
+	// weapon, resistances for a piece of armour. Two lines because the game
+	// itself uses two, ItemName_tf over ItemAmmo_tf, and in the same
+	// proportion.
+	void Say(std::string_view a_name, std::string_view a_what);
 
 	// Marks the cell that has been picked up and is waiting to be put down
 	// somewhere else. Drawn apart from the mark, because while a cell is

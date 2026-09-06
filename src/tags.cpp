@@ -318,7 +318,209 @@ namespace
 		return {};
 	}
 
-	void ReadEvery(const std::filesystem::path& a_directory, int a_depth)
+
+	// ---- Auto-tagging ----------------------------------------------------
+	//
+	// A sorter only renames what its plugin covers, and a heavily modded game
+	// is mostly things it has never heard of -- which is why the weapons in
+	// this grid came out blank while the aid items did not. FIS answers that
+	// with two files, both named in its own <autoTagger> element:
+	//
+	//   an index    sections of four letters -- WEAP, ARMO, ALCH -- and under
+	//               each, a line of "[Tag]" followed by the exact item names
+	//               that get it, separated by 0x1f;
+	//   text rules  an INI of "some text=[Tag]" per section, tried in the
+	//               order they are written and matched as plain substrings.
+	//
+	// The index is exact and the rules are a net under it. That order is FIS's
+	// own and it matters: a rule saying "Grenade" would otherwise claim the
+	// Baseball Grenade that the index names precisely.
+
+	std::unordered_map<std::string, std::unordered_map<std::string, std::string>>
+		g_index;
+	std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>>
+		g_rules;
+
+	// What the sorter calls each kind of thing. Only the sections that appear
+	// in those files are worth naming; anything else has no rules to find.
+	[[nodiscard]] std::string_view SectionOf(RE::ENUM_FORM_ID a_formType)
+	{
+		switch (a_formType) {
+		case RE::ENUM_FORM_ID::kWEAP:
+			return "WEAP";
+		case RE::ENUM_FORM_ID::kARMO:
+			return "ARMO";
+		case RE::ENUM_FORM_ID::kALCH:
+			return "ALCH";
+		case RE::ENUM_FORM_ID::kAMMO:
+			return "AMMO";
+		case RE::ENUM_FORM_ID::kBOOK:
+			return "BOOK";
+		case RE::ENUM_FORM_ID::kNOTE:
+			return "NOTE";
+		case RE::ENUM_FORM_ID::kMISC:
+			return "MISC";
+		default:
+			return {};
+		}
+	}
+
+	[[nodiscard]] std::string WithoutBrackets(std::string_view a_tag)
+	{
+		if (a_tag.size() >= 2 && a_tag.front() == '[' && a_tag.back() == ']') {
+			return std::string(a_tag.substr(1, a_tag.size() - 2));
+		}
+		return std::string(a_tag);
+	}
+
+	// One line at a time, without a copy per line: these files run to a few
+	// hundred lines and are read once, but the same walk serves both of them.
+	void ForEachLine(
+		std::string_view a_text,
+		const std::function<void(std::string_view)>& a_visit)
+	{
+		std::size_t at = 0;
+		while (at <= a_text.size()) {
+			auto end = a_text.find('\n', at);
+			if (end == std::string_view::npos) {
+				end = a_text.size();
+			}
+			auto line = a_text.substr(at, end - at);
+			at = end + 1;
+			while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+				line.remove_suffix(1);
+			}
+			if (!line.empty()) {
+				a_visit(line);
+			}
+		}
+	}
+
+	void ReadIndex(const std::filesystem::path& a_path)
+	{
+		const auto text = ReadFile(a_path);
+		if (text.empty()) {
+			return;
+		}
+
+		std::string section;
+		ForEachLine(text, [&](std::string_view a_line) {
+			if (a_line.front() != '[') {
+				section = std::string(a_line);
+				return;
+			}
+			const auto close = a_line.find(']');
+			if (close == std::string_view::npos || section.empty()) {
+				return;
+			}
+			const auto keyword = WithoutBrackets(a_line.substr(0, close + 1));
+
+			// The names after it, one per unit separator.
+			auto rest = a_line.substr(close + 1);
+			while (!rest.empty()) {
+				if (rest.front() == '\x1f') {
+					rest.remove_prefix(1);
+					continue;
+				}
+				const auto next = rest.find('\x1f');
+				const auto name = rest.substr(0, next);
+				if (!name.empty()) {
+					g_index[section].insert_or_assign(Lowered(name), keyword);
+				}
+				if (next == std::string_view::npos) {
+					break;
+				}
+				rest.remove_prefix(next);
+			}
+		});
+	}
+
+	void ReadRules(const std::filesystem::path& a_path)
+	{
+		const auto text = ReadFile(a_path);
+		if (text.empty()) {
+			return;
+		}
+
+		std::string section;
+		ForEachLine(text, [&](std::string_view a_line) {
+			if (a_line.front() == ';') {
+				return;
+			}
+			if (a_line.front() == '[' && a_line.back() == ']') {
+				section = WithoutBrackets(a_line);
+				return;
+			}
+			const auto equals = a_line.find('=');
+			if (equals == std::string_view::npos || section.empty()) {
+				return;
+			}
+			const auto match = a_line.substr(0, equals);
+			const auto keyword = WithoutBrackets(a_line.substr(equals + 1));
+			if (!match.empty() && !keyword.empty()) {
+				g_rules[section].emplace_back(Lowered(match), keyword);
+			}
+		});
+	}
+
+	// Which language the player runs. These files come one per language, and
+	// matching English rules against German item names finds nothing at all
+	// -- quietly, which is the worst way to find nothing.
+	[[nodiscard]] std::string LanguageCode()
+	{
+		auto directory = logger::log_directory();
+		if (!directory) {
+			return "en";
+		}
+		const auto ini = directory->parent_path() / "Fallout4.ini";
+		std::wstring value(32, L' ');
+		value.resize(GetPrivateProfileStringW(
+			L"General",
+			L"sLanguage",
+			L"en",
+			value.data(),
+			static_cast<DWORD>(value.size()),
+			ini.c_str()));
+
+		std::string code;
+		for (const auto character : value) {
+			code.push_back(static_cast<char>(character));
+		}
+		return code.empty() ? "en" : Lowered(code);
+	}
+
+	// The <autoTagger> element names both files, with ${LANGUAGE_CODE} where
+	// the language goes.
+	void ReadAutoTagger(
+		std::string_view a_text,
+		const std::filesystem::path& a_interface)
+	{
+		static const std::string kLanguage = LanguageCode();
+		ForEachElement(a_text, "autoTagger", [&](std::string_view a_element) {
+			const auto fill = [&](std::string a_path) {
+				const std::string marker = "${LANGUAGE_CODE}";
+				const auto at = a_path.find(marker);
+				if (at != std::string::npos) {
+					a_path.replace(at, marker.size(), kLanguage);
+				}
+				return a_interface / std::filesystem::path(a_path);
+			};
+
+			const auto index = Attribute(a_element, "tagIndexFile");
+			if (!index.empty()) {
+				ReadIndex(fill(index));
+			}
+			const auto rules = Attribute(a_element, "tagTextMatchFile");
+			if (!rules.empty()) {
+				ReadRules(fill(rules));
+			}
+		});
+	}
+
+	void ReadEvery(
+		const std::filesystem::path& a_directory,
+		const std::filesystem::path& a_interface,
+		int a_depth)
 	{
 		std::error_code error;
 		if (a_depth < 0 || !std::filesystem::is_directory(a_directory, error)) {
@@ -328,7 +530,7 @@ namespace
 			std::filesystem::directory_iterator(a_directory, error)) {
 			if (entry.is_directory(error)) {
 				if (Lowered(entry.path().filename().string()) != "variations") {
-					ReadEvery(entry.path(), a_depth - 1);
+					ReadEvery(entry.path(), a_interface, a_depth - 1);
 				}
 				continue;
 			}
@@ -342,6 +544,7 @@ namespace
 			ReadColors(text);
 			ReadTags(text);
 			ReadVariations(text);
+			ReadAutoTagger(text, a_interface);
 		}
 	}
 
@@ -385,8 +588,10 @@ void tags::Load(const std::filesystem::path& a_interface)
 	// Three levels reach Interface\ItemSorter itself, a sorter's own folder
 	// beneath it, and the addon folder inside that.
 	g_variations.clear();
+	g_index.clear();
+	g_rules.clear();
 	const auto root = a_interface / "ItemSorter";
-	ReadEvery(root, 3);
+	ReadEvery(root, a_interface, 3);
 	ReadChosenVariations(a_interface);
 
 	for (auto& [keyword, icon] : g_icons) {
@@ -404,10 +609,22 @@ void tags::Load(const std::filesystem::path& a_interface)
 		}
 	}
 
+	std::size_t indexed = 0;
+	for (const auto& [section, names] : g_index) {
+		indexed += names.size();
+	}
+	std::size_t rules = 0;
+	for (const auto& [section, list] : g_rules) {
+		rules += list.size();
+	}
+
 	logger::info(
-		"tags: {} keywords out of {} libraries, read from {}",
+		"tags: {} keywords out of {} libraries, plus {} names and {} rules for "
+		"what no sorter renamed, read from {}",
 		g_icons.size(),
 		libraries,
+		indexed,
+		rules,
 		root.string());
 }
 
@@ -432,6 +649,47 @@ std::string_view tags::KeywordOf(std::string_view a_name)
 		keyword.remove_suffix(1);
 	}
 	return keyword;
+}
+
+std::string_view tags::AutoKeywordOf(
+	std::string_view a_name,
+	RE::ENUM_FORM_ID a_formType)
+{
+	const auto section = SectionOf(a_formType);
+	if (a_name.empty() || section.empty()) {
+		return {};
+	}
+
+	const auto lowered = Lowered(a_name);
+
+	// The index first: it names things exactly, and a rule saying "Grenade"
+	// would otherwise claim a Baseball Grenade the index knows by name.
+	if (const auto found = g_index.find(std::string(section));
+		found != g_index.end()) {
+		if (const auto name = found->second.find(lowered);
+			name != found->second.end()) {
+			return name->second;
+		}
+	}
+
+	const auto walk = [&lowered](const std::string& a_section) -> std::string_view {
+		const auto found = g_rules.find(a_section);
+		if (found == g_rules.end()) {
+			return {};
+		}
+		for (const auto& [match, keyword] : found->second) {
+			if (lowered.find(match) != std::string::npos) {
+				return keyword;
+			}
+		}
+		return {};
+	};
+
+	if (const auto keyword = walk(std::string(section)); !keyword.empty()) {
+		return keyword;
+	}
+	// FIS keeps a handful of corrections for what its own sections miss.
+	return walk("FIXES");
 }
 
 const tags::Icon* tags::Find(std::string_view a_keyword)

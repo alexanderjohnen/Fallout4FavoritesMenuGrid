@@ -48,6 +48,20 @@ namespace tags
 	// the bar is a subtitle rather than a second keyword.
 	[[nodiscard]] std::string_view KeywordOf(std::string_view a_name);
 
+	// The keyword an item would get if its name carries none.
+	//
+	// A sorter only renames what its plugin covers, and a heavily modded game
+	// is mostly things it has never heard of -- which is why the weapons in
+	// this grid came out blank while the aid items did not. FIS answers that
+	// with auto-tagging, and it is two files: an index of exact names per
+	// form type, and a list of text rules tried in order. Both are read where
+	// the player has them, and both are the player's own language.
+	//
+	// Empty when nothing matches, which is an ordinary answer.
+	[[nodiscard]] std::string_view AutoKeywordOf(
+		std::string_view a_name,
+		RE::ENUM_FORM_ID a_formType);
+
 	// What that keyword draws, or nothing.
 	[[nodiscard]] const Icon* Find(std::string_view a_keyword);
 

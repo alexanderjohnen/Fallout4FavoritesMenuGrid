@@ -17,6 +17,7 @@
 
 #include "PCH.h"
 
+#include "detail.h"
 #include "grid.h"
 #include "icons.h"
 #include "input.h"
@@ -64,6 +65,10 @@ namespace
 	// Whether cells carry icons at all.
 	bool g_useIcons = true;
 
+	// And whether something nobody has a symbol for still gets one, by what
+	// kind of thing it is.
+	bool g_iconFallback = true;
+
 	// The page that goes back into the engine's twelve keys when the menu
 	// closes, counted from 1. Zero leaves whatever page was last used there.
 	//
@@ -90,7 +95,13 @@ namespace
 	int g_clearKey = VK_DELETE;
 
 	// Picks a cell up and puts it down again somewhere else.
-	int g_moveKey = 'G';
+	//
+	// Not a letter, and that is deliberate: a mod that reads the keyboard
+	// directly -- the way this plugin's own page keys do -- never sees that a
+	// menu claimed the key, so a grenade went flying every time a cell was
+	// picked up. What the grid claims is only taken from things that go
+	// through the game's own input handlers.
+	int g_moveKey = VK_INSERT;
 
 	// The crosshair belongs to the HUD, and the HUD has no idea the favorites
 	// menu is open.
@@ -343,8 +354,20 @@ namespace
 		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
 		g_useIcons =
 			GetPrivateProfileIntW(L"Display", L"UseIcons", 1, path.c_str()) != 0;
+		g_iconFallback =
+			GetPrivateProfileIntW(L"Display", L"IconFallback", 1, path.c_str()) != 0;
 		g_gridWhere.iconColors =
 			GetPrivateProfileIntW(L"Display", L"IconColors", 1, path.c_str()) != 0;
+		g_gridWhere.labelSize = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Display", L"LabelSize", 28, path.c_str())),
+			8,
+			72);
+		g_gridWhere.detailSize = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Display", L"LabelDetailSize", 22, path.c_str())),
+			8,
+			72);
 		g_gridWhere.iconFit = std::clamp(
 			static_cast<int>(
 				GetPrivateProfileIntW(L"Display", L"IconFit", 78, path.c_str())),
@@ -958,7 +981,7 @@ namespace
 	// Defined with the rest of the choosing, further down: the panel has to
 	// be able to say what is marked while it is being drawn, and the marking
 	// needs the pages that are declared here.
-	[[nodiscard]] std::string Describe(const std::optional<grid::Spot>& a_spot);
+	[[nodiscard]] detail::Lines Describe(const std::optional<grid::Spot>& a_spot);
 
 	void EnsurePages()
 	{
@@ -1305,6 +1328,65 @@ namespace
 	// The page being played is not read out of the page list -- it lives in
 	// the inventory, where the player may have changed it since. Every other
 	// row comes from the list.
+	// What a thing gets when neither its name nor the sorter's own auto-tagging
+	// knows it. A mod-added weapon is nothing FIS has ever heard of, and a
+	// blank cell says less than a plain one saying "gun" -- the player knows
+	// what their own favorites are, they only need to find them again.
+	//
+	// Every keyword here is one FIS defines itself, so the artwork matches the
+	// rest of the grid rather than being a second style.
+	[[nodiscard]] std::string_view FallbackKeyword(RE::TESBoundObject* a_object)
+	{
+		switch (a_object->GetFormType()) {
+		case RE::ENUM_FORM_ID::kWEAP:
+			{
+				auto* weapon = a_object->As<RE::TESObjectWEAP>();
+				if (!weapon) {
+					return {};
+				}
+				switch (weapon->weaponData.type.get()) {
+				case RE::WEAPON_TYPE::kHandToHand:
+					return "Unarmed";
+				case RE::WEAPON_TYPE::kOneHandSword:
+				case RE::WEAPON_TYPE::kOneHandDagger:
+				case RE::WEAPON_TYPE::kOneHandAxe:
+				case RE::WEAPON_TYPE::kOneHandMace:
+					return "MeleeOneHand";
+				case RE::WEAPON_TYPE::kTwoHandSword:
+				case RE::WEAPON_TYPE::kTwoHandAxe:
+				case RE::WEAPON_TYPE::kBow:
+				case RE::WEAPON_TYPE::kStaff:
+					return "MeleeTwoHand";
+				case RE::WEAPON_TYPE::kGrenade:
+					return "Grenade";
+				case RE::WEAPON_TYPE::kMine:
+					return "Mine";
+				case RE::WEAPON_TYPE::kGun:
+				default:
+					// The engine knows guns as one kind, with nothing in it
+					// that separates a pistol from a rifle, so this is the
+					// rougher half of an already rough answer.
+					return "Rifle";
+				}
+			}
+
+		case RE::ENUM_FORM_ID::kARMO:
+			{
+				auto* armor = a_object->As<RE::TESObjectARMO>();
+				return armor && armor->armorData.rating > 0 ? "Armor" : "Clothes";
+			}
+
+		case RE::ENUM_FORM_ID::kALCH:
+			return "Aid";
+		case RE::ENUM_FORM_ID::kAMMO:
+			return "Ammo";
+		case RE::ENUM_FORM_ID::kNOTE:
+			return "Note";
+		default:
+			return {};
+		}
+	}
+
 	// Which icon libraries the page being drawn actually needs. Only these
 	// are asked for: a player with a dozen addon libraries installed has no
 	// use for eleven of them on any given screen.
@@ -1335,7 +1417,17 @@ namespace
 				if (!g_useIcons) {
 					continue;
 				}
-				if (const auto* icon = tags::Find(tags::KeywordOf(full))) {
+				// The tag in the name first; where a sorter never renamed the
+				// thing -- which is most of a heavily modded game -- the same
+				// answer the sorter's own auto-tagging would give.
+				auto keyword = tags::KeywordOf(full);
+				if (keyword.empty()) {
+					keyword = tags::AutoKeywordOf(full, object->GetFormType());
+				}
+				if (keyword.empty() && g_iconFallback) {
+					keyword = FallbackKeyword(object);
+				}
+				if (const auto* icon = tags::Find(keyword)) {
 					// The "m_" is the only translation between what the
 					// configuration writes and what the library exports.
 					cell.symbol = "m_" + icon->symbol;
@@ -1393,14 +1485,15 @@ namespace
 			canvas,
 			menu,
 			font,
-			Describe(g_marked),
 			pages,
 			g_marked,
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			g_gridWhere);
 
-		// The panel was built from scratch, so what was being carried has to
-		// be shown as carried again.
+		// The panel was built from scratch, so what was said above it and
+		// what was being carried have to be said and shown again.
+		const auto lines = Describe(g_marked);
+		grid::Say(lines.name, lines.what);
 		grid::Hold(g_held);
 	}
 
@@ -1544,29 +1637,11 @@ namespace
 		g_pointerY = std::numeric_limits<double>::lowest();
 	}
 
-	// How many of a thing the player carries, over all its stacks. The cross
-	// shows the count of the stack its key points at; a page that is not being
-	// played has no key to point with, so the whole of it is what can be said.
-	[[nodiscard]] std::uint32_t CarriedCount(RE::TESBoundObject* a_object)
-	{
-		std::uint32_t total = 0;
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (!a_object || !player || !player->inventoryList) {
-			return total;
-		}
-		player->inventoryList->ForEachStack(
-			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
-			[&](RE::BGSInventoryItem&, RE::BGSInventoryItem::Stack& a_stack) {
-				total += a_stack.count;
-				return true;
-			});
-		return total;
-	}
-
-	// What stands above the grid: the name of what is marked, and how many of
-	// it there are when there is more than one. Nothing at all when the mark
-	// is on an empty key -- an empty key needs no sentence.
-	[[nodiscard]] std::string Describe(const std::optional<grid::Spot>& a_spot)
+	// What the marked cell holds, in the two lines the game itself uses:
+	// the name, and under it what the thing does. Everything but the lookup
+	// lives in detail.cpp -- a weapon with mods on it is a different weapon
+	// from the one in the plugin, and that is its business, not this file's.
+	[[nodiscard]] detail::Lines Describe(const std::optional<grid::Spot>& a_spot)
 	{
 		if (!a_spot) {
 			return {};
@@ -1578,23 +1653,18 @@ namespace
 
 		// The page being played lives in the inventory, not in the list.
 		const auto live = ReadFavorites();
-		auto* object = a_spot->page == g_currentPage ? live[a_spot->slot].object
-													 : g_pages[a_spot->page][a_spot->slot];
-		if (!object) {
-			return {};
-		}
-
-		const auto name =
-			std::string(WithoutTag(RE::TESFullName::GetFullName(*object)));
-		const auto count = CarriedCount(object);
-		return count > 1 ? std::format("{}  ({})", name, count) : name;
+		auto* object = a_spot->page == g_currentPage
+			? live[a_spot->slot].object
+			: g_pages[a_spot->page][a_spot->slot];
+		return detail::Describe(object, g_stripItemTags);
 	}
 
 	void SetMark(const std::optional<grid::Spot>& a_spot)
 	{
 		g_marked = a_spot;
 		grid::Mark(g_marked);
-		grid::Say(Describe(g_marked));
+		const auto lines = Describe(g_marked);
+		grid::Say(lines.name, lines.what);
 	}
 
 	// Every frame the grid is up.

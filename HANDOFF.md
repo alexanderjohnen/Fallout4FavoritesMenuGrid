@@ -1913,3 +1913,80 @@ Dazu `GridWrap`: ob die Enden einer Reihe Türen oder Wände sind.
   Weg, der schon funktioniert.
 - Farben sind flach. Mehrfarbige Symbole verlieren dabei etwas; `IconColors=0`
   lässt sie weiß.
+
+## 32. Waffen, Werte und eine zu kleine Zeile (2026-09-06)
+
+Die Symbole standen — für Hilfsmittel, Granaten, Hut, Ringe. **Für Waffen
+nicht**, und der Grund stand längst in den Namen: `T60`, `Makeshift Scout
+Rifle`, `Sten Mk II` tragen **kein** `[Tag]`. FIS benennt nur um, was sein
+Plugin abdeckt.
+
+### Auto-Tagging, wie FallUI es macht
+
+`bAutoTagging = 1` in der MCM-Datei, und `<autoTagger>` nennt zwei Dateien:
+
+| | |
+| --- | --- |
+| `IndexedTags_${LANGUAGE_CODE}.txt` | Abschnitte aus vier Buchstaben (`WEAP`, `ARMO`, …), darunter `[Tag]` gefolgt von den **exakten** Namen, getrennt durch **0x1f** |
+| `AutoTags_${LANGUAGE_CODE}.ini` | `irgendein Text=[Tag]` je Abschnitt, **in der geschriebenen Reihenfolge** als Teilzeichenkette geprüft |
+
+Der Index zuerst, die Regeln als Netz darunter — das ist FIS' eigene Reihenfolge
+und sie zählt: eine Regel „Grenade" würde sonst die Baseball-Granate
+beanspruchen, die der Index namentlich kennt. Gegengeprüft an den echten
+Dateien: 2917 Namen, 299 Regeln, und `Makeshift Scout Rifle → Rifle` über die
+Regel `rifle`.
+
+Die Sprache kommt aus `sLanguage` in `Fallout4.ini`. Englische Regeln gegen
+deutsche Namen zu prüfen fände gar nichts — und zwar lautlos, was die
+schlechteste Art ist, nichts zu finden.
+
+### Und ein Netz darunter
+
+`Sten Mk II` und `T60` kennt auch das Auto-Tagging nicht: Mod-Gegenstände.
+`IconFallback` gibt ihnen trotzdem eines, nach Gegenstandsart — Schusswaffe →
+`Rifle`, Nahkampf nach Griffart, Rüstung → `Armor` oder `Clothes` je nach
+Rüstwert, Hilfsmittel → `Aid`. Alle diese Schlüsselwörter definiert FIS selbst,
+also passt die Zeichnung zum Rest statt ein zweiter Stil zu sein. Der grobe
+Fall ist die Schusswaffe: die Engine kennt Schusswaffen als **eine** Art,
+`WEAPON_TYPE::kGun`, ohne irgendetwas darin, das Pistole von Gewehr trennt.
+
+### Die Zeile über dem Gitter, zweimal so groß und mit Inhalt
+
+Aus `FavoritesMenu.swf` gemessen: `ItemName_tf` ist **AIN_Font_Bold, Größe 28**,
+`ItemAmmo_tf` ist **AIN_Font, Größe 24** — beides auf der 1280x720-Bühne.
+Unsere Zeile war `Zelle × 0.27`, also **13**. Deshalb wirkte sie zu klein: sie
+war es, um mehr als die Hälfte.
+
+Jetzt zwei Zeilen wie im Spiel, in Bühneneinheiten statt als Bruchteil der
+Zelle (`LabelSize`, `LabelDetailSize`) — so bleibt die Schrift lesbar, wenn
+jemand die Zellen klein macht.
+
+Was in der zweiten Zeile steht, kommt aus `src/detail.cpp`:
+
+- **Waffe:** `DMG` aus `attackDamage`, der Munitionsname und wieviel davon im
+  Inventar liegt, dazu Elementarschaden aus `damageTypes`.
+- **Rüstung:** die Widerstände aus `armorData.damageTypes`, jeder benannt nach
+  dem Aktorwert, den sein `BGSDamageType` schützt — abgekürzt auf die
+  Anfangsbuchstaben, so wie der Pip-Boy es tut, wenn ihm der Platz ausgeht.
+- **Alles andere:** die Anzahl.
+
+Wichtig dabei: **Instanzdaten vor Basisdaten**. Eine Waffe mit Mods ist eine
+andere Waffe als die im Plugin, und der Unterschied liegt im Stapel, als
+`ExtraInstanceData` mit einem `TBO_InstanceData` darin. Ohne das zeigte der
+Schaden immer den unmodifizierten Wert.
+
+**Ungeprüft und beim Testen anzusehen:** die Widerstandswerte kommen aus einer
+`union SharedVal`, die je nach Benutzer eine Ganzzahl oder ein Float führt.
+Gelesen wird das Float. Kommen Zahlen heraus, die wie Adressen aussehen, ist es
+die andere Hälfte.
+
+### G war eine schlechte Wahl
+
+Die Aufheben-Taste lag auf `G`, und das wirft Granaten — eine andere Mod liest
+die Taste **roh**, so wie der Seitenblätterer dieses Plugins es selbst tut, und
+sieht deshalb nie, dass ein Menü sie beansprucht hat. Jetzt `INSERT`.
+
+Das ist eine Grenze, die dokumentiert gehört: was das Grid beansprucht, wird
+nur dem genommen, was durch die Eingabekette des Spiels läuft. Gegen eine Mod
+mit `GetAsyncKeyState` hilft das nicht, und deshalb ist jede Vorgabe hier
+besser keine Buchstabentaste.
