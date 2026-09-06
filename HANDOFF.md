@@ -1587,3 +1587,92 @@ Powerrüstungs- und Warnfarben von selbst mitmachen. Dagegen sprach für heute
 nur, dass es ein Engine-Aufruf über eine Bibliotheks-ID mehr ist — und davon
 waren in diesem Projekt schon zwei falsch. Steht als Möglichkeit, nicht als
 Schuld.
+
+## 27. `UseQuickkeyItem` steht fest (2026-09-06)
+
+Der vollständige Dump von `FavoritesManager::OnButtonEvent` (0x126f930)
+beantwortet alles auf einmal:
+
+```
+ucomiss xmm0, [rdx+0x38]    ; value == 0 ?   -- gehandelt wird beim Loslassen
+comiss  xmm0, [rdx+0x3c]    ; heldDownSecs
+lea     rbx, [rcx - 0x10]   ; der Manager: das Eingabe-Subobjekt liegt bei 0x10
+mov     rcx, rdx
+call    [rax + 0x10]        ; event->QUserEvent()
+mov     rcx, rbx
+mov     rdx, rax
+call    0x1271480           ; -> Index 0..11, oder 12
+cmp     eax, 0xc
+je      ...                 ; keine Zifferntaste: Pipboy, Quickcontainer, ...
+...
+mov     rcx, rbx            ; der Manager
+mov     edx, eax            ; der Index
+call    0x126fcb0           ; [ID 303130]
+test    al, al              ; bool -- false, und das Spiel sagt es hörbar
+```
+
+Damit:
+
+| | |
+| --- | --- |
+| `FavoritesManager::UseQuickkeyItem` | `0x126fcb0`, **ID 303130**, `bool(FavoritesManager*, uint32)` |
+| `FavoritesManager::GetQuickkeyIndexFromString` | `0x1271480`, ID 1330478 |
+
+Und die Korrektur zu Abschnitt 23: `0x1271480` ist **kein** Typ-Klassifizierer,
+sondern die Übersetzung des Ereignisnamens in einen Index — es vergleicht
+`[rdi]` gegen zwölf internierte Zeichenketten (`Quickkey1`…). Der Absturz
+bleibt derselbe: ein Index statt eines `BSFixedString`-Zeigers.
+
+Die ID ist jetzt fest verdrahtet; `[Debug] UseQuickkeyID` und `UseQuickkeyRVA`
+bleiben als Überschreibung stehen. Das `bool` wird protokolliert und **das Menü
+bleibt offen, wenn das Spiel nein sagt** — es hat gerade hörbar abgelehnt, und
+darauf zu schließen sähe aus, als wäre etwas passiert.
+
+### Benutzen liegt jetzt auf E und Return
+
+`E` ist, wonach die Hand greift — es aktiviert in diesem Spiel alles andere —
+und Return ist, worauf ein Menü hört. `[Controls] GridUseKey` und
+`GridUseAltKey`.
+
+### Der Name über dem Gitter
+
+Der Streifen, den der Titel freigemacht hat, trägt jetzt, was die markierte
+Zelle hält: Name ohne FIS-Tag, und die Anzahl, wenn es mehr als eine ist.
+Gezählt wird über **alle** Stapel — die gespielte Seite hat eine Taste, auf die
+das Kreuz zeigen könnte, die anderen haben keine.
+
+`grid::Say` steht neben `grid::Mark` und nicht in `Draw`: die Marke bewegt sich,
+ohne dass das Panel neu gezeichnet wird, und das ist der ganze Grund, warum das
+Folgen des Zeigers nichts kostet.
+
+### Das Crosshair, zweiter Anlauf
+
+`HUDCrosshair_mc` liegt auf diesem Rechner nicht an der Wurzel des HUD — der
+hält `SafeRect_mc`, vier Gruppen, einen `HUDMenuFwCore` aus M8rs Framework und
+drei namenlose Instanzen. Also wird jetzt **gesucht**, vier Ebenen tief, und der
+gefundene Pfad steht im Log.
+
+Dazu: mehrere Mods streiten sich hier um das Crosshair, und eine davon blendet
+es wieder ein. Einmal verstecken reicht darum nicht — es wird auf **jedem Bild**
+wieder heruntergedrückt, solange das Menü offen ist, und nur dann geschrieben,
+wenn es jemand zurückgeholt hat.
+
+### Symbole: eine Messung vor der Arbeit
+
+Die Kette aus Abschnitt 20 liegt vollständig auf der Platte
+(`Data\Interface\ItemSorter\`, `FallUI_IconLib.swf` mit 209 Symbolen). Offen ist
+genau eine Frage, und sie entscheidet den ganzen Weg:
+
+**Kann ein Movie ohne ActionScript ein Symbol einer fremden Bibliothek bauen?**
+
+`CreateObject` erzeugt eine Klasse, die die *eigene* Bibliothek des Movies
+registriert hat — und unsere hat 36 Bytes und registriert nichts. Der Verdacht
+ist also „nein". `[Debug] IconProbe` probiert einen Namen aus und schreibt ins
+Log, was zurückkam; kommt ein Anzeigeobjekt heraus, hängt es sichtbar in der
+ersten Zelle.
+
+Lautet die Antwort nein, ist der Weg: ein **`ImportAssets2`-Tag** in unsere SWF,
+genau so, wie `FavoritesMenu.swf` seine Schriften aus `fonts_en.swf` importiert.
+`tools/build_swf.py` schreibt rohe Tags, kann das also. Dann aber zwei Fassungen
+— eine mit Import, eine ohne — und beim Laden die passende wählen, sonst wird
+eine fehlende Bibliothek zur harten Abhängigkeit.

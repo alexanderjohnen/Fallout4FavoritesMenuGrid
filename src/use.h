@@ -32,6 +32,6 @@ namespace use
 	[[nodiscard]] bool Ready();
 
 	// The key index, 0 to 11. Runs on the UI thread, like everything that
-	// touches the inventory.
-	void Quickkey(std::uint32_t a_index);
+	// touches the inventory. False is the game's own no.
+	bool Quickkey(std::uint32_t a_index);
 }

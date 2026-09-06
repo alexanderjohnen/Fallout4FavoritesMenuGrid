@@ -128,6 +128,10 @@ namespace
 	// The outline around the chosen cell. A child of its own, so choosing
 	// costs a move rather than forty new text fields.
 	RE::Scaleform::GFx::Value g_marker;
+	// What the marked cell holds, written once above the grid. It is kept
+	// because the mark moves without the panel being drawn again -- the whole
+	// point of a mark that only moves.
+	RE::Scaleform::GFx::Value g_note;
 	// Kept so the cross can be put back the way it was found.
 	RE::Scaleform::GFx::Value g_hiddenCross;
 
@@ -238,7 +242,7 @@ namespace
 	// Adds a label to the panel. The font is handed in already measured --
 	// naming one the movie does not have draws a row of boxes, which this
 	// project has now learned twice.
-	void Label(
+	RE::Scaleform::GFx::Value Label(
 		RE::IMenu* a_canvas,
 		const std::string& a_font,
 		std::string_view a_text,
@@ -253,7 +257,7 @@ namespace
 		RE::Scaleform::GFx::Value field;
 		a_canvas->uiMovie->CreateObject(&field, "flash.text.TextField");
 		if (!field.IsDisplayObject()) {
-			return;
+			return field;
 		}
 
 		field.SetMember("selectable", RE::Scaleform::GFx::Value(false));
@@ -291,6 +295,7 @@ namespace
 		}
 
 		g_panel.Invoke("addChild", nullptr, &field, 1);
+		return field;
 	}
 }
 
@@ -308,6 +313,7 @@ void grid::Release()
 	}
 	g_panel = RE::Scaleform::GFx::Value();
 	g_marker = RE::Scaleform::GFx::Value();
+	g_note = RE::Scaleform::GFx::Value();
 	// Without a panel there are no cells, and a hit test against the layout
 	// of a panel that is gone would answer for cells nobody can see.
 	g_rows = 0;
@@ -482,14 +488,7 @@ void grid::Draw(
 		return;
 	}
 
-	auto m = MetricsFor(a_where.cellSize);
-	// No title, no band for one. The word "Favorites" over a grid of
-	// favorites says nothing the grid does not, and the space above the keys
-	// belongs to what is picked -- its name and its count -- as soon as
-	// there is something to put there.
-	if (a_title.empty()) {
-		m.titleHeight = 0.0;
-	}
+	const auto m = MetricsFor(a_where.cellSize);
 	const auto width = PanelWidth(m);
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size());
@@ -570,18 +569,19 @@ void grid::Draw(
 		Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
 	}
 
-	if (!a_title.empty()) {
-		Label(
-			a_canvas,
-			a_font,
-			a_title,
-			0.0,
-			m.padding,
-			width,
-			m.titleSize,
-			a_color,
-			1.0);
-	}
+	// Above the keys, the middle of the panel: what the mark is on. Built
+	// even when there is nothing to say, because the mark moves without the
+	// panel being drawn again and the field has to be there when it does.
+	g_note = Label(
+		a_canvas,
+		a_font,
+		a_title,
+		0.0,
+		m.padding,
+		width,
+		m.titleSize,
+		a_color,
+		1.0);
 
 	// The twelve key names, once, at the head of their columns. They are the
 	// only thing on the panel that is the same on every page, so they are the
@@ -627,6 +627,32 @@ void grid::Draw(
 				m.cell,
 				a_color,
 				kCellAlpha);
+		}
+	}
+
+	// Can this movie make a symbol out of an icon library? Everything about
+	// icons hangs on that one answer.
+	if (!a_where.iconProbe.empty()) {
+		RE::Scaleform::GFx::Value icon;
+		a_canvas->uiMovie->CreateObject(&icon, a_where.iconProbe.c_str());
+
+		static bool said = false;
+		if (!said) {
+			said = true;
+			logger::info(
+				"grid: \"{}\" came back as {}",
+				a_where.iconProbe,
+				icon.IsDisplayObject() ? "a display object"
+					: icon.IsObject()  ? "an object, but not one that can be drawn"
+									   : "nothing at all");
+		}
+
+		if (icon.IsDisplayObject()) {
+			icon.SetMember("x", RE::Scaleform::GFx::Value(CellLeft(m, 0)));
+			icon.SetMember("y", RE::Scaleform::GFx::Value(RowTop(m, 0)));
+			icon.SetMember("width", RE::Scaleform::GFx::Value(m.cell));
+			icon.SetMember("height", RE::Scaleform::GFx::Value(m.cell));
+			g_panel.Invoke("addChild", nullptr, &icon, 1);
 		}
 	}
 
@@ -797,4 +823,12 @@ void grid::Mark(const std::optional<Spot>& a_spot)
 	g_marker.SetMember(
 		"y", RE::Scaleform::GFx::Value(RowTop(g_metrics, a_spot->page)));
 	g_marker.SetMember("visible", RE::Scaleform::GFx::Value(true));
+}
+
+void grid::Say(std::string_view a_text)
+{
+	if (g_note.IsDisplayObject()) {
+		g_note.SetMember(
+			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+	}
 }

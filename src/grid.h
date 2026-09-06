@@ -41,8 +41,9 @@ namespace grid
 	// keys, in two corners, is one too many.
 	//
 	// `a_font` is a font the menu really has -- which one is settled by
-	// measuring. `a_title` goes above the rows, where the page marker would
-	// otherwise be.
+	// measuring. `a_title` goes above the rows and says what the marked cell
+	// holds; it carried the word "Favorites" once, which said nothing a grid
+	// of favorites does not.
 	struct Placement
 	{
 		// Below zero means "centred on the stage".
@@ -70,6 +71,15 @@ namespace grid
 		// on, and comes out wider than this one -- its cells hold icons,
 		// where ours still hold a cut-off name.
 		double cellSize{ 48.0 };
+
+		// One symbol name out of an icon library, tried on our own movie and
+		// hung on the first cell if it comes out a display object. The whole
+		// icon question turns on whether a movie with no ActionScript in it
+		// can make one at all -- CreateObject builds a class the movie's own
+		// library registers, and ours registers nothing. Measured rather than
+		// assumed, because the answer decides whether the library has to be
+		// imported into our SWF at build time.
+		std::string iconProbe;
 
 		// Which menu the panel is drawn on. The favorites menu paints only a
 		// strip around its own cross, so anything of ours outside that never
@@ -99,6 +109,11 @@ namespace grid
 	// Which cell a point falls on. Nothing when it lands in a gap, on the
 	// margin, or off the panel altogether -- a near miss is not a choice.
 	[[nodiscard]] std::optional<Spot> At(double a_x, double a_y);
+
+	// Writes above the grid what the marked cell holds. Separate from Draw
+	// because the mark moves without the panel being drawn again -- that is
+	// what makes following the pointer cheap.
+	void Say(std::string_view a_text);
 
 	// Picks a cell out. Cheap enough for every frame: the outline is a child
 	// of its own that only ever moves, so nothing is drawn again for it.

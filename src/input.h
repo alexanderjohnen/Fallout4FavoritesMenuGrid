@@ -37,7 +37,11 @@ namespace input
 		int pageDown{ 'S' };
 		int slotLeft{ 'A' };
 		int slotRight{ 'D' };
-		int use{ VK_RETURN };
+		// Two of them. E is what a player's hand reaches for, because it is
+		// what activates everything else in this game; Return is what a menu
+		// answers to. Neither is worth taking away from the other.
+		int use{ 'E' };
+		int useAlt{ VK_RETURN };
 
 		// The left mouse button uses whatever the pointer marks. Its own
 		// switch, because a pointer is the one part of this a player may

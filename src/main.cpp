@@ -263,6 +263,7 @@ namespace
 		read(L"Controls", L"GridLeftKey", g_gridKeys.slotLeft);
 		read(L"Controls", L"GridRightKey", g_gridKeys.slotRight);
 		read(L"Controls", L"GridUseKey", g_gridKeys.use);
+		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
 
 		read(L"Debug", L"InventoryProbeKey", g_inventoryKey);
 		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
@@ -294,6 +295,7 @@ namespace
 		g_gridWhere.inMenuRoot =
 			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
 		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
+		g_gridWhere.iconProbe = ReadText(path, L"Debug", L"IconProbe", L"");
 		g_gridWhere.cellSize = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
 				L"Display", L"GridCellSize", 48, path.c_str())),
@@ -891,6 +893,11 @@ namespace
 	void ShowPageIndicator();
 	void ShowGrid();
 
+	// Defined with the rest of the choosing, further down: the panel has to
+	// be able to say what is marked while it is being drawn, and the marking
+	// needs the pages that are declared here.
+	[[nodiscard]] std::string Describe(const std::optional<grid::Spot>& a_spot);
+
 	void EnsurePages()
 	{
 		if (g_pages.size() != static_cast<std::size_t>(g_pageCount)) {
@@ -1286,16 +1293,15 @@ namespace
 			return;
 		}
 
-		// No title. The word "Favorites" over a grid of favorites says
-		// nothing the grid does not, and a page number would count from a
-		// "here" that no longer exists now that every page is drawn alike.
-		// The space above the keys is where the name and the count of
-		// whatever is marked will go.
+		// Above the keys stands what the mark is on, not a title: the word
+		// "Favorites" over a grid of favorites said nothing the grid does
+		// not, and a page number would count from a "here" that no longer
+		// exists now that every page is drawn alike.
 		grid::Draw(
 			canvas,
 			menu,
 			font,
-			std::string{},
+			Describe(g_marked),
 			BuildGridPages(),
 			g_marked,
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
@@ -1311,6 +1317,55 @@ namespace
 
 	RE::Scaleform::GFx::Value g_hiddenCrosshair;
 
+	// The vanilla HUD holds HUDCrosshair_mc at its root. A modded one does
+	// not: this machine's holds SafeRect_mc, four groups, an
+	// HUDMenuFwCore of M8r's framework and three nameless instances -- and
+	// the crosshair somewhere inside one of them. So it is looked for rather
+	// than reached for, by name, a few levels down. Anything deeper than this
+	// is not a HUD any more.
+	constexpr int kCrosshairDepth = 4;
+
+	[[nodiscard]] bool FindByName(
+		RE::Scaleform::GFx::Value& a_where,
+		const char* a_name,
+		int a_depth,
+		RE::Scaleform::GFx::Value& a_found,
+		std::string& a_path)
+	{
+		if (a_depth < 0 || !a_where.IsObject()) {
+			return false;
+		}
+		if (a_where.GetMember(a_name, &a_found) && a_found.IsDisplayObject()) {
+			a_path += std::format(".{}", a_name);
+			return true;
+		}
+
+		RE::Scaleform::GFx::Value count;
+		if (!a_where.GetMember("numChildren", &count)) {
+			return false;
+		}
+		const auto total =
+			count.IsNumber() ? static_cast<int>(count.GetNumber()) : count.GetInt();
+		for (int index = 0; index < total; ++index) {
+			const RE::Scaleform::GFx::Value at{ index };
+			RE::Scaleform::GFx::Value child;
+			if (!a_where.Invoke("getChildAt", &child, &at, 1) ||
+				!child.IsDisplayObject()) {
+				continue;
+			}
+			RE::Scaleform::GFx::Value name;
+			const auto step = child.GetMember("name", &name) && name.IsString()
+				? std::format(".{}", name.GetString())
+				: std::format("[{}]", index);
+			auto below = a_path + step;
+			if (FindByName(child, a_name, a_depth - 1, a_found, below)) {
+				a_path = below;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void HideCrosshair()
 	{
 		if (!g_hideCrosshair || g_hiddenCrosshair.IsDisplayObject()) {
@@ -1321,13 +1376,19 @@ namespace
 			return;
 		}
 
-		// The name is out of the vanilla HUDMenu.swf. A player running a
-		// replaced HUD may have something else there, and then the crosshair
-		// simply stays -- the children are listed once so the next name is
-		// known rather than guessed.
-		if (hud->menuObj.GetMember("HUDCrosshair_mc", &g_hiddenCrosshair) &&
-			g_hiddenCrosshair.IsDisplayObject()) {
+		std::string path = "HUDMenu";
+		if (FindByName(
+				hud->menuObj,
+				"HUDCrosshair_mc",
+				kCrosshairDepth,
+				g_hiddenCrosshair,
+				path)) {
 			g_hiddenCrosshair.SetMember("visible", RE::Scaleform::GFx::Value(false));
+			static bool said = false;
+			if (!said) {
+				said = true;
+				logger::info("crosshair: found at {}", path);
+			}
 			return;
 		}
 
@@ -1337,24 +1398,27 @@ namespace
 			return;
 		}
 		listed = true;
-		RE::Scaleform::GFx::Value count;
-		std::string names;
-		if (hud->menuObj.GetMember("numChildren", &count)) {
-			const auto total = count.IsNumber() ? static_cast<int>(count.GetNumber())
-												: count.GetInt();
-			for (int index = 0; index < total; ++index) {
-				const RE::Scaleform::GFx::Value at{ index };
-				RE::Scaleform::GFx::Value child;
-				RE::Scaleform::GFx::Value name;
-				if (hud->menuObj.Invoke("getChildAt", &child, &at, 1) &&
-					child.IsDisplayObject() && child.GetMember("name", &name) &&
-					name.IsString()) {
-					names += std::format("{}  ", name.GetString());
-				}
-			}
-		}
 		logger::info(
-			"crosshair: the HUD has no HUDCrosshair_mc -- it holds {}", names);
+			"crosshair: no HUDCrosshair_mc within {} levels of the HUD -- it "
+			"stays",
+			kCrosshairDepth);
+	}
+
+	// Once is not enough on a machine where several mods have an opinion
+	// about the crosshair: one of them puts it back, and it is back. So it is
+	// pushed down again on every frame the menu is up -- one write, and only
+	// when something else has undone the last one.
+	void KeepCrosshairDown()
+	{
+		if (!g_hiddenCrosshair.IsDisplayObject()) {
+			return;
+		}
+		RE::Scaleform::GFx::Value shown;
+		if (g_hiddenCrosshair.GetMember("visible", &shown) && shown.IsBoolean() &&
+			!shown.GetBoolean()) {
+			return;
+		}
+		g_hiddenCrosshair.SetMember("visible", RE::Scaleform::GFx::Value(false));
 	}
 
 	void ShowCrosshair()
@@ -1384,9 +1448,64 @@ namespace
 		g_pointerY = std::numeric_limits<double>::lowest();
 	}
 
+	// How many of a thing the player carries, over all its stacks. The cross
+	// shows the count of the stack its key points at; a page that is not being
+	// played has no key to point with, so the whole of it is what can be said.
+	[[nodiscard]] std::uint32_t CarriedCount(RE::TESBoundObject* a_object)
+	{
+		std::uint32_t total = 0;
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!a_object || !player || !player->inventoryList) {
+			return total;
+		}
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
+			[&](RE::BGSInventoryItem&, RE::BGSInventoryItem::Stack& a_stack) {
+				total += a_stack.count;
+				return true;
+			});
+		return total;
+	}
+
+	// What stands above the grid: the name of what is marked, and how many of
+	// it there are when there is more than one. Nothing at all when the mark
+	// is on an empty key -- an empty key needs no sentence.
+	[[nodiscard]] std::string Describe(const std::optional<grid::Spot>& a_spot)
+	{
+		if (!a_spot) {
+			return {};
+		}
+		EnsurePages();
+		if (a_spot->page >= g_pages.size() || a_spot->slot >= 12) {
+			return {};
+		}
+
+		// The page being played lives in the inventory, not in the list.
+		const auto live = ReadFavorites();
+		auto* object = a_spot->page == g_currentPage ? live[a_spot->slot].object
+													 : g_pages[a_spot->page][a_spot->slot];
+		if (!object) {
+			return {};
+		}
+
+		const auto name =
+			std::string(WithoutTag(RE::TESFullName::GetFullName(*object)));
+		const auto count = CarriedCount(object);
+		return count > 1 ? std::format("{}  ({})", name, count) : name;
+	}
+
+	void SetMark(const std::optional<grid::Spot>& a_spot)
+	{
+		g_marked = a_spot;
+		grid::Mark(g_marked);
+		grid::Say(Describe(g_marked));
+	}
+
 	// Every frame the grid is up.
 	void TrackPointer()
 	{
+		KeepCrosshairDown();
+
 		if (!g_useGrid) {
 			return;
 		}
@@ -1407,8 +1526,7 @@ namespace
 		if (!over || over == g_marked) {
 			return;
 		}
-		g_marked = over;
-		grid::Mark(g_marked);
+		SetMark(over);
 	}
 
 	// One step with the keys. Wrapping around in both directions: twelve
@@ -1434,8 +1552,7 @@ namespace
 				((static_cast<int>(from.slot) + a_slots) % slots + slots) % slots)
 		};
 
-		g_marked = to;
-		grid::Mark(g_marked);
+		SetMark(to);
 		// The keys have the mark now; the mouse takes it back by moving.
 		ForgetPointer();
 	}
@@ -1480,14 +1597,18 @@ namespace
 			GoToPage(spot.page);
 		}
 
+		const auto used = use::Quickkey(static_cast<std::uint32_t>(spot.slot));
 		logger::info(
-			"use: [{}] \"{}\" on page {}",
+			"use: [{}] \"{}\" on page {} -- the game {}",
 			KeyLabel(spot.slot),
 			RE::TESFullName::GetFullName(*object),
-			spot.page + 1);
-		use::Quickkey(static_cast<std::uint32_t>(spot.slot));
+			spot.page + 1,
+			used ? "used it" : "would not");
 
-		if (g_closeAfterUse) {
+		// A refusal leaves the menu open. The game has just said no out
+		// loud, and closing on top of that would look like something
+		// happened.
+		if (g_closeAfterUse && used) {
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 				queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
 			}

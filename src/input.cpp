@@ -46,7 +46,7 @@ namespace
 		if (code == g_keys.slotRight) {
 			return input::Action::kSlotRight;
 		}
-		if (code == g_keys.use) {
+		if (code == g_keys.use || code == g_keys.useAlt) {
 			return input::Action::kUse;
 		}
 		return std::nullopt;
@@ -117,12 +117,13 @@ void input::Install()
 
 	logger::info(
 		"input: the grid listens first of {} handlers; w/a/s/d are {:#04x} "
-		"{:#04x} {:#04x} {:#04x}, use is {:#04x}{}",
+		"{:#04x} {:#04x} {:#04x}, use is {:#04x} or {:#04x}{}",
 		controls->handlers.size(),
 		g_keys.pageUp,
 		g_keys.slotLeft,
 		g_keys.pageDown,
 		g_keys.slotRight,
 		g_keys.use,
+		g_keys.useAlt,
 		g_keys.useOnClick ? " and the left mouse button" : "");
 }

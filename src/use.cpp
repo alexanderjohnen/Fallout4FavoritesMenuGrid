@@ -19,7 +19,23 @@ namespace
 	// vtable names sits 0x150 bytes after OnButtonEvent begins.
 	constexpr std::size_t kSample = 0x280;
 
-	void (*g_useQuickkey)(RE::FavoritesManager*, std::uint32_t) = nullptr;
+	// Read out of FavoritesManager::OnButtonEvent, which is the one place the
+	// game itself uses a favorite:
+	//
+	//     mov  rcx, rbx        ; the manager -- rcx - 0x10, the object behind
+	//                          ; the input handler this was called on
+	//     mov  edx, eax        ; the key index, 0 to 11
+	//     call 0x126fcb0       ; [ID 303130]
+	//     test al, al          ; false, and the game says so out loud
+	//
+	// So: bool UseQuickkeyItem(FavoritesManager*, std::uint32_t). The index
+	// comes out of GetQuickkeyIndexFromString (0x1271480, ID 1330478), which
+	// walks the user event name against twelve interned strings -- that is
+	// the function the old signature landed on, and handing it a number
+	// instead of a string is what took the game down.
+	constexpr std::uint64_t kUseQuickkeyItem = 303130;
+
+	bool (*g_useQuickkey)(RE::FavoritesManager*, std::uint32_t) = nullptr;
 
 	[[nodiscard]] bool InText(std::uintptr_t a_address)
 	{
@@ -129,12 +145,10 @@ void use::Find(const std::filesystem::path& a_settings)
 	// pointer it read from address 1 and took the game with it. Hence the
 	// dump above, and hence nothing at all is called until an address is
 	// named here by someone who has read that dump.
-	const auto address = FromTheSettings(a_settings);
+	auto address = FromTheSettings(a_settings);
 	if (!address) {
-		logger::info(
-			"use: no UseQuickkeyItem named in the INI -- using a cell will do "
-			"nothing until there is one");
-		return;
+		address = REL::Module::get().base() +
+			REL::IDDatabase::get().id2offset(kUseQuickkeyItem);
 	}
 	if (!InText(*address)) {
 		logger::warn(
@@ -144,11 +158,11 @@ void use::Find(const std::filesystem::path& a_settings)
 	}
 
 	logger::info(
-		"use: UseQuickkeyItem taken from the INI as {:#x} (ID {})",
+		"use: UseQuickkeyItem is {:#x} (ID {})",
 		*address - REL::Module::get().base(),
 		IdentityOf(*address));
 	g_useQuickkey =
-		reinterpret_cast<void (*)(RE::FavoritesManager*, std::uint32_t)>(*address);
+		reinterpret_cast<bool (*)(RE::FavoritesManager*, std::uint32_t)>(*address);
 }
 
 bool use::Ready()
@@ -156,11 +170,14 @@ bool use::Ready()
 	return g_useQuickkey != nullptr;
 }
 
-void use::Quickkey(std::uint32_t a_index)
+bool use::Quickkey(std::uint32_t a_index)
 {
 	auto* manager = RE::FavoritesManager::GetSingleton();
 	if (!manager || !g_useQuickkey) {
-		return;
+		return false;
 	}
-	g_useQuickkey(manager, a_index);
+	// The game answers false when it will not use the key -- a weapon with no
+	// ammo, an item that has gone -- and says so with a sound of its own. We
+	// only pass the answer on.
+	return g_useQuickkey(manager, a_index);
 }
