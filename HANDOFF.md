@@ -41,6 +41,11 @@ kein zweiter durch das Vanilla-Kreuz (Abschnitt 36).
 - `DELETE` gibt die Taste frei (der Gegenstand bleibt Favorit ohne Ziffer).
 - `DefaultPage` legt beim Schließen eine feste Seite zurück in die Engine.
 - `GridWrap=0` als Wand statt Tür an den Rändern.
+- **Das Gamepad** (Abschnitt 38): Steuerkreuz und linker Stick laufen durch
+  die Zellen, `A` benutzt, `X` hebt auf, `Y` gibt frei. `B` und die Taste, die
+  das Menü öffnet, werden nie genommen — die zweite wird aus den Bindungen
+  des Spielers gelesen. Die Tastenleiste nennt Controllertasten, sobald eine
+  gedrückt wurde.
 
 ### Wie es gebaut ist
 
@@ -48,7 +53,7 @@ kein zweiter durch das Vanilla-Kreuz (Abschnitt 36).
 | --- | --- |
 | `menu.cpp` | Das eigene Menü: registrieren, leere SWF laden, Flags. **Kein `kCustomRendering`** (Abschnitt 21) |
 | `grid.cpp` | Zeichnen, Treffertest, Marke, Beschriftung. Alles aus `GridCellSize` abgeleitet |
-| `input.cpp` | Eigener `BSInputEventUser` **vorn** in `MenuControls::handlers` (Abschnitt 22) |
+| `input.cpp` | Eigener `BSInputEventUser` **vorn** in `MenuControls::handlers` (Abschnitt 22), Tastatur, Maus und Gamepad (Abschnitt 38) |
 | `use.cpp` | `UseQuickkeyItem` auflösen und den Equip-Aufruf darin umleiten |
 | `tags.cpp` | Sorter-Konfigurationen lesen: Tag → Symbol → Bibliothek, plus Auto-Tagging |
 | `icons.cpp` | Bibliotheken zur Laufzeit in die eigene Anwendungsdomäne laden (Abschnitt 29) |
@@ -66,8 +71,9 @@ kein zweiter durch das Vanilla-Kreuz (Abschnitt 36).
    Tag-Kette. Widerstände und Schadensarten haben in FIS **keine** Zeichen.
 2. **Die Zeile „Powerful | Quick | Instigating"** — legendäre Wirkung und
    Modnamen, aus den Instanznamensregeln.
-3. **Das Gamepad.** Es geht unverändert ans Kreuz; ein falscher Griff dort
-   nähme dem Controller das Menü ganz.
+3. **Das Gamepad im Spiel prüfen.** Gebaut ist es (Abschnitt 38), gespielt
+   noch nicht. Die eine Frage, die nur ein Lauf beantwortet: schließt sich
+   das Menü noch mit dem Controller?
 4. **Der Pip-Boy.** Das Zuweisen-Kreuz zeigt noch nichts von uns. Immerhin
    sagt die Eckmeldung des Spiels inzwischen, auf welche Seite man legt.
 5. **Spätere Spielversionen.** 1.10.980 und aufwärts brauchen eigene IDs.
@@ -86,6 +92,9 @@ kein zweiter durch das Vanilla-Kreuz (Abschnitt 36).
 | Sorter-Variationen | nur lesen, wenn MCM sie gewählt hat |
 | Fallout4.exe | auf der Platte gepackt; Code nur aus dem laufenden Spiel lesbar (`peek`) |
 | Andere Mods | was roh die Tastatur liest, sieht unsere Ansprüche nicht — keine Buchstaben als Vorgabe |
+| Gamepad-Codes | `idCode` ist die nackte XInput-Maske (A = `0x1000`), nicht `BS_BUTTON_CODE`; Trigger sind `0x9` und `0xA` |
+| Wie das Kreuz schließt | `FavoritesMenu.as`: `ProcessUserEvent` schließt auf `Cancel` oder `Quickkeys`, beim **Loslassen** |
+| Wie das Kreuz am Pad läuft | über Scaleform-Tastenereignisse (`Keyboard.UP`…`ENTER`) im Fokus, nicht über eigene Benutzerereignisse |
 
 ---
 
@@ -2242,3 +2251,120 @@ In dieser Reihenfolge sinnvoll:
    Munitionssymbol zuerst, es läuft durch dieselbe Tag-Kette wie alles andere.
 3. Die legendäre Zeile aus den Instanznamensregeln.
 4. Erst danach an das Gamepad und den Pip-Boy denken.
+
+## 38. Das Gamepad (2026-09-06, später)
+
+Bisher stand im Handoff, das Gamepad bleibe außen vor: „ein falscher Griff
+dort nähme dem Controller das Menü ganz." Der Satz war richtig — er beschreibt
+aber eine Gefahr, keine Unmöglichkeit. Sie lässt sich benennen und dann
+umgehen.
+
+### Was die Gefahr genau ist
+
+Unser Handler steht **vorn** in `MenuControls::handlers`, und was er für seines
+erklärt, sieht danach niemand mehr. Auf der Tastatur ist das harmlos: die
+Schließtaste wird nie beansprucht. Auf dem Controller wäre es das nicht, denn
+das Menü schließt sich über eine Taste, die genauso ein Knopf ist wie die, mit
+denen man durch die Zellen läuft.
+
+Die Vanilla-SWF sagt, welche. `FavoritesMenu.as`:
+
+```actionscript
+if((param1 == "Cancel" || param1 == "Quickkeys") && !param2)
+{
+   this.BGSCodeObj.closeMenu();
+}
+```
+
+Zwei Benutzerereignisse, und geschlossen wird beim **Loslassen**. Welche
+Knöpfe das sind, steht nicht im Code, sondern in den Bindungen des Spielers —
+also wird nachgesehen statt geraten: `input::Install` läuft beim Start einmal
+durch alle `ControlMap::controlMaps`, nimmt aus jedem die Gamepad-Zuordnungen
+und sammelt jede, deren `eventID` `Quickkeys` oder `Cancel` heißt. Diese Codes
+landen zusammen mit `B`, `START` und `BACK` in einer Sperrliste, die
+`Claimed` vor allem anderen fragt. Ein umbelegter Controller ist damit
+genauso sicher wie ein unveränderter, und die INI kann die Sperre nicht
+aufheben — sie steht nicht als Einstellung da.
+
+### Was das Kreuz am Controller sonst tut
+
+Aus derselben Datei, und es erklärt, warum wir dem Kreuz nichts wegnehmen, was
+es braucht: `FavoritesCross.ProcessUserEvent` kennt nur `PrimaryAttack` und
+`Quickkey1`…`Quickkey12`. Das Laufen durch die zwölf Felder läuft **nicht**
+über Benutzerereignisse, sondern über Scaleform-Tastenereignisse an das
+fokussierte Objekt (`onKeyUp` mit `Keyboard.UP`, `DOWN`, `LEFT`, `RIGHT`,
+`ENTER`) — die Engine übersetzt Steuerkreuz und Stick dorthin. Unser Handler
+sitzt davor, also kommt beides gar nicht erst an: kein doppeltes Benutzen,
+keine zweite Auswahl hinter dem versteckten Kreuz.
+
+### Die Zahlen
+
+`idCode` eines Gamepad-Ereignisses ist die **nackte XInput-Maske**, nicht
+`BS_BUTTON_CODE`. Der Unterschied ist genau das `0x10000`, das
+`GetBSButtonCode` erst dazusetzt. Also `A = 0x1000`, `X = 0x4000`,
+`Y = 0x8000`, `B = 0x2000`, Steuerkreuz `0x1`/`0x2`/`0x4`/`0x8`,
+Schultern `0x100`/`0x200`, Sticks `0x40`/`0x80`, Start `0x10`, Back `0x20`.
+Die beiden Trigger sind Bethesdas eigene Erfindung — XInput hat für sie keine
+Bits —, `0x9` und `0xA`, und stehen absichtlich in keiner Vorgabe: ein Trigger
+ist eine Achse, und eine gehaltene Achse in einem Menü, das Dinge benutzt, ist
+ein schlechter Gedanke.
+
+### Der linke Stick
+
+Er kommt nicht als Knopf, sondern als `ThumbstickEvent` (`idCode` `0xB`), und
+er meldet, **wo er steht**, nicht dass etwas passiert ist. Das Schrittwerk der
+Tasten — Druck, Pause, gleichmäßiger Lauf — musste also hier noch einmal
+gebaut werden, mit einer eigenen Uhr statt der `heldDownSecs`, die das
+Ereignis nicht hat.
+
+Zwei Dinge, die nicht offensichtlich waren:
+
+- **Der tote Bereich hat zwei Kanten**, 0.55 hinein und 0.35 heraus. Mit einer
+  einzigen Zahl zittert die Marke genau am Rand zwischen zwei Zellen.
+- **Alle Stickereignisse werden beansprucht oder keines.** Nur die
+  ausgelenkten zu nehmen hieße, die Rückkehr in die Mitte nie zu sehen — die
+  Marke liefe weiter, nachdem der Daumen losgelassen hat.
+
+Der Preis ist, dass man mit offenem Menü nicht gehen kann. Das ist derselbe
+Preis, den `W` und `S` auf der Tastatur längst kosten, deshalb ist es ein
+Schalter (`GridGamepadStick`) und kein Sonderfall.
+
+### Die Tastenleiste folgt der Hand
+
+`ShouldHandleEvent` wird für **jedes** Ereignis gefragt, auch für die, die wir
+nicht wollen. Damit ist es die einzige Stelle, die den ganzen Strom sieht, und
+also die billigste, an der sich merken lässt, womit zuletzt gespielt wurde.
+Ein Druck, keine Bewegung: ein Stick, der in der Ruhelage driftet, würde sonst
+für immer behaupten, er sei das Gerät in Benutzung.
+
+Die Leiste unter dem Panel nennt daraufhin Controllertasten oder Tasten. Der
+Wechsel zeichnet das Panel neu, was für eine Textzeile viel ist — er passiert
+aber, wenn jemand etwas anderes in die Hand nimmt, nicht während er es
+benutzt. `KeyHintExtraGamepad` steht neben `KeyHintExtra`, weil „TAB) CLOSE"
+an einem Controller eine Lüge ist.
+
+### Nebenbei gefunden
+
+`g_stepped` war ein `std::array<float, 5>`, indiziert mit einer Aufzählung, die
+inzwischen **sieben** Werte hat. Jeder Druck auf `DELETE` oder `INSERT` schrieb
+zwei Floats hinter das Feld. Es lag im Datensegment neben anderen Globalen und
+ist deshalb nie aufgefallen. Jetzt leitet sich die Größe aus der Aufzählung
+ab, statt danebenzustehen.
+
+### Was zu prüfen bleibt
+
+Der Bau ist sauber (`/W4 /WX`) und deployed, **gespielt ist er nicht**. In
+dieser Reihenfolge:
+
+1. **Schließt sich das Menü noch mit dem Controller?** Alles andere ist
+   Bequemlichkeit, das hier ist die Frage. Das Log sagt vorher, was gesperrt
+   wurde — die Zeile `input:` endet jetzt mit `… stay with the game`.
+2. Steuerkreuz durch die Zellen, in beide Richtungen, über Seiten hinweg.
+3. Linker Stick dasselbe, und ob die Wiederholung beim Loslassen aufhört.
+4. `A` benutzt, `X` hebt auf und legt ab, `Y` gibt frei.
+5. Die Leiste: Controllertaste drücken, sie muss `^<v>) MOVE   A) USE …`
+   sagen; Tastatur anfassen, sie muss zurückwechseln.
+
+Findet sich in Schritt 1 etwas, ist `GridGamepad=0` die vollständige Rücknahme
+— und der nächste Schritt wäre, in derselben Sperrliste nachzusehen, was das
+Log als `stay with the game` aufgezählt hat.

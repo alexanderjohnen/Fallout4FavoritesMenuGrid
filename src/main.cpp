@@ -50,6 +50,11 @@ namespace
 	// them.
 	input::Keys g_gridKeys;
 
+	// And the same seven things on a controller. Its own struct because the
+	// numbers are not the same numbers: a keyboard event carries a virtual
+	// key code, a gamepad event carries an XInput bit.
+	input::Pad g_gridPad;
+
 	// The cross closes the menu when a key is used, and a grid that stayed
 	// open afterwards would be the one place in the game where using a
 	// favorite leaves you standing in a menu.
@@ -63,6 +68,11 @@ namespace
 	// the player bound the favorites menu to -- so it is text, not a binding.
 	bool g_showHint = true;
 	std::string g_hintExtra = "TAB) CLOSE";
+	std::string g_hintExtraPad = "B) CLOSE";
+
+	// Which line is on the panel now, so a switch of device can be noticed
+	// without rebuilding the wording sixty times a second to compare it.
+	input::Device g_hintDevice = input::Device::kNone;
 
 	// Empty means the font the cross labels its own keys with, which is the
 	// game's own and always present.
@@ -280,6 +290,68 @@ namespace
 		return std::nullopt;
 	}
 
+	// The gamepad's own spelling. A separate parser from ParseVirtualKey and
+	// not an extension of it: "A" means the letter on a keyboard and the
+	// button under the thumb on a controller, and the two are different
+	// numbers. One table that had to guess which was meant would be wrong
+	// half the time and silently.
+	//
+	// The numbers are XInput's button bits, which is what the event carries.
+	[[nodiscard]] std::optional<int> ParsePadButton(const std::wstring& a_raw)
+	{
+		const auto value = NormalizeKeyName(a_raw);
+		if (value.empty()) {
+			return std::nullopt;
+		}
+		if (value == L"NONE" || value == L"DISABLED") {
+			return 0;
+		}
+
+		const std::array<std::pair<std::wstring_view, int>, 26> names{
+			std::pair{ L"DPADUP"sv, 0x0001 },
+			std::pair{ L"UP"sv, 0x0001 },
+			std::pair{ L"DPADDOWN"sv, 0x0002 },
+			std::pair{ L"DOWN"sv, 0x0002 },
+			std::pair{ L"DPADLEFT"sv, 0x0004 },
+			std::pair{ L"LEFT"sv, 0x0004 },
+			std::pair{ L"DPADRIGHT"sv, 0x0008 },
+			std::pair{ L"RIGHT"sv, 0x0008 },
+			std::pair{ L"START"sv, 0x0010 },
+			std::pair{ L"BACK"sv, 0x0020 },
+			std::pair{ L"SELECT"sv, 0x0020 },
+			std::pair{ L"LSTICK"sv, 0x0040 },
+			std::pair{ L"LS"sv, 0x0040 },
+			std::pair{ L"L3"sv, 0x0040 },
+			std::pair{ L"RSTICK"sv, 0x0080 },
+			std::pair{ L"RS"sv, 0x0080 },
+			std::pair{ L"R3"sv, 0x0080 },
+			std::pair{ L"LB"sv, 0x0100 },
+			std::pair{ L"LSHOULDER"sv, 0x0100 },
+			std::pair{ L"RB"sv, 0x0200 },
+			std::pair{ L"RSHOULDER"sv, 0x0200 },
+			// Bethesda's own two, which XInput has no bits for.
+			std::pair{ L"LT"sv, 0x0009 },
+			std::pair{ L"RT"sv, 0x000A },
+			std::pair{ L"A"sv, 0x1000 },
+			// B is never claimed, so it is deliberately not spellable here;
+			// X and Y are.
+			std::pair{ L"X"sv, 0x4000 },
+			std::pair{ L"Y"sv, 0x8000 }
+		};
+		for (const auto& [name, code] : names) {
+			if (value == name) {
+				return code;
+			}
+		}
+
+		wchar_t* end = nullptr;
+		const auto numeric = std::wcstol(value.c_str(), &end, 0);
+		if (end && *end == L'\0' && numeric >= 0 && numeric <= 0xFFFF) {
+			return static_cast<int>(numeric);
+		}
+		return std::nullopt;
+	}
+
 	// The INI is wide, the menu and the HUD want bytes, and a wording may
 	// well carry an umlaut -- so it goes through UTF-8 rather than through a
 	// cast that would drop half of it.
@@ -345,6 +417,29 @@ namespace
 			}
 		};
 
+		// The same, in the gamepad's own numbers.
+		const auto readPad = [&](const wchar_t* a_key, int& a_target) {
+			std::wstring value(64, L'\0');
+			const auto length = GetPrivateProfileStringW(
+				L"Controls",
+				a_key,
+				L"",
+				value.data(),
+				static_cast<DWORD>(value.size()),
+				path.c_str());
+			value.resize(length);
+			if (value.empty()) {
+				return;
+			}
+			if (const auto parsed = ParsePadButton(value)) {
+				a_target = *parsed;
+			} else {
+				logger::warn(
+					"settings: could not read the gamepad button for that "
+					"entry");
+			}
+		};
+
 		read(L"Pages", L"NextPageKey", g_nextPageKey);
 		read(L"Pages", L"PreviousPageKey", g_previousPageKey);
 
@@ -356,6 +451,20 @@ namespace
 		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
 		read(L"Controls", L"GridClearKey", g_clearKey);
 		read(L"Controls", L"GridMoveKey", g_moveKey);
+
+		g_gridPad.enabled =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridGamepad", 1, path.c_str()) != 0;
+		g_gridPad.stick =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridGamepadStick", 1, path.c_str()) != 0;
+		readPad(L"GridPadUpButton", g_gridPad.pageUp);
+		readPad(L"GridPadDownButton", g_gridPad.pageDown);
+		readPad(L"GridPadLeftButton", g_gridPad.slotLeft);
+		readPad(L"GridPadRightButton", g_gridPad.slotRight);
+		readPad(L"GridPadUseButton", g_gridPad.use);
+		readPad(L"GridPadMoveButton", g_gridPad.move);
+		readPad(L"GridPadClearButton", g_gridPad.clear);
 		g_repeatDelay = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
 				L"Controls", L"GridRepeatDelay", 400, path.c_str())),
@@ -411,6 +520,8 @@ namespace
 		g_showHint =
 			GetPrivateProfileIntW(L"Display", L"ShowKeyHints", 1, path.c_str()) != 0;
 		g_hintExtra = ReadText(path, L"Display", L"KeyHintExtra", L"TAB) CLOSE");
+		g_hintExtraPad =
+			ReadText(path, L"Display", L"KeyHintExtraGamepad", L"B) CLOSE");
 		g_gridFont = ReadText(path, L"Display", L"GridFont", L"");
 		g_gridWhere.hintSize = std::clamp(
 			static_cast<int>(
@@ -1202,6 +1313,17 @@ namespace
 
 	// The line under the panel, built from the keys as they are actually
 	// bound rather than from what they were bound to when this was written.
+	// Whose names the line should carry. Not simply the last device: with
+	// the gamepad switched off there is nothing to say about it, and the
+	// keyboard is what a player who cannot use the pad still has.
+	[[nodiscard]] input::Device HintDevice()
+	{
+		if (g_gridPad.enabled && input::LastDevice() == input::Device::kGamepad) {
+			return input::Device::kGamepad;
+		}
+		return input::Device::kKeyboard;
+	}
+
 	[[nodiscard]] std::string BuildHint()
 	{
 		if (!g_showHint) {
@@ -1219,25 +1341,38 @@ namespace
 			line += std::format("{}) {}", a_key, a_what);
 		};
 
+		// Whose keys to name. A controller player has no INS and no DEL, and
+		// a line that names them is worse than no line: it says the mod has
+		// not noticed what they are holding.
+		const auto pad = HintDevice() == input::Device::kGamepad;
+
 		// Walking first: it is the one thing a player will try without being
 		// told, and seeing it named says the rest of the line is trustworthy.
-		const auto up = KeyName(g_gridKeys.pageUp);
-		const auto left = KeyName(g_gridKeys.slotLeft);
-		const auto down = KeyName(g_gridKeys.pageDown);
-		const auto right = KeyName(g_gridKeys.slotRight);
+		const auto name = [pad](int a_key, int a_button) {
+			return pad ? input::PadName(a_button) : KeyName(a_key);
+		};
+		const auto up = name(g_gridKeys.pageUp, g_gridPad.pageUp);
+		const auto left = name(g_gridKeys.slotLeft, g_gridPad.slotLeft);
+		const auto down = name(g_gridKeys.pageDown, g_gridPad.pageDown);
+		const auto right = name(g_gridKeys.slotRight, g_gridPad.slotRight);
 		if (!up.empty() && !left.empty() && !down.empty() && !right.empty()) {
 			add(up + left + down + right, "MOVE");
+		} else if (pad && g_gridPad.stick) {
+			// The four may be off and the stick still on, and then the stick
+			// is the whole of it.
+			add("LS", "MOVE");
 		}
 
-		add(KeyName(g_gridKeys.use), "USE");
-		add(KeyName(g_gridKeys.move), "PICK UP");
-		add(KeyName(g_gridKeys.clear), "CLEAR");
+		add(name(g_gridKeys.use, g_gridPad.use), "USE");
+		add(name(g_gridKeys.move, g_gridPad.move), "PICK UP");
+		add(name(g_gridKeys.clear, g_gridPad.clear), "CLEAR");
 
-		if (!g_hintExtra.empty()) {
+		const auto& extra = pad ? g_hintExtraPad : g_hintExtra;
+		if (!extra.empty()) {
 			if (!line.empty()) {
 				line += "      ";
 			}
-			line += g_hintExtra;
+			line += extra;
 		}
 		return line;
 	}
@@ -1327,6 +1462,7 @@ namespace
 
 		// The keys, so the line under the panel can name them.
 		g_gridWhere.hint = BuildHint();
+		g_hintDevice = HintDevice();
 
 		// Our own menu, always. Three other canvases were tried and are
 		// written up in the handoff; a menu of our own is the only one that
@@ -1542,6 +1678,15 @@ namespace
 		// again -- once -- and this time its cells can carry symbols.
 		if (auto* canvas = GetMenu(menu::kName)) {
 			icons::Poll(canvas, []() { ShowGrid(); });
+		}
+
+		// A hand that left the keyboard for the controller, or the other way
+		// round. The whole panel is drawn again for it, which is a lot for
+		// one line of text -- but it happens when a player picks a different
+		// thing up, not while they are using one.
+		if (g_showHint && HintDevice() != g_hintDevice) {
+			ShowGrid();
+			return;
 		}
 
 		auto* canvas = GetMenu(menu::kName);
@@ -2097,6 +2242,7 @@ namespace
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;
 		input::SetKeys(g_gridKeys);
+		input::SetPad(g_gridPad);
 		input::SetRepeat(g_repeatDelay, g_repeatInterval);
 		input::SetOnAction(&OnAction);
 		input::Install();

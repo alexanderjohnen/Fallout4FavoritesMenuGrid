@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cwctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>

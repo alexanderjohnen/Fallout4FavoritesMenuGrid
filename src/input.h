@@ -11,8 +11,8 @@
 // MenuControls keeps an array of input event users and walks it in order,
 // and the first one that owns an event ends the walk. So the grid stands at
 // the front of that array and claims exactly the keys it needs. Everything
-// else -- the digits, the close key, the gamepad -- goes past untouched, to
-// the same places as before.
+// else -- the digits, the close key -- goes past untouched, to the same
+// places as before.
 //
 // FavoritesMenuEx does the same thing: its strings name a class of its own,
 // `FavoritesMenuExInput`, with a line for registering and one for
@@ -32,6 +32,16 @@ namespace input
 		kMove
 	};
 
+	// Which kind of thing the player last touched. The line under the panel
+	// has to name keys somebody actually has, and a controller player has
+	// none of the ones an INI written for a keyboard names.
+	enum class Device
+	{
+		kNone,
+		kKeyboard,
+		kGamepad
+	};
+
 	// Virtual key codes, the way the INI spells them.
 	struct Keys
 	{
@@ -49,7 +59,7 @@ namespace input
 		int clear{ VK_DELETE };
 
 		// Picks the marked cell up, or puts the held one down on it.
-		int move{ 'G' };
+		int move{ VK_INSERT };
 
 		// The left mouse button uses whatever the pointer marks. Its own
 		// switch, because a pointer is the one part of this a player may
@@ -57,11 +67,45 @@ namespace input
 		bool useOnClick{ true };
 	};
 
+	// The same seven things, on a controller.
+	//
+	// The numbers are the ones the event carries: XInput's own button mask,
+	// which is what `BS_BUTTON_CODE` spells with a 0x10000 in front of it.
+	// The two triggers are Bethesda's own invention, 0x9 and 0xA, and are
+	// left out of the defaults -- a trigger is an axis, and a held axis in a
+	// menu that uses things is a bad idea.
+	//
+	// What is *not* here matters as much as what is. B, Start and Back are
+	// never claimed, whatever an INI says, and neither is whatever the game
+	// has bound "Quickkeys" and "Cancel" to on this player's controller: one
+	// of those closes this menu, and a menu a controller cannot close is
+	// worse than no controller support at all. Install resolves them from
+	// the game's own bindings rather than assuming.
+	struct Pad
+	{
+		bool enabled{ true };
+
+		int pageUp{ 0x0001 };    // D-pad up
+		int pageDown{ 0x0002 };  // D-pad down
+		int slotLeft{ 0x0004 };  // D-pad left
+		int slotRight{ 0x0008 };  // D-pad right
+
+		int use{ 0x1000 };    // A -- the button that means yes everywhere else
+		int move{ 0x4000 };   // X
+		int clear{ 0x8000 };  // Y
+
+		// The left stick walks the mark as well. It costs the player walking
+		// while the menu is up, which is the same price w/a/s/d already
+		// charges on a keyboard, so it is one switch and not a special case.
+		bool stick{ true };
+	};
+
 	// Joins the front of the handler array, once. Nothing is claimed until
 	// Listen is on.
 	void Install();
 
 	void SetKeys(const Keys& a_keys);
+	void SetPad(const Pad& a_pad);
 
 	// How a held key walks on. The first step is the press; after a_delay it
 	// keeps going, one step every a_interval, both in seconds.
@@ -78,4 +122,13 @@ namespace input
 	// On while the grid is up, off the rest of the time -- outside the
 	// favorites menu, w and s are walking again.
 	void Listen(bool a_on);
+
+	// What the player last pressed something on. Answered from the input
+	// thread and read from the UI one, so it is an atomic and nothing more:
+	// whoever asks gets the last device, not a promise about the next.
+	[[nodiscard]] Device LastDevice();
+
+	// What the panel should call a controller button. Empty for a button
+	// that has no name worth printing.
+	[[nodiscard]] std::string PadName(int a_button);
 }
