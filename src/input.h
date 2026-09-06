@@ -27,7 +27,8 @@ namespace input
 		kPageDown,
 		kSlotLeft,
 		kSlotRight,
-		kUse
+		kUse,
+		kClear
 	};
 
 	// Virtual key codes, the way the INI spells them.
@@ -42,6 +43,9 @@ namespace input
 		// answers to. Neither is worth taking away from the other.
 		int use{ 'E' };
 		int useAlt{ VK_RETURN };
+
+		// Frees the key the mark sits on.
+		int clear{ VK_DELETE };
 
 		// The left mouse button uses whatever the pointer marks. Its own
 		// switch, because a pointer is the one part of this a player may

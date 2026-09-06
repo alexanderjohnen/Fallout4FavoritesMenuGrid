@@ -19,8 +19,10 @@ namespace grid
 	// One key of one page.
 	struct Cell
 	{
-		std::string label;  // the key: 1..9, 0, -, =
-		std::string name;   // what lies on it, empty for a free key
+		std::string label;   // the key: 1..9, 0, -, =
+		std::string name;    // what lies on it, empty for a free key
+		std::string symbol;  // the icon's class name, empty when there is none
+		std::uint32_t color{ 0x1000000 };  // above white: leave the icon as it is
 	};
 
 	using Page = std::array<Cell, 12>;
@@ -72,14 +74,15 @@ namespace grid
 		// where ours still hold a cut-off name.
 		double cellSize{ 48.0 };
 
-		// One symbol name out of an icon library, tried on our own movie and
-		// hung on the first cell if it comes out a display object. The whole
-		// icon question turns on whether a movie with no ActionScript in it
-		// can make one at all -- CreateObject builds a class the movie's own
-		// library registers, and ours registers nothing. Measured rather than
-		// assumed, because the answer decides whether the library has to be
-		// imported into our SWF at build time.
-		std::string iconProbe;
+		// How much of a cell an icon fills, with its proportions kept. The
+		// game's own cell gives its icon nearly the whole square; a little
+		// air keeps the plates readable as a lattice.
+		double iconFit{ 0.78 };
+
+		// Whether an icon is painted in the colour its tag asks for. FIS
+		// names one per keyword -- aid red, weapons blue -- and the artwork
+		// is white so that something can. Off leaves it white.
+		bool iconColors{ true };
 
 		// Which menu the panel is drawn on. The favorites menu paints only a
 		// strip around its own cross, so anything of ours outside that never

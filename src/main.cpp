@@ -22,6 +22,7 @@
 #include "input.h"
 #include "menu.h"
 #include "peek.h"
+#include "tags.h"
 #include "use.h"
 
 namespace
@@ -60,8 +61,33 @@ namespace
 	// favorite leaves you standing in a menu.
 	bool g_closeAfterUse = true;
 
-	// Which icon library to bring in. Empty switches the whole thing off.
-	std::string g_iconLibrary = "FallUI_IconLib.swf";
+	// Whether cells carry icons at all.
+	bool g_useIcons = true;
+
+	// The page that goes back into the engine's twelve keys when the menu
+	// closes, counted from 1. Zero leaves whatever page was last used there.
+	//
+	// The grid shows every page alike, so "the page you are on" is not a
+	// thing the player can see any more -- and the game's own digit keys can
+	// only ever reach the page the engine holds. Leaving that to be whichever
+	// page was last touched turns the digits into invisible state: the same
+	// key does something different depending on what was clicked ten minutes
+	// ago. Restoring one chosen page on every close makes them mean one fixed
+	// thing. The Starfield version arrived at this and calls it defaultRow.
+	//
+	// It is off by default because it is not free here: a page switch moves
+	// every favorite through the engine, once per key, and doing that on
+	// every close of the menu is a cost the player should choose.
+	int g_defaultPage = 0;
+
+	// Whether the ends of a row and of the stack are walls or doors. There is
+	// no right answer, which is why it is a setting.
+	bool g_wrapNavigation = true;
+
+	// Frees the key the mark sits on. The item stays a favorite -- it goes to
+	// the same "favorited, no key" state the game itself writes when you
+	// favorite something from the Pip-Boy without assigning a digit.
+	int g_clearKey = VK_DELETE;
 
 	// The crosshair belongs to the HUD, and the HUD has no idea the favorites
 	// menu is open.
@@ -110,6 +136,15 @@ namespace
 		buffer.resize(length);
 		return std::filesystem::path(buffer).parent_path() / L"Data" / L"F4SE" /
 			L"Plugins" / L"FavoritesMenuGrid.ini";
+	}
+
+	// Data\Interface, where every menu movie and every sorter configuration
+	// lives. Derived from the INI's own path rather than looked up, so it
+	// follows the game wherever it is installed.
+	[[nodiscard]] std::filesystem::path GetInterfacePath()
+	{
+		return GetSettingsPath().parent_path().parent_path().parent_path() /
+			L"Interface";
 	}
 
 	[[nodiscard]] std::wstring NormalizeKeyName(std::wstring a_value)
@@ -268,6 +303,9 @@ namespace
 		read(L"Controls", L"GridRightKey", g_gridKeys.slotRight);
 		read(L"Controls", L"GridUseKey", g_gridKeys.use);
 		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
+		read(L"Controls", L"GridClearKey", g_clearKey);
+		g_wrapNavigation =
+			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
 		read(L"Debug", L"InventoryProbeKey", g_inventoryKey);
 		read(L"Debug", L"FavoriteRoundTripKey", g_roundTripKey);
@@ -299,9 +337,15 @@ namespace
 		g_gridWhere.inMenuRoot =
 			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
 		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
-		g_gridWhere.iconProbe = ReadText(path, L"Debug", L"IconProbe", L"");
-		g_iconLibrary =
-			ReadText(path, L"Display", L"IconLibrary", L"FallUI_IconLib.swf");
+		g_useIcons =
+			GetPrivateProfileIntW(L"Display", L"UseIcons", 1, path.c_str()) != 0;
+		g_gridWhere.iconColors =
+			GetPrivateProfileIntW(L"Display", L"IconColors", 1, path.c_str()) != 0;
+		g_gridWhere.iconFit = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Display", L"IconFit", 78, path.c_str())),
+			20,
+			100) / 100.0;
 		g_gridWhere.cellSize = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
 				L"Display", L"GridCellSize", 48, path.c_str())),
@@ -338,6 +382,11 @@ namespace
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
 			L"Pages", L"PageCount", g_pageCount, path.c_str()));
 		g_pageCount = std::clamp(g_pageCount, 1, 32);
+		g_defaultPage = std::clamp(
+			static_cast<int>(
+				GetPrivateProfileIntW(L"Pages", L"DefaultPage", 0, path.c_str())),
+			0,
+			g_pageCount);
 
 		logger::info(
 			"settings: {} pages on {:#04x} and {:#04x}; keys {:#04x} "
@@ -1249,20 +1298,45 @@ namespace
 	// The page being played is not read out of the page list -- it lives in
 	// the inventory, where the player may have changed it since. Every other
 	// row comes from the list.
+	// Which icon libraries the page being drawn actually needs. Only these
+	// are asked for: a player with a dozen addon libraries installed has no
+	// use for eleven of them on any given screen.
+	std::set<std::string> g_wantedLibraries;
+
 	[[nodiscard]] std::vector<grid::Page> BuildGridPages()
 	{
 		EnsurePages();
 		const auto live = ReadFavorites();
+		g_wantedLibraries.clear();
 
 		std::vector<grid::Page> rows(g_pages.size());
 		for (std::size_t row = 0; row < g_pages.size(); ++row) {
 			for (std::size_t slot = 0; slot < 12; ++slot) {
 				auto* object = row == g_currentPage ? live[slot].object
 													: g_pages[row][slot];
-				rows[row][slot].label = KeyLabel(slot);
-				rows[row][slot].name = object
-					? std::string(WithoutTag(RE::TESFullName::GetFullName(*object)))
-					: std::string{};
+				auto& cell = rows[row][slot];
+				cell.label = KeyLabel(slot);
+				if (!object) {
+					continue;
+				}
+
+				// The whole name first: the tag in front of it is what says
+				// which icon this is, and stripping it is the last step, not
+				// the first.
+				const std::string full{ RE::TESFullName::GetFullName(*object) };
+				cell.name = std::string(WithoutTag(full));
+				if (!g_useIcons) {
+					continue;
+				}
+				if (const auto* icon = tags::Find(tags::KeywordOf(full))) {
+					// The "m_" is the only translation between what the
+					// configuration writes and what the library exports.
+					cell.symbol = "m_" + icon->symbol;
+					cell.color = icon->color;
+					if (!icon->library.empty()) {
+						g_wantedLibraries.insert(icon->library);
+					}
+				}
 			}
 		}
 		return rows;
@@ -1299,6 +1373,11 @@ namespace
 			return;
 		}
 
+		const auto pages = BuildGridPages();
+		for (const auto& library : g_wantedLibraries) {
+			icons::Want(canvas, library);
+		}
+
 		// Above the keys stands what the mark is on, not a title: the word
 		// "Favorites" over a grid of favorites said nothing the grid does
 		// not, and a page number would count from a "here" that no longer
@@ -1308,7 +1387,7 @@ namespace
 			menu,
 			font,
 			Describe(g_marked),
-			BuildGridPages(),
+			pages,
 			g_marked,
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			g_gridWhere);
@@ -1558,11 +1637,19 @@ namespace
 		const auto rows = static_cast<int>(g_pages.size());
 		constexpr int slots = 12;
 
-		grid::Spot to{
+		const auto step = [](int a_from, int a_by, int a_count, bool a_wrap) {
+			const auto to = a_from + a_by;
+			if (a_wrap) {
+				return (to % a_count + a_count) % a_count;
+			}
+			return std::clamp(to, 0, a_count - 1);
+		};
+
+		const grid::Spot to{
 			static_cast<std::size_t>(
-				((static_cast<int>(from.page) + a_pages) % rows + rows) % rows),
+				step(static_cast<int>(from.page), a_pages, rows, g_wrapNavigation)),
 			static_cast<std::size_t>(
-				((static_cast<int>(from.slot) + a_slots) % slots + slots) % slots)
+				step(static_cast<int>(from.slot), a_slots, slots, g_wrapNavigation))
 		};
 
 		SetMark(to);
@@ -1628,6 +1715,64 @@ namespace
 		}
 	}
 
+	// Frees the key the mark sits on. Nothing is deleted and nothing is
+	// unfavorited: the item goes to the state the game itself writes for a
+	// favorite with no digit, which is what "this key is free" means here.
+	void ClearMarked()
+	{
+		if (!g_marked) {
+			return;
+		}
+		EnsurePages();
+
+		const auto spot = *g_marked;
+		if (spot.page >= g_pages.size() || spot.slot >= 12) {
+			return;
+		}
+
+		RememberCurrentPage();
+		auto* object = g_pages[spot.page][spot.slot];
+		if (!object) {
+			return;
+		}
+
+		logger::info(
+			"clear: [{}] on page {} held \"{}\"",
+			KeyLabel(spot.slot),
+			spot.page + 1,
+			RE::TESFullName::GetFullName(*object));
+
+		// The page being played holds its keys in the inventory; every other
+		// page holds them only in our own list, where forgetting one is the
+		// whole operation.
+		g_pages[spot.page][spot.slot] = nullptr;
+		if (spot.page == g_currentPage) {
+			MoveFavorite(object, static_cast<int>(spot.slot), -1);
+			RefreshCross();
+		}
+
+		ShowGrid();
+	}
+
+	// Puts one chosen page back into the engine's twelve keys. Called when
+	// the favorites menu closes, so that the game's own digit keys always
+	// mean the same page -- see g_defaultPage for why that matters now that
+	// every page is drawn alike.
+	void RestoreDefaultPage()
+	{
+		if (g_defaultPage <= 0) {
+			return;
+		}
+		EnsurePages();
+
+		const auto wanted = static_cast<std::size_t>(g_defaultPage - 1);
+		if (wanted >= g_pages.size() || wanted == g_currentPage) {
+			return;
+		}
+		logger::info("page: back to {} because the menu closed", g_defaultPage);
+		GoToPage(wanted);
+	}
+
 	// From the input thread. Everything the actions do touches Scaleform or
 	// the inventory, so none of it happens here.
 	void OnAction(input::Action a_action)
@@ -1651,6 +1796,9 @@ namespace
 			break;
 		case input::Action::kUse:
 			tasks->AddUITask([]() { UseMarked(); });
+			break;
+		case input::Action::kClear:
+			tasks->AddUITask([]() { ClearMarked(); });
 			break;
 		}
 	}
@@ -1925,6 +2073,13 @@ namespace
 					if (g_useGrid) {
 						menu::Hide();
 					}
+					// After the menu is out of the way: the page switch
+					// rewrites the twelve keys and refreshes the cross, and
+					// there is no reason for either to happen behind a menu
+					// that is still on screen.
+					if (const auto* tasks = F4SE::GetTaskInterface()) {
+						tasks->AddUITask([]() { RestoreDefaultPage(); });
+					}
 				} else if (g_useGrid) {
 					// Our own menu carries the grid. It answers with
 					// SetOnReady once its movie is loaded, which is when
@@ -1959,11 +2114,14 @@ namespace
 
 		peek::Run(GetSettingsPath());
 
+		// Which tag means which icon. Read once: the files are the player's
+		// mod setup, and that does not change while the game runs.
+		if (g_useIcons) {
+			tags::Load(GetInterfacePath());
+		}
+
 		menu::Register();
 		menu::SetOnReady([]() {
-			if (auto* canvas = GetMenu(g_gridWhere.canvas)) {
-				icons::Begin(canvas, g_iconLibrary);
-			}
 			ShowGrid();
 			HideCrosshair();
 			// Only now: the keys mean pages and cells while the grid is up,
@@ -1976,6 +2134,7 @@ namespace
 		// here, so a failure is in the log before anyone clicks anything.
 		use::Find(GetSettingsPath());
 
+		g_gridKeys.clear = g_clearKey;
 		input::SetKeys(g_gridKeys);
 		input::SetOnAction(&OnAction);
 		input::Install();

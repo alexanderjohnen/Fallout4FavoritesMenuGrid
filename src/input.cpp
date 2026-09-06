@@ -49,6 +49,9 @@ namespace
 		if (code == g_keys.use || code == g_keys.useAlt) {
 			return input::Action::kUse;
 		}
+		if (code == g_keys.clear) {
+			return input::Action::kClear;
+		}
 		return std::nullopt;
 	}
 

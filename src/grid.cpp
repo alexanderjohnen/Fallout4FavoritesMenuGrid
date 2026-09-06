@@ -224,6 +224,90 @@ namespace
 		a_graphics.Invoke("lineStyle", nullptr, clear.data(), clear.size());
 	}
 
+	// ---- Icons -----------------------------------------------------------
+
+	// Paints white artwork in one flat colour: every multiplier at zero and
+	// the colour as an offset. Transparency is left alone -- its multiplier
+	// stays at one -- so only what was drawn takes the colour.
+	void Paint(
+		RE::IMenu* a_canvas,
+		RE::Scaleform::GFx::Value& a_icon,
+		std::uint32_t a_color)
+	{
+		const std::array parts{
+			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(1.0),
+			RE::Scaleform::GFx::Value(static_cast<double>((a_color >> 16) & 0xFF)),
+			RE::Scaleform::GFx::Value(static_cast<double>((a_color >> 8) & 0xFF)),
+			RE::Scaleform::GFx::Value(static_cast<double>(a_color & 0xFF)),
+			RE::Scaleform::GFx::Value(0.0)
+		};
+		RE::Scaleform::GFx::Value paint;
+		a_canvas->uiMovie->CreateObject(
+			&paint,
+			"flash.geom.ColorTransform",
+			parts.data(),
+			static_cast<std::uint32_t>(parts.size()));
+		if (!paint.IsObject()) {
+			return;
+		}
+
+		// A transform is read, changed and written back. Changing the one the
+		// object hands out does nothing at all -- it is a copy, and this is
+		// the one place in Flash where that matters.
+		RE::Scaleform::GFx::Value transform;
+		if (a_icon.GetMember("transform", &transform) && transform.IsObject()) {
+			transform.SetMember("colorTransform", paint);
+			a_icon.SetMember("transform", transform);
+		}
+	}
+
+	// One cell's icon, if its tag named one and its library is in. The
+	// symbol is scaled to fit rather than stretched: an icon squeezed into a
+	// square is worse than none, because it still looks deliberate.
+	void Symbol(
+		RE::IMenu* a_canvas,
+		const grid::Cell& a_cell,
+		double a_left,
+		double a_top,
+		const Metrics& a_m,
+		const grid::Placement& a_where)
+	{
+		if (a_cell.symbol.empty()) {
+			return;
+		}
+
+		RE::Scaleform::GFx::Value icon;
+		a_canvas->uiMovie->CreateObject(&icon, a_cell.symbol.c_str());
+		if (!icon.IsDisplayObject()) {
+			return;
+		}
+
+		const auto width = ReadNumber(icon, "width", 0.0);
+		const auto height = ReadNumber(icon, "height", 0.0);
+		if (width <= 0.0 || height <= 0.0) {
+			return;
+		}
+
+		const auto room = a_m.cell * a_where.iconFit;
+		const auto scale = std::min(room / width, room / height);
+		icon.SetMember("scaleX", RE::Scaleform::GFx::Value(scale));
+		icon.SetMember("scaleY", RE::Scaleform::GFx::Value(scale));
+		icon.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+		icon.SetMember(
+			"x", RE::Scaleform::GFx::Value(a_left + (a_m.cell - width * scale) / 2.0));
+		icon.SetMember(
+			"y", RE::Scaleform::GFx::Value(a_top + (a_m.cell - height * scale) / 2.0));
+
+		if (a_where.iconColors && a_cell.color <= 0xFFFFFF) {
+			Paint(a_canvas, icon, a_cell.color);
+		}
+
+		g_panel.Invoke("addChild", nullptr, &icon, 1);
+	}
+
 	// ---- Text ------------------------------------------------------------
 
 	// A name has to fit its cell. Cutting it with an ellipsis says that
@@ -616,82 +700,12 @@ void grid::Draw(
 		// Every cell gets the same plate, whether a key holds something or
 		// not. An empty key is still a key: it is where something can be
 		// put, and a lattice with holes in it reads as damage rather than as
-		// room. What lies on a key will be said by its icon, once there is
-		// one, and not by whether its plate is there at all.
+		// room. What lies on a key is said by its icon, not by whether its
+		// plate is there at all.
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
-			Fill(
-				graphics,
-				CellLeft(m, slot),
-				rowTop,
-				m.cell,
-				m.cell,
-				a_color,
-				kCellAlpha);
-		}
-	}
-
-	// Can this movie make a symbol out of an icon library? Everything about
-	// icons hangs on that one answer.
-	if (!a_where.iconProbe.empty()) {
-		RE::Scaleform::GFx::Value icon;
-		a_canvas->uiMovie->CreateObject(&icon, a_where.iconProbe.c_str());
-
-		static bool said = false;
-		if (!said) {
-			said = true;
-			logger::info(
-				"grid: \"{}\" came back as {}",
-				a_where.iconProbe,
-				icon.IsDisplayObject() ? "a display object"
-					: icon.IsObject()  ? "an object, but not one that can be drawn"
-									   : "nothing at all");
-
-			// It came back as nothing, which was the expectation: our movie
-			// is 36 bytes and its library registers no classes. That leaves
-			// two ways in, and they are not equally cheap:
-			//
-			//   * load the library at runtime, into this movie's own
-			//     application domain, after which CreateObject would find
-			//     its classes by name;
-			//   * or name the symbols in an ImportAssets2 tag written into
-			//     our own SWF, which means writing that SWF from here.
-			//
-			// The first needs flash.display.Loader and friends, and
-			// Scaleform's AS3 is not Flash's -- it leaves plenty out. So
-			// before anything is built on either, the pieces are asked for
-			// by name. What answers decides the road.
-			if (!icon.IsDisplayObject()) {
-				for (const auto* name : { "flash.display.Loader",
-						 "flash.net.URLRequest",
-						 "flash.system.LoaderContext",
-						 "flash.system.ApplicationDomain" }) {
-					RE::Scaleform::GFx::Value made;
-					a_canvas->uiMovie->CreateObject(&made, name);
-					logger::info(
-						"grid: {} is {}",
-						name,
-						made.IsObject() ? "there" : "not in this player");
-				}
-
-				// The current domain is the one thing that cannot be built,
-				// only read: a library loaded anywhere else would register
-				// its classes where CreateObject does not look.
-				RE::Scaleform::GFx::Value domain;
-				const auto reached = a_canvas->uiMovie->GetVariable(
-					&domain, "flash.system.ApplicationDomain.currentDomain");
-				logger::info(
-					"grid: the current application domain {}",
-					reached && domain.IsObject() ? "can be reached"
-												 : "cannot be reached");
-			}
-		}
-
-		if (icon.IsDisplayObject()) {
-			icon.SetMember("x", RE::Scaleform::GFx::Value(CellLeft(m, 0)));
-			icon.SetMember("y", RE::Scaleform::GFx::Value(RowTop(m, 0)));
-			icon.SetMember("width", RE::Scaleform::GFx::Value(m.cell));
-			icon.SetMember("height", RE::Scaleform::GFx::Value(m.cell));
-			g_panel.Invoke("addChild", nullptr, &icon, 1);
+			const auto cellLeft = CellLeft(m, slot);
+			Fill(graphics, cellLeft, rowTop, m.cell, m.cell, a_color, kCellAlpha);
+			Symbol(a_canvas, a_pages[row][slot], cellLeft, rowTop, m, a_where);
 		}
 	}
 

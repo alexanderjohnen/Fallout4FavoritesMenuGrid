@@ -1,38 +1,39 @@
 #pragma once
 
-// Bringing an icon library into our own movie.
+// Bringing icon libraries into our own movie.
 //
 // The cells should carry the same symbols the player already sees in FallUI's
-// menus. The chain is known and written up in section 20 of the handoff: an
-// item's name carries a tag, the sorter's XML maps that tag to a symbol name,
-// and the symbol lives in a library movie under Data\Interface. Nothing of it
-// is ours and nothing of it is shipped -- it is read where the player already
-// has it, which is exactly what FallUI's own auto-detect does.
+// menus. Which symbol belongs to which item is `tags`; getting the artwork
+// within reach is this.
 //
-// The one thing in the way was that our movie knows no such symbol:
-// CreateObject builds a class the movie's own library registers, and ours is
-// 36 bytes and registers none. Measured, not assumed -- it came back as
-// nothing at all.
+// The obstacle was that our movie knows no such symbol: CreateObject builds a
+// class the movie's own library registers, and ours is 36 bytes and registers
+// none. Measured, not assumed -- it came back as nothing at all. So a library
+// is loaded at runtime into the application domain this movie already lives
+// in, after which its classes are registered where CreateObject looks. Every
+// piece of that was asked for by name first, because Scaleform's AS3 is not
+// Flash's: Loader, URLRequest, LoaderContext and ApplicationDomain are all
+// there, and only the current domain is not reachable through the movie's
+// variable path -- it comes off the root's own loaderInfo.
 //
-// So the library is loaded at runtime, into the application domain this movie
-// already lives in. Then its classes are registered where CreateObject looks,
-// and a symbol can be made by name like any other. Scaleform's AS3 is not
-// Flash's, so every piece of that was asked for by name first: Loader,
-// URLRequest, LoaderContext and ApplicationDomain are all there. Only the
-// current domain could not be read through the movie's variable path -- it is
-// not reached that way but through the root's own loaderInfo.
+// There is more than one library, because every mod that brings its own
+// artwork brings its own SWF. They are asked for one at a time and each
+// answers for itself; a player who has none of them simply gets cells without
+// icons.
 namespace icons
 {
-	// Starts the load. Returns false when a piece is missing, and says in the
-	// log which one.
-	bool Begin(RE::IMenu* a_canvas, const std::string& a_library);
+	// Asks for a library, unless it is already in or already asked for. The
+	// path is what a tag configuration declared -- bare beside the other
+	// interface movies, or relative to Interface.
+	void Want(RE::IMenu* a_canvas, const std::string& a_library);
 
-	// Every frame while the menu is up. Calls a_ready once, when the symbols
-	// can be made.
-	void Poll(RE::IMenu* a_canvas, void (*a_ready)());
+	// Every frame while the menu is up. Calls a_changed once for each library
+	// that arrives, because the panel was drawn before it did.
+	void Poll(RE::IMenu* a_canvas, void (*a_changed)());
 
-	[[nodiscard]] bool Ready();
+	[[nodiscard]] bool Has(const std::string& a_library);
 
-	// The loader belongs to the movie that is going away.
+	// The loaders belong to the movie that is going away, and so do the
+	// classes they registered.
 	void Release();
 }
