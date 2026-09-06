@@ -63,6 +63,14 @@ namespace input
 
 	void SetKeys(const Keys& a_keys);
 
+	// How a held key walks on. The first step is the press; after a_delay it
+	// keeps going, one step every a_interval, both in seconds.
+	//
+	// Only the four that move the mark repeat. Using, clearing and picking up
+	// are single acts, and a held key that used a stimpak eleven times a
+	// second would be a bug with a body count.
+	void SetRepeat(double a_delay, double a_interval);
+
 	// Runs on the game's input thread: decide here and leave the doing to a
 	// UI task. Nothing behind this may touch Scaleform or the inventory.
 	void SetOnAction(void (*a_action)(Action));

@@ -8,6 +8,30 @@ namespace
 	void (*g_action)(input::Action) = nullptr;
 	std::atomic_bool g_listening{ false };
 
+	// A key held down arrives as an event per frame, and acting on every one
+	// of them walked the mark across the panel faster than anyone could read
+	// it. The first answer was to act only on the press, which is worse in
+	// the other direction: holding a direction is what a hand does, and
+	// nothing happening reads as a broken key.
+	//
+	// So: the press, then a pause, then a steady walk -- what every list in
+	// every menu has always done.
+	double g_repeatDelay = 0.4;
+	double g_repeatInterval = 0.09;
+
+	// When each action last stepped, measured in the same held-down seconds
+	// the event carries. One per action, so two directions held at once do
+	// not take each other's turn.
+	std::array<float, 5> g_stepped{};
+
+	[[nodiscard]] bool Walks(input::Action a_action)
+	{
+		return a_action == input::Action::kPageUp ||
+			a_action == input::Action::kPageDown ||
+			a_action == input::Action::kSlotLeft ||
+			a_action == input::Action::kSlotRight;
+	}
+
 	// The mouse numbers its own buttons from zero, so the left one is zero.
 	constexpr std::int32_t kLeftMouseButton = 0;
 
@@ -78,15 +102,34 @@ namespace
 			if (!a_event || !g_listening || !g_action) {
 				return;
 			}
-			// The press, not the holding of it: a key held down repeats as
-			// events, and a grid that walked a cell per frame would be
-			// unusable.
-			if (!a_event->QJustPressed()) {
+			const auto action = Claimed(*a_event);
+			if (!action) {
 				return;
 			}
-			if (const auto action = Claimed(*a_event)) {
-				g_action(*action);
+			const auto which = static_cast<std::size_t>(*action);
+
+			// Letting go.
+			if (a_event->value == 0.0F) {
+				g_stepped[which] = 0.0F;
+				return;
 			}
+
+			if (a_event->QJustPressed()) {
+				g_stepped[which] = 0.0F;
+				g_action(*action);
+				return;
+			}
+
+			if (!Walks(*action)) {
+				return;
+			}
+			const auto held = a_event->QHeldDownSecs();
+			if (held < static_cast<float>(g_repeatDelay) ||
+				held - g_stepped[which] < static_cast<float>(g_repeatInterval)) {
+				return;
+			}
+			g_stepped[which] = held;
+			g_action(*action);
 		}
 	};
 
@@ -96,6 +139,12 @@ namespace
 void input::SetKeys(const Keys& a_keys)
 {
 	g_keys = a_keys;
+}
+
+void input::SetRepeat(double a_delay, double a_interval)
+{
+	g_repeatDelay = a_delay;
+	g_repeatInterval = a_interval;
 }
 
 void input::SetOnAction(void (*a_action)(Action))

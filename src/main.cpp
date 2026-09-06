@@ -104,6 +104,11 @@ namespace
 	// favorite something from the Pip-Boy without assigning a digit.
 	int g_clearKey = VK_DELETE;
 
+	// How long a direction has to be held before the mark walks on by itself,
+	// and how fast it walks then. Milliseconds in the INI, seconds here.
+	double g_repeatDelay = 0.40;
+	double g_repeatInterval = 0.09;
+
 	// Picks a cell up and puts it down again somewhere else.
 	//
 	// Not a letter, and that is deliberate: a mod that reads the keyboard
@@ -375,6 +380,16 @@ namespace
 		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
 		read(L"Controls", L"GridClearKey", g_clearKey);
 		read(L"Controls", L"GridMoveKey", g_moveKey);
+		g_repeatDelay = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Controls", L"GridRepeatDelay", 400, path.c_str())),
+			50,
+			2000) / 1000.0;
+		g_repeatInterval = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Controls", L"GridRepeatRate", 90, path.c_str())),
+			20,
+			1000) / 1000.0;
 		g_wrapNavigation =
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
@@ -2467,6 +2482,7 @@ namespace
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;
 		input::SetKeys(g_gridKeys);
+		input::SetRepeat(g_repeatDelay, g_repeatInterval);
 		input::SetOnAction(&OnAction);
 		input::Install();
 
