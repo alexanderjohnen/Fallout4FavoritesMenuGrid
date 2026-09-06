@@ -2075,3 +2075,20 @@ eigenen SWF.
 **Die Zeile „Powerful | Quick | Instigating".** Die legendäre Wirkung und die
 Modnamen, die der Pip-Boy unter dem Namen zeigt. Sie kommen aus den
 Instanznamensregeln des Gegenstands und sind der nächste ernsthafte Brocken.
+
+## 34. Mittig wovon? (2026-09-06)
+
+Der Wunsch, die Reihenzahlen auszublenden, hatte einen Grund, und der Grund war
+ein Fehler von mir: **die Zeilen über und unter dem Gitter waren über das ganze
+Panel zentriert**, also einschließlich der Zahlenspalte links. Die Spalte sitzt
+nur auf einer Seite, also stand jede dieser Zeilen um ihre halbe Breite neben
+der Mitte dessen, was sie beschreibt — sichtbar, sobald eine zweite Zeile
+darunter kam.
+
+Zentriert wird jetzt auf die zwölf Zellen (`CellsLeft`, `CellsWidth`), nicht auf
+das Panel. Damit ist `ShowPageNumbers` wieder das, was es sein sollte: eine
+Geschmacksfrage, kein Ausweg.
+
+Nebenbei wurde `CellLeft` auf dieselben zwei Zeilen zurückgeführt — Zeichnen,
+Treffertest und Beschriftung lesen die Geometrie damit weiterhin aus einer
+einzigen Quelle.

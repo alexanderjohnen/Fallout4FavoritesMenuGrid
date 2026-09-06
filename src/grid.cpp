@@ -104,10 +104,25 @@ namespace
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
+	// The twelve cells, without the margin or the column of page numbers
+	// beside them. Everything written above or below the grid is centred on
+	// this rather than on the panel: the numbers sit on one side only, so
+	// centring on the whole panel puts every line that much off the middle of
+	// the thing it describes -- visibly, once there is a second line under
+	// the first.
+	[[nodiscard]] double CellsWidth(const Metrics& a_m)
+	{
+		return (a_m.cell + a_m.gap) * static_cast<double>(kSlots) - a_m.gap;
+	}
+
+	[[nodiscard]] double CellsLeft(const Metrics& a_m)
+	{
+		return a_m.padding + a_m.rowLabelWidth;
+	}
+
 	[[nodiscard]] double PanelWidth(const Metrics& a_m)
 	{
-		return a_m.padding * 2.0 + a_m.rowLabelWidth +
-			(a_m.cell + a_m.gap) * static_cast<double>(kSlots) - a_m.gap;
+		return a_m.padding * 2.0 + a_m.rowLabelWidth + CellsWidth(a_m);
 	}
 
 	// One cell, one gap -- the same gap that separates the cells in a row.
@@ -122,8 +137,7 @@ namespace
 	// have to agree to the unit, so they read it from the same two lines.
 	[[nodiscard]] double CellLeft(const Metrics& a_m, std::size_t a_slot)
 	{
-		return a_m.padding + a_m.rowLabelWidth +
-			(a_m.cell + a_m.gap) * static_cast<double>(a_slot);
+		return CellsLeft(a_m) + (a_m.cell + a_m.gap) * static_cast<double>(a_slot);
 	}
 
 	// The head of the columns, where the twelve key names stand.
@@ -688,14 +702,22 @@ void grid::Draw(
 	// mark moves without the panel being drawn again and the fields have to
 	// be there when it does.
 	g_note = Label(
-		a_canvas, a_font, {}, 0.0, m.padding, width, m.titleSize, a_color, 1.0);
+		a_canvas,
+		a_font,
+		{},
+		CellsLeft(m),
+		m.padding,
+		CellsWidth(m),
+		m.titleSize,
+		a_color,
+		1.0);
 	g_detail = Label(
 		a_canvas,
 		a_font,
 		{},
-		0.0,
+		CellsLeft(m),
 		m.padding + m.titleSize + m.gap,
-		width,
+		CellsWidth(m),
 		m.detailSize,
 		a_color,
 		kDetailAlpha);
@@ -752,9 +774,9 @@ void grid::Draw(
 			a_canvas,
 			a_font,
 			a_where.hint,
-			0.0,
+			CellsLeft(m),
 			RowTop(m, a_pages.size()) + m.gap,
-			width,
+			CellsWidth(m),
 			a_where.hintSize,
 			a_color,
 			kHintAlpha);
