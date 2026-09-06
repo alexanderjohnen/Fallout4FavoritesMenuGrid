@@ -1,114 +1,91 @@
 # Favorites Menu Grid (Fallout 4) — Arbeitsstand
 
-Stand: 2026-09-05. Portierung von
+Stand: 2026-09-06. Portierung von
 [Favorites Menu Grid für Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid).
-**Abschnitt 0 ist der Einstieg** — dort steht, was gilt und was offen ist.
+**Abschnitt 0 ist der Einstieg.** Er sagt, was gilt; die nummerierten
+Abschnitte danach sagen, wie es dazu kam, und sind Fundgrube, nicht Pflicht.
 
 ---
 
 ## 0. Aktueller Stand
 
-**Meilenstein 3 steht, in der Nacht zum 2026-09-06:** Das Grid hat ein
-**eigenes Menü** mit eigener Bühne, mittig auf dem Bildschirm, mit
-**Mauszeiger statt Kamerasteuerung** — und die Zifferntasten des Spiels
-funktionieren weiter. **Abschnitt 21 ist der Einstieg für die nächste
-Sitzung:** dort steht, was steht, was offen ist und welche Fallstricke
-Stunden gekostet haben.
+Die Mod läuft und wird gespielt. **Sie ist das Grid** — ein einziger Weg,
+kein zweiter durch das Vanilla-Kreuz (Abschnitt 36).
 
-**Meilenstein 2 steht, im Spiel bestätigt am 2026-09-05 gegen 19:30.** Ein
-Favorit lässt sich parken und wieder auf eine Taste legen, und die Rotation
-setzt alle zwölf Plätze auf einmal. Anzeige, Cache und Tastendruck folgen.
-Das Kreuz zieht seit demselben Abend auch bei offenem Menü nach
-(Abschnitt 17).
+### Was funktioniert, im Spiel bestätigt
 
-**Der Stand vom 2026-09-05, abends:** `ApplyPage` setzt alle zwölf Plätze auf
-einmal (Abschnitt 15) und ist mit der Rotation auf F8 im Spiel bestätigt. Der
-Schreibvorgang darunter ist am selben Abend noch einmal ersetzt worden: Er
-geht jetzt über **`BGSInventoryItem::SetFavoriteIndex`**, die Funktion, die
-das Spiel selbst benutzt (Abschnitt 16). Der Weg dahin führte durch den
-Maschinencode der Engine, weil zwei geratene Versuche je einen Gegenstand im
-Spielstand gekostet haben.
+- **Mehrere Seiten zu zwölf Tasten**, alle gleichzeitig gezeichnet, eine Reihe
+  je Seite, auf einem **eigenen Menü** mit eigener Bühne und Mauszeiger. Die
+  Seiten liegen im Mitspeicher von F4SE, also je Charakter.
+- **Zeiger und Tasten** erreichen jede Zelle jeder Seite. `w`/`s` zwischen den
+  Reihen, `a`/`d` innerhalb einer, gehaltene Taste läuft weiter.
+- **Benutzen** über `FavoritesManager::UseQuickkeyItem` (ID 303130). Liegt die
+  Zelle auf einer anderen Seite, wird vorher dorthin gewechselt.
+- **Ab- statt Anlegen** beim zweiten Druck. Nicht über den Equip-Manager —
+  der lehnt ab —, sondern über ein Boolean in einem Aufruf innerhalb von
+  `UseQuickkeyItem`, umgebogen per Trampolin (Abschnitt 35).
+- **Symbole** aus der Sorter-Konfiguration des Spielers: Tag aus dem Namen,
+  sonst FIS-eigenes Auto-Tagging, sonst ein Auffangsymbol nach Gegenstandsart.
+  Mehrere Bibliotheken, nur die geladen, die eine Seite braucht
+  (Abschnitte 31 und 32).
+- **Zwei Zeilen über dem Gitter**: Name, darunter Schaden und Munition
+  beziehungsweise Widerstände. Instanzdaten vor Basisdaten.
+- **Tastenleiste** unter dem Panel, aus den tatsächlichen Bindungen gebaut.
+- **Das Crosshair** verschwindet, solange das Menü offen ist — jedes Bild neu,
+  weil auf einem stark gemoddeten Spiel mehrere Mods daran ziehen.
 
-Vier Tasten aus der INI: F6 schreibt die Favoriten ins Log, F8 dreht sie um
-einen Platz weiter, F7 parkt einen Favoriten und gibt ihm die Taste zurück,
-F10 kopiert Engine-Code neben das Log.
+### Was gebaut, aber noch nicht im Spiel geprüft ist
 
-**Meilenstein 0 steht: ein Plugin, das nichts verändert.** Es liest die zwölf
-Favoritenplätze, protokolliert jedes Öffnen und Schließen eines Menüs und
-versucht ein Rechteck in die Bühne von `HUDMenu` zu zeichnen. Mehr nicht.
-Der Zweck ist, drei Fragen zu beantworten, die in keinem Header stehen —
-siehe Abschnitt 2.
+- `INSERT` hebt eine Zelle auf, der nächste Druck tauscht sie mit der
+  markierten — **auch über Seiten hinweg**.
+- `DELETE` gibt die Taste frei (der Gegenstand bleibt Favorit ohne Ziffer).
+- `DefaultPage` legt beim Schließen eine feste Seite zurück in die Engine.
+- `GridWrap=0` als Wand statt Tür an den Rändern.
 
-**Erster Lauf im Spiel: 2026-09-04, 21:19 Uhr.** Zwei der drei Fragen aus
-Abschnitt 2 sind beantwortet:
+### Wie es gebaut ist
 
-- **Die Bühne nimmt einen eigenen Sprite an.** `sprite added to the stage of
-  HUDMenu`, danach `rectangle drawn` — und das Rechteck war im Spiel zu
-  sehen. Der Port braucht **keine ersetzte Interface-Datei**. Der Sprite
-  überlebt auch weitere Menüereignisse (`the sprite from a previous probe is
-  still there`).
-- **Fallout 4 hat ein eigenes `FavoritesMenu`.** Das war die Korrektur des
-  Tages: Die Annahme, das Kreuz stecke in `HUDMenu`, stammte daher, dass in
-  `Data\Interface` keine `FavoritesMenu.swf` liegt — sie steckt in einem BA2.
-  Im Log öffnet und schließt `FavoritesMenu` sauber als eigenes Menü. Das
-  Grid gehört dorthin, nicht in den HUD.
-- **Offen bleibt Frage 1.** Der Singleton löst stabil auf
-  (`0x7ff7ab5fc3e0`, über den ganzen Lauf derselbe), aber alle zwölf Plätze
-  waren leer und `weaponLoadedAmmo` durchgehend `-1`. Das ist mit einem
-  Spielstand ohne gesetzte Favoriten verträglich, beweist das Layout aber
-  nicht. **Nächster Test: einen Favoriten setzen und nachsehen, ob der Platz
-  im Log auftaucht.**
-
-**Zweiter Lauf, 23:43 Uhr — die Oberflächenfrage ist ganz beantwortet.**
-`FavoritesMenu` nimmt den Sprite ebenfalls an, seine Bühne ist 1280 x 720,
-und `menuObj` hat **`ProcessUserEvent`** (`HUDMenu` hat es nicht). Damit steht
-auch der Auswahlweg des Starfield-Grids in Fallout 4 offen: Auswahl durch den
-eigenen Pfad des Menüs schicken, statt selbst auszurüsten. Die Probe zielt
-seitdem nur noch auf `FavoritesMenu` — in `HUDMenu` blieb das Rechteck sonst
-die ganze Sitzung stehen.
-
-Zwei Kleinigkeiten aus demselben Lauf: `stageWidth`/`stageHeight` kamen als
-`-1` zurück, weil Scaleform sie als Int statt als Number liefert — dafür gibt
-es jetzt `ReadNumber`, wie im Starfield-Projekt.
-
-**Dritter Lauf, 23:50 Uhr — Meilenstein 0 ist komplett.** Mit gesetzten
-Favoriten liest der Dump sie sauber aus:
-
-```
-slot  2 form FE0A7F12 type  43 "Hunting Shotgun"
-slot  3 form 00023736 type  48 "Stimpak"
-slot  8 form FE034F9A type  43 "T60"
-```
-
-Typ 43 ist `0x2B` = WEAP, Typ 48 ist `0x30` = ALCH. Namen, Typen und
-FormIDs passen zusammen, `allowStimpakUse` liest 1. **`REL::ID(198281)` und
-das Speicherlayout aus dem Header gelten auf 1.10.163.** Damit ist der
-Datenzugriff auf die zwölf Plätze gesichert — lesend.
-
-Eine Kleinigkeit bleibt offen: `weaponLoadedAmmo` steht durchgehend auf `-1`,
-auch mit favorisierter Schrotflinte. Entweder wird das Feld nur für eine
-geladene Waffe gepflegt, oder der Offset dieses Arrays stimmt nicht. Es wird
-erst gebraucht, wenn der Munitionsstand angezeigt werden soll — dann
-nachmessen.
-
-**Quellcode ist öffentlich:**
-`https://github.com/alexanderjohnen/Fallout4FavoritesMenuGrid` (GPL-3.0-or-later).
+| Datei | Aufgabe |
+| --- | --- |
+| `menu.cpp` | Das eigene Menü: registrieren, leere SWF laden, Flags. **Kein `kCustomRendering`** (Abschnitt 21) |
+| `grid.cpp` | Zeichnen, Treffertest, Marke, Beschriftung. Alles aus `GridCellSize` abgeleitet |
+| `input.cpp` | Eigener `BSInputEventUser` **vorn** in `MenuControls::handlers` (Abschnitt 22) |
+| `use.cpp` | `UseQuickkeyItem` auflösen und den Equip-Aufruf darin umleiten |
+| `tags.cpp` | Sorter-Konfigurationen lesen: Tag → Symbol → Bibliothek, plus Auto-Tagging |
+| `icons.cpp` | Bibliotheken zur Laufzeit in die eigene Anwendungsdomäne laden (Abschnitt 29) |
+| `detail.cpp` | Was ein Gegenstand ist und tut, für die zweite Zeile |
+| `main.cpp` | Seiten, Einstellungen, Zustand, Verdrahtung |
+| `peek.cpp` | Werkzeug: Engine-Code aus dem laufenden Spiel neben das Log kopieren |
 
 ### Was offen ist
 
-1. ~~Die drei Fragen aus Abschnitt 2.~~ **Alle drei beantwortet** (siehe
-   oben). ~~Meilenstein 1: schreiben statt nur lesen.~~ **Gelöst** — der
-   Seitenwechsel läuft über die Engine, Abschnitt 14.
-2. **Der Kern.** Die Grundoperation steht: `ApplyPage` setzt alle zwölf
-   Plätze auf einmal, Abschnitt 15. Offen ist davon der Fall, dass ein
-   Gegenstand einen Platz bekommt, der vorher keinen hatte — dafür gibt es
-   den Rundlauf auf F7, und er ist als Nächstes im Spiel zu messen.
-3. **Spielversionen.** Nur 1.10.163 (OG). 1.10.980 und später brauchen eine
-   zweite Adress-Datenbank; F4SE sieht das ausdrücklich vor, aber prüfen kann
-   es nur jemand mit der Version.
-4. **Serialisierung.** F4SE hat eine Co-Save-Schnittstelle, SFSE nicht. Der
-   Zustand gehört dorthin und nicht in eine Datei daneben. Damit entfällt der
-   ganze Abgleich, der in Starfield nötig ist.
+1. **Symbole in der Wertezeile** — Munitionstyp, Widerstände, Schadensart mit
+   eigenem Zeichen, wie die Karte im Pip-Boy. Braucht eine Zeile aus
+   Abschnitten statt einem Textfeld: jeder mit optionalem Symbol, jeder über
+   `textWidth` gemessen, zusammen mittig gesetzt. Das Munitionssymbol ist das
+   leichte — Munition ist ein Gegenstand mit Namen und läuft durch dieselbe
+   Tag-Kette. Widerstände und Schadensarten haben in FIS **keine** Zeichen.
+2. **Die Zeile „Powerful | Quick | Instigating"** — legendäre Wirkung und
+   Modnamen, aus den Instanznamensregeln.
+3. **Das Gamepad.** Es geht unverändert ans Kreuz; ein falscher Griff dort
+   nähme dem Controller das Menü ganz.
+4. **Der Pip-Boy.** Das Zuweisen-Kreuz zeigt noch nichts von uns. Immerhin
+   sagt die Eckmeldung des Spiels inzwischen, auf welche Seite man legt.
+5. **Spätere Spielversionen.** 1.10.980 und aufwärts brauchen eigene IDs.
+
+### Was nicht noch einmal herausgefunden werden muss
+
+| | |
+| --- | --- |
+| `FavoritesManager::UseQuickkeyItem` | ID 303130, `bool(manager, index)` |
+| Der Equip-Aufruf darin | `+0x1b3`, sein erstes Boolean heißt „und wieder ab" |
+| Eingabe | `MenuControls::handlers`, vorn einfügen; ein Menü bekommt Tasten **nicht**, weil es ein Menü ist |
+| Zeiger | `MenuCursor`, Bildschirmpixel, über `minCursorX`…`maxCursorX` umrechnen |
+| Anwendungsdomäne | nicht über `GetVariable`, sondern `root.loaderInfo.applicationDomain` |
+| Zellfarbe | `ff ff ff 33` aus der Vanilla-SWF; Weiß, **weil die Engine tönt** — wir tönen selbst |
+| Symbole färben | multiplizieren, nicht ersetzen, sonst wird die Zeichnung zur Silhouette |
+| Sorter-Variationen | nur lesen, wenn MCM sie gewählt hat |
+| Fallout4.exe | auf der Platte gepackt; Code nur aus dem laufenden Spiel lesbar (`peek`) |
+| Andere Mods | was roh die Tastatur liest, sieht unsere Ansprüche nicht — keine Buchstaben als Vorgabe |
 
 ---
 
@@ -2200,3 +2177,68 @@ Der README behauptete noch, das sei kein funktionierender Mod, und versprach,
 dass nichts in `Data\Interface` liegt. Beides stimmt nicht mehr: die 36 Bytes
 unserer eigenen Bühne liegen dort, gehören aber keinem Vanilla-Menü und können
 mit nichts kollidieren. Das steht jetzt so da.
+
+## 37. Was diese Sitzung gebracht hat, und was zu prüfen bleibt (2026-09-06)
+
+Eine lange Sitzung. Der Reihe nach, damit die nächste weiß, worauf sie steht.
+
+### Im Spiel bestätigt
+
+- Benutzen per Klick und Taste, über Seiten hinweg.
+- Symbole für Hilfsmittel, Granaten, Kleidung, Ringe — **und** für Waffen,
+  nachdem das Auto-Tagging dazukam.
+- Farben des Panels folgen der HUD-Farbe.
+- Das Crosshair verschwindet (`HUDMenu.CenterGroup_mc.HUDCrosshair_mc`).
+- Ab- statt Anlegen beim zweiten Druck, für Waffen wie für Kleidung.
+- Der Zeiger trifft die Zellen, gemessen und bestätigt.
+
+### Gebaut, aber ungeprüft
+
+| | |
+| --- | --- |
+| `INSERT` | Zelle aufheben, nächster Druck tauscht — auch über Seiten |
+| `DELETE` | Taste freigeben, Gegenstand bleibt Favorit |
+| `DefaultPage=1` | beim Schließen zurück auf Seite 1 legen |
+| `GridWrap=0` | Marke stoppt am Rand statt umzulaufen |
+| Wiederholung | 400 ms Anlauf, dann 90 ms je Schritt |
+| Alle Aufräumarbeiten | INI neu geschrieben, halber Code entfernt — dass nichts Stilles kaputtgegangen ist, zeigt erst ein Lauf |
+
+**Beim nächsten Start zuerst ins Log sehen.** Diese Zeilen gehören dorthin:
+
+```
+settings: N pages, 48 cells, page keys 0x22 and 0x21
+tags: N keywords out of M libraries, plus N names and M rules ...
+use: UseQuickkeyItem is 0x126fcb0, and its equip call comes through here
+input: the grid listens first of N handlers; ...
+grid: everything is written in "AIN_Font_Bold", taken from ...
+```
+
+Fehlt eine davon, ist beim Aufräumen etwas mitgegangen.
+
+### Ein wiederkehrendes Muster, das sich gelohnt hat
+
+Viermal in dieser Sitzung sah ein Fehlschlag nach etwas anderem aus, als er
+war, und viermal hat dieselbe Antwort geholfen: **nicht die nächste Vermutung
+bauen, sondern messen.**
+
+- „Das Symbol kommt als nichts zurück" → vier Klassennamen einzeln abfragen,
+  statt den teuren Weg zu bauen. Alle vier waren da.
+- „0 Bytes von 0" → der Loader hat Ereignisse; sie tragen den Grund in Worten.
+- „`ER 0`" → eine `union`, deren Float-Hälfte für eine Ganzzahl eine
+  Denormale ergibt: knapp über null, also durch jede Prüfung.
+- „Abgelehnt" beim Ablegen → vier Argumentkombinationen in **einem**
+  Tastendruck, statt vier Spielstarts.
+
+Und einmal hat der Blick in eine fremde Mod mehr gebracht als jede Messung:
+ToggleEquip trägt ihre REL-IDs als Konstanten in der DLL, und die ließen sich
+allesamt benennen (Abschnitt 35).
+
+### Was als Nächstes ansteht
+
+In dieser Reihenfolge sinnvoll:
+
+1. Die ungeprüften Tasten durchspielen.
+2. Die Wertezeile aus Abschnitten bauen, damit Symbole hineinpassen — das
+   Munitionssymbol zuerst, es läuft durch dieselbe Tag-Kette wie alles andere.
+3. Die legendäre Zeile aus den Instanznamensregeln.
+4. Erst danach an das Gamepad und den Pip-Boy denken.
