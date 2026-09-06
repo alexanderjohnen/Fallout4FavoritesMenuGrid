@@ -163,6 +163,22 @@ void use::Find(const std::filesystem::path& a_settings)
 		IdentityOf(*address));
 	g_useQuickkey =
 		reinterpret_cast<bool (*)(RE::FavoritesManager*, std::uint32_t)>(*address);
+
+	// And the function itself, which is where the interesting call is.
+	//
+	// The ToggleEquip mod hooks a call inside it -- its own code resolves ID
+	// 303130, which is this function, and adds 0x1b3 -- and turns one boolean
+	// argument of that call from false to true. That boolean is what the
+	// engine's own equip path uses to mean "and take it off if it is already
+	// on". So the answer to toggling is not a second call to the equip
+	// manager at all; it is this one call, asked differently.
+	if (g_useQuickkey) {
+		peek::Note(
+			"FavoritesManager::UseQuickkeyItem",
+			reinterpret_cast<std::uintptr_t>(g_useQuickkey),
+			kSample);
+	}
+
 }
 
 bool use::Ready()
