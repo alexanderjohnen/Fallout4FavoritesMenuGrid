@@ -118,6 +118,12 @@ namespace grid
 	// what makes following the pointer cheap.
 	void Say(std::string_view a_text);
 
+	// Marks the cell that has been picked up and is waiting to be put down
+	// somewhere else. Drawn apart from the mark, because while a cell is
+	// held there are two places worth looking at: where it came from and
+	// where it would go.
+	void Hold(const std::optional<Spot>& a_spot);
+
 	// Picks a cell out. Cheap enough for every frame: the outline is a child
 	// of its own that only ever moves, so nothing is drawn again for it.
 	void Mark(const std::optional<Spot>& a_spot);

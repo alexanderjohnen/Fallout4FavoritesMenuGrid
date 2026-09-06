@@ -38,6 +38,9 @@ namespace
 	// The marked cell: the same plate with more light in it.
 	constexpr double kMarkFillAlpha = 0.18;
 	constexpr double kMarkLineAlpha = 0.9;
+	// The cell being carried: more light again, and no outline, so that the
+	// mark stays the thing with an edge.
+	constexpr double kHoldFillAlpha = 0.40;
 	constexpr double kKeyAlpha = 1.0;
 
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
@@ -128,6 +131,8 @@ namespace
 	// The outline around the chosen cell. A child of its own, so choosing
 	// costs a move rather than forty new text fields.
 	RE::Scaleform::GFx::Value g_marker;
+	// And around the cell that has been picked up.
+	RE::Scaleform::GFx::Value g_holder;
 	// What the marked cell holds, written once above the grid. It is kept
 	// because the mark moves without the panel being drawn again -- the whole
 	// point of a mark that only moves.
@@ -397,6 +402,7 @@ void grid::Release()
 	}
 	g_panel = RE::Scaleform::GFx::Value();
 	g_marker = RE::Scaleform::GFx::Value();
+	g_holder = RE::Scaleform::GFx::Value();
 	g_note = RE::Scaleform::GFx::Value();
 	// Without a panel there are no cells, and a hit test against the layout
 	// of a panel that is gone would answer for cells nobody can see.
@@ -731,6 +737,20 @@ void grid::Draw(
 	}
 
 
+	// The cell being carried, if one is. Built the same way as the mark and
+	// filled rather than outlined: it is not where you are looking, it is
+	// what you are holding.
+	a_canvas->uiMovie->CreateObject(&g_holder, "flash.display.Sprite");
+	if (g_holder.IsDisplayObject()) {
+		g_holder.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+		g_holder.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		RE::Scaleform::GFx::Value pen;
+		if (g_holder.GetMember("graphics", &pen) && pen.IsObject()) {
+			Fill(pen, 0.0, 0.0, m.cell, m.cell, a_color, kHoldFillAlpha);
+		}
+		g_panel.Invoke("addChild", nullptr, &g_holder, 1);
+	}
+
 	Mark(a_marked);
 
 	// What was asked for, and what the movie made of it. The two drifting
@@ -884,4 +904,21 @@ void grid::Say(std::string_view a_text)
 		g_note.SetMember(
 			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
 	}
+}
+
+void grid::Hold(const std::optional<Spot>& a_spot)
+{
+	if (!g_holder.IsDisplayObject()) {
+		return;
+	}
+	if (!a_spot || a_spot->page >= g_rows || a_spot->slot >= kSlots) {
+		g_holder.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		return;
+	}
+
+	g_holder.SetMember(
+		"x", RE::Scaleform::GFx::Value(CellLeft(g_metrics, a_spot->slot)));
+	g_holder.SetMember(
+		"y", RE::Scaleform::GFx::Value(RowTop(g_metrics, a_spot->page)));
+	g_holder.SetMember("visible", RE::Scaleform::GFx::Value(true));
 }

@@ -28,7 +28,8 @@ namespace input
 		kSlotLeft,
 		kSlotRight,
 		kUse,
-		kClear
+		kClear,
+		kMove
 	};
 
 	// Virtual key codes, the way the INI spells them.
@@ -46,6 +47,9 @@ namespace input
 
 		// Frees the key the mark sits on.
 		int clear{ VK_DELETE };
+
+		// Picks the marked cell up, or puts the held one down on it.
+		int move{ 'G' };
 
 		// The left mouse button uses whatever the pointer marks. Its own
 		// switch, because a pointer is the one part of this a player may

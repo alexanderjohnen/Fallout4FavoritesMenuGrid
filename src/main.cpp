@@ -89,6 +89,9 @@ namespace
 	// favorite something from the Pip-Boy without assigning a digit.
 	int g_clearKey = VK_DELETE;
 
+	// Picks a cell up and puts it down again somewhere else.
+	int g_moveKey = 'G';
+
 	// The crosshair belongs to the HUD, and the HUD has no idea the favorites
 	// menu is open.
 	bool g_hideCrosshair = true;
@@ -304,6 +307,7 @@ namespace
 		read(L"Controls", L"GridUseKey", g_gridKeys.use);
 		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
 		read(L"Controls", L"GridClearKey", g_clearKey);
+		read(L"Controls", L"GridMoveKey", g_moveKey);
 		g_wrapNavigation =
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
@@ -943,6 +947,9 @@ namespace
 	// invites using it by accident.
 	std::optional<grid::Spot> g_marked;
 
+	// The cell that has been picked up and is waiting to be put down.
+	std::optional<grid::Spot> g_held;
+
 	// Defined below, with the rest of the page marker: they need the pages,
 	// and the pages need to show themselves.
 	void ShowPageIndicator();
@@ -1391,6 +1398,10 @@ namespace
 			g_marked,
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			g_gridWhere);
+
+		// The panel was built from scratch, so what was being carried has to
+		// be shown as carried again.
+		grid::Hold(g_held);
 	}
 
 	// ---- The crosshair steps aside ---------------------------------------
@@ -1715,6 +1726,69 @@ namespace
 		}
 	}
 
+	// Picks the marked cell up, or puts the held one down on the marked one.
+	//
+	// Both ends go through the page list rather than through the inventory:
+	// the list is where a page that is not being played exists at all, and
+	// the page that is being played is written back from it afterwards by
+	// ApplyPage -- the one operation in this plugin that has been exercised
+	// enough to trust. Two special cases disappear that way, and with them
+	// the chance of the two halves disagreeing.
+	void MoveMarked()
+	{
+		if (!g_marked) {
+			return;
+		}
+		EnsurePages();
+		const auto here = *g_marked;
+		if (here.page >= g_pages.size() || here.slot >= 12) {
+			return;
+		}
+
+		RememberCurrentPage();
+
+		if (!g_held) {
+			if (!g_pages[here.page][here.slot]) {
+				logger::info("move: nothing on that key to pick up");
+				return;
+			}
+			g_held = here;
+			grid::Hold(g_held);
+			logger::info(
+				"move: holding \"{}\" from [{}] on page {}",
+				RE::TESFullName::GetFullName(*g_pages[here.page][here.slot]),
+				KeyLabel(here.slot),
+				here.page + 1);
+			return;
+		}
+
+		const auto from = *g_held;
+		g_held.reset();
+		grid::Hold(g_held);
+		if (from == here) {
+			logger::info("move: put back where it was");
+			return;
+		}
+
+		// An exchange, not an insertion: whatever was on the target key goes
+		// to where the held one came from. Anything else would have to push
+		// a third item somewhere, and there is no somewhere.
+		std::swap(g_pages[from.page][from.slot], g_pages[here.page][here.slot]);
+		logger::info(
+			"move: [{}] on page {} and [{}] on page {} have changed places",
+			KeyLabel(from.slot),
+			from.page + 1,
+			KeyLabel(here.slot),
+			here.page + 1);
+
+		// Only the page in the engine's keys has to be written out; the
+		// others are the list itself.
+		if (from.page == g_currentPage || here.page == g_currentPage) {
+			ApplyPage(g_pages[g_currentPage]);
+		}
+		ShowGrid();
+	}
+
 	// Frees the key the mark sits on. Nothing is deleted and nothing is
 	// unfavorited: the item goes to the state the game itself writes for a
 	// favorite with no digit, which is what "this key is free" means here.
@@ -1746,6 +1820,10 @@ namespace
 		// page holds them only in our own list, where forgetting one is the
 		// whole operation.
 		g_pages[spot.page][spot.slot] = nullptr;
+		if (g_held == g_marked) {
+			g_held.reset();
+			grid::Hold(g_held);
+		}
 		if (spot.page == g_currentPage) {
 			MoveFavorite(object, static_cast<int>(spot.slot), -1);
 			RefreshCross();
@@ -1799,6 +1877,9 @@ namespace
 			break;
 		case input::Action::kClear:
 			tasks->AddUITask([]() { ClearMarked(); });
+			break;
+		case input::Action::kMove:
+			tasks->AddUITask([]() { MoveMarked(); });
 			break;
 		}
 	}
@@ -2067,6 +2148,7 @@ namespace
 					icons::Release();
 					ShowCrosshair();
 					g_marked.reset();
+					g_held.reset();
 					ForgetPointer();
 					ReleaseIndicator();
 					grid::Release();
@@ -2135,6 +2217,7 @@ namespace
 		use::Find(GetSettingsPath());
 
 		g_gridKeys.clear = g_clearKey;
+		g_gridKeys.move = g_moveKey;
 		input::SetKeys(g_gridKeys);
 		input::SetOnAction(&OnAction);
 		input::Install();

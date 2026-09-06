@@ -52,6 +52,9 @@ namespace
 		if (code == g_keys.clear) {
 			return input::Action::kClear;
 		}
+		if (code == g_keys.move) {
+			return input::Action::kMove;
+		}
 		return std::nullopt;
 	}
 

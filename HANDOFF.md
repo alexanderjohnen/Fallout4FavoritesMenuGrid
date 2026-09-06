@@ -1823,3 +1823,93 @@ Zwei Dinge auf einmal:
 
 Ein Nebenbefund steht auch schon fest: `loader.load(...)` meldet, ob der Aufruf
 selbst durchging. Ging er nicht durch, liegt es nicht am Pfad.
+
+## 31. Die Symbole, und was Starfield schon konnte (2026-09-06)
+
+Der Ladeweg trug: `icons: "FallUI_IconLib.swf" is in (complete)`, und die Sonde
+hing ihr Symbol in die erste Zelle. Damit war die letzte offene Frage aus
+Abschnitt 20 beantwortet, und der Rest ist Lesen. **Nichts davon ist im Spiel
+getestet** — die Prüfliste steht am Ende.
+
+### Die Kette, jetzt vollständig
+
+```
+"[Aid] Antibiotics"                     der Name, den FIS schreibt
+   -> "Aid"                             tags::KeywordOf
+   -> M8r.Fo4Misc.MedKit                aus <tag keyword= icon=>
+   -> FallUI_IconLib.swf                aus <tags iconLibraryFile=>
+   -> m_M8r.Fo4Misc.MedKit              CreateObject, nach dem Laden
+```
+
+Drei Dinge machen das unordentlicher, als es aussieht, und alle drei sind auf
+einem Rechner mit ein paar hundert Mods echt:
+
+**Es gibt mehr als eine Bibliothek.** Jeder `<tags>`-Block nennt seine eigene,
+und der Addon-Ordner hält ein Dutzend — eine pro Mod, die eigene Zeichnungen
+mitbringt. Auf diesem Rechner: 402 Schlüsselwörter aus `FallUI_IconLib.swf`,
+370 aus `DielloIconLib.swf`, eines aus `4estIconLib.swf`. Geladen wird nur,
+was die gezeigte Seite tatsächlich braucht.
+
+**Es gibt mehr als eine Konfiguration.** FIS und DEF_UI liegen beide unter
+`Interface\ItemSorter`, und welche aktiv ist, steht in MCM. Also werden alle
+gelesen und verschmolzen: nachgeschlagen wird nach dem, wie der Gegenstand
+tatsächlich heißt, und wer diesen Namen geschrieben hat, hat sein
+Schlüsselwort in eine dieser Dateien geschrieben. Damit erübrigt sich die
+Auto-Erkennung ganz.
+
+**Variationen sind die Ausnahme davon.** Das sind alternative Symbolsätze, die
+der Spieler in MCM wählt, und die Dateien für alle liegen nebeneinander in
+einem Ordner. Alle zu lesen heißt: die zuletzt gelesene gewinnt — und genau so
+kam `Stimpak` als **Medkit** heraus, auf einem Rechner, dessen Besitzer
+`sVariationMedics=None` stehen hat. Der Ordner wird deshalb übersprungen, und
+danach werden genau die gewählten nachgelesen, aus MCMs eigenen Einstellungen
+(`MCM\Settings\<Mod>.ini`, sonst `MCM\Config\<Mod>\settings.ini`).
+
+Gegengeprüft an den echten Dateien dieses Rechners: 636 Schlüsselwörter,
+`Aid → M8r.Fo4Misc.MedKit`, `Stimpak → M8r.Repo.MedSyringe`,
+`GrenBaseball → Diello.Grenade.Baseball` aus Diellos Bibliothek.
+
+**Größe und Farbe.** Ein Symbol wird eingepasst, nicht gedehnt — ein in ein
+Quadrat gequetschtes Symbol ist schlimmer als keines, weil es absichtlich
+aussieht. Und es wird in der Farbe gemalt, die sein Tag nennt: Multiplikatoren
+auf null, die Farbe als Offset, die Transparenz unangetastet. Ein Symbol aus
+mehreren Formen nennt eine Farbe je Form (`MedicBrown,MedicSilver`); wir malen
+eine, also zählt die erste.
+
+### Drei Dinge aus der Starfield-Fassung
+
+Der Abgleich mit `FavoritesBanks-0.7.6-source` hat drei Sachen ergeben, die
+dort längst gelöst sind:
+
+1. **`DefaultPage`** (dort `defaultRow`). Das Grid zeigt alle Seiten gleich,
+   also ist „die Seite, auf der du bist" nichts mehr, was man sehen kann — und
+   die Zifferntasten des Spiels erreichen nur die Seite, die die Engine hält.
+   Bleibt das die zuletzt benutzte, wird aus den Ziffern unsichtbarer Zustand:
+   dieselbe Taste tut etwas anderes, je nachdem, was man vor zehn Minuten
+   angeklickt hat. Mit `DefaultPage=n` wird beim Schließen des Menüs immer
+   dieselbe Seite zurückgelegt. **Standardmäßig aus**, weil es hier nicht
+   umsonst ist: ein Seitenwechsel bewegt jeden Favoriten einzeln durch die
+   Engine.
+2. **`GridClearKey`** (Entf). Gibt die Taste frei, auf der die Marke steht.
+   Nichts wird gelöscht und nichts hört auf, Favorit zu sein — der Gegenstand
+   geht in denselben Zustand „Favorit ohne Ziffer", den das Spiel selbst
+   schreibt.
+3. **`GridMoveKey`** (G). Hebt die markierte Zelle auf; der nächste Druck legt
+   sie auf die dann markierte, und die beiden tauschen. **Über Seiten hinweg**
+   — das ist der Punkt: so wandert etwas von Seite 3 auf Seite 1, ohne den
+   Pip-Boy. Beide Enden gehen über die Seitenliste, und die gespielte Seite
+   wird danach mit `ApplyPage` zurückgeschrieben, der einen Operation, die
+   genug benutzt wurde, um ihr zu trauen. Zwei Sonderfälle verschwinden so.
+
+Dazu `GridWrap`: ob die Enden einer Reihe Türen oder Wände sind.
+
+### Was beim Testen schiefgehen kann
+
+- Ein Symbol, dessen Bibliothek noch lädt, kommt als nichts zurück. Deshalb
+  wird nach jeder angekommenen Bibliothek **einmal** neu gezeichnet. Wenn
+  Symbole erst nach dem zweiten Öffnen erscheinen, ist das die Stelle.
+- `MoveMarked` schreibt bei jedem Tausch, an dem die gespielte Seite beteiligt
+  ist, die ganze Seite neu. Das ist laut im Log und langsam, aber es ist der
+  Weg, der schon funktioniert.
+- Farben sind flach. Mehrfarbige Symbole verlieren dabei etwas; `IconColors=0`
+  lässt sie weiß.
