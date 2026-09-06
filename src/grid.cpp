@@ -174,6 +174,13 @@ namespace
 	Metrics g_metrics;
 	double g_left{ 0.0 };
 	double g_top{ 0.0 };
+	// Where the writing above the grid ends. The block is hung from there
+	// rather than stood on the top of its band: with only a name to show, a
+	// block anchored at the top leaves the gap where the second line would
+	// have been, and the name floats. The band itself keeps its height, so
+	// the panel does not move when the mark passes from one kind of thing to
+	// another.
+	double g_labelBottom{ 0.0 };
 	std::size_t g_rows{ 0 };
 	// The pointer is reported once per panel: what the cursor says, what the
 	// movie says, and what the two make together. A mark that never appears
@@ -702,6 +709,7 @@ void grid::Draw(
 	g_metrics = m;
 	g_left = left;
 	g_top = top;
+	g_labelBottom = KeyRowTop(m) - a_where.labelGap;
 	g_rows = a_pages.size();
 	g_pointerReported = false;
 
@@ -1030,14 +1038,33 @@ void grid::Mark(const std::optional<Spot>& a_spot)
 
 void grid::Say(std::string_view a_name, std::string_view a_what)
 {
-	const auto write = [](RE::Scaleform::GFx::Value& a_field, std::string_view a_text) {
-		if (a_field.IsDisplayObject()) {
-			a_field.SetMember(
-				"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+	const auto write = [](RE::Scaleform::GFx::Value& a_field,
+						   std::string_view a_text,
+						   double a_y) {
+		if (!a_field.IsDisplayObject()) {
+			return;
 		}
+		a_field.SetMember(
+			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+		a_field.SetMember("y", RE::Scaleform::GFx::Value(a_y));
 	};
-	write(g_note, a_name);
-	write(g_detail, a_what);
+
+	// Hung from the bottom of the band: the name sits over the keys, and a
+	// second line, when there is one, pushes the name up rather than leaving
+	// a hole under it.
+	const auto& m = g_metrics;
+	const auto nameHeight = m.titleSize + m.gap;
+	const auto detailHeight = m.detailSize + m.gap;
+
+	if (a_what.empty()) {
+		write(g_note, a_name, g_labelBottom - nameHeight);
+		write(g_detail, {}, g_labelBottom);
+		return;
+	}
+
+	const auto detailTop = g_labelBottom - detailHeight;
+	write(g_note, a_name, detailTop - nameHeight);
+	write(g_detail, a_what, detailTop);
 }
 
 void grid::Hold(const std::optional<Spot>& a_spot)
