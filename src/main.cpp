@@ -1927,166 +1927,6 @@ namespace
 		ForgetPointer();
 	}
 
-	// Which stack of a thing the player is wearing or holding, if any, and
-	// where in its chain it sits. The chain position is the stack ID -- that
-	// is literally what GetStackByID walks -- and the equip manager wants it
-	// alongside the object itself.
-	//
-	// The item is found first and its chain walked afterwards, rather than
-	// both at once inside the visitor: what a visitor's answer means to
-	// ForEachStack is the library's business, and the walk needs none of it.
-	[[nodiscard]] bool WornStack(
-		RE::TESBoundObject* a_object,
-		std::uint32_t& a_stackID,
-		RE::TBO_InstanceData*& a_data)
-	{
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (!a_object || !player || !player->inventoryList) {
-			return false;
-		}
-
-		RE::BGSInventoryItem* found = nullptr;
-		player->inventoryList->ForEachStack(
-			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
-			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack&) {
-				found = &a_item;
-				return true;
-			});
-		if (!found) {
-			return false;
-		}
-
-		std::uint32_t index = 0;
-		std::uint32_t stacks = 0;
-		for (auto* walk = found->stackData.get(); walk;
-			 walk = walk->nextStack.get(), ++stacks) {
-			if (!walk->IsEquipped()) {
-				continue;
-			}
-			a_stackID = stacks;
-			a_data = nullptr;
-			if (walk->extra) {
-				if (auto* instance = walk->extra->GetByType<RE::ExtraInstanceData>()) {
-					a_data = instance->data.get();
-				}
-			}
-			index = stacks;
-			logger::info(
-				"equip: \"{}\" is worn on stack {} of {}",
-				RE::TESFullName::GetFullName(*a_object),
-				index,
-				stacks + 1);
-			return true;
-		}
-
-		logger::info(
-			"equip: \"{}\" is not worn -- {} stack(s), none of them equipped",
-			RE::TESFullName::GetFullName(*a_object),
-			stacks);
-		return false;
-	}
-
-	// Takes off what is already on. A second press on something you are
-	// wearing or holding is the same gesture as holstering, and every other
-	// menu in this game treats it that way; without it the only thing a
-	// favorite could not do is undo itself.
-	//
-	// Putting something on goes through the engine's own UseQuickkeyItem, so
-	// whatever rules it keeps -- power armour among them -- it keeps for us
-	// too. Taking something off does not: it is our call to the equip
-	// manager, and the manager does what it is told. So the one rule that
-	// would otherwise be broken here is kept by hand.
-	[[nodiscard]] bool TakeOff(RE::TESBoundObject* a_object)
-	{
-		// Inside power armour the suit wears the slots, and what the
-		// character had on underneath is still equipped but out of reach --
-		// the Pip-Boy will not let it be changed, and neither should a
-		// favorite. Weapons are a different matter: those work in a suit
-		// exactly as they do outside one.
-		if (a_object->GetFormType() == RE::ENUM_FORM_ID::kARMO &&
-			RE::PowerArmor::PlayerInPowerArmor()) {
-			logger::info(
-				"equip: \"{}\" stays on -- the character is in power armour",
-				RE::TESFullName::GetFullName(*a_object));
-			return false;
-		}
-
-		std::uint32_t stackID = 0;
-		RE::TBO_InstanceData* data = nullptr;
-		if (!WornStack(a_object, stackID, data)) {
-			return false;
-		}
-
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		auto* equipment = RE::ActorEquipManager::GetSingleton();
-		if (!player || !equipment) {
-			logger::warn("equip: there is no equip manager to ask");
-			return false;
-		}
-
-		// Which slot the thing occupies. Handing over nothing and hoping the
-		// manager would work it out was the first attempt, and it was
-		// refused. Anything equippable knows its own slot -- BGSEquipType is
-		// a base of both weapons and armour, and its GetEquipSlot takes the
-		// instance data, so a modded piece answers as itself.
-		const RE::BGSEquipType* equippable = nullptr;
-		if (auto* weapon = a_object->As<RE::TESObjectWEAP>()) {
-			equippable = weapon;
-		} else if (auto* armor = a_object->As<RE::TESObjectARMO>()) {
-			equippable = armor;
-		}
-		const RE::BGSEquipSlot* slot =
-			equippable ? equippable->GetEquipSlot(data) : nullptr;
-
-		const RE::BGSObjectInstance instance{ a_object, data };
-
-		// Four ways of asking, tried until one is not refused.
-		//
-		// The manager takes ten arguments and the meaning of half of them is
-		// not written down anywhere; refused tells us nothing about which one
-		// was wrong. Four attempts in one key press cost a moment, where four
-		// guesses would cost four evenings -- and whichever one works is the
-		// one that gets written down and kept.
-		struct Attempt
-		{
-			const char* what;
-			const RE::BGSEquipSlot* slot;
-			bool queue;
-			bool force;
-			bool applyNow;
-		};
-
-		const std::array<Attempt, 4> attempts{ {
-			{ "its own slot", slot, false, false, true },
-			{ "queued", nullptr, true, false, true },
-			{ "queued, forced, its own slot", slot, true, true, true },
-			{ "forced, not applied now", nullptr, false, true, false },
-		} };
-
-		for (const auto& attempt : attempts) {
-			if (equipment->UnequipObject(
-					player,
-					&instance,
-					1,
-					attempt.slot,
-					stackID,
-					attempt.queue,
-					attempt.force,
-					true,
-					attempt.applyNow,
-					nullptr)) {
-				logger::info("equip: taking it off worked -- {}", attempt.what);
-				return true;
-			}
-			logger::info("equip: refused -- {}", attempt.what);
-		}
-
-		logger::warn(
-			"equip: the manager will not take \"{}\" off at all",
-			RE::TESFullName::GetFullName(*a_object));
-		return false;
-	}
-
 	// Using what is marked. A cell on another page is used by going there
 	// first -- the engine is what hands out the twelve keys, and it only
 	// ever hands out one page of them.
@@ -2127,21 +1967,12 @@ namespace
 			GoToPage(spot.page);
 		}
 
-		// Already on? Then this press takes it off.
-		if (g_toggleEquip && spot.page == g_currentPage && TakeOff(object)) {
-			logger::info(
-				"use: [{}] \"{}\" was already on -- taken off",
-				KeyLabel(spot.slot),
-				RE::TESFullName::GetFullName(*object));
-			if (g_closeAfterUse) {
-				if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-					queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
-				}
-			}
-			return;
-		}
-
-		const auto used = use::Quickkey(static_cast<std::uint32_t>(spot.slot));
+		// Whether this press may take something off again rather than put it
+		// on a second time. The engine decides what that means -- including
+		// what it refuses inside power armour -- because it is the engine's
+		// own boolean being turned around, not a second call of ours.
+		const auto used = use::Quickkey(
+			static_cast<std::uint32_t>(spot.slot), g_toggleEquip);
 		logger::info(
 			"use: [{}] \"{}\" on page {} -- the game {}",
 			KeyLabel(spot.slot),
@@ -2726,6 +2557,11 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(
 extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f4se)
 {
 	F4SE::Init(a_f4se);
+
+	// Room for the one call this plugin redirects: the equip inside
+	// UseQuickkeyItem, which is what lets a second press take something off
+	// again. See use.cpp for why that is the only way in.
+	F4SE::AllocTrampoline(64);
 
 	const auto messaging = F4SE::GetMessagingInterface();
 	if (!messaging || !messaging->RegisterListener(OnMessage)) {

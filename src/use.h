@@ -33,5 +33,10 @@ namespace use
 
 	// The key index, 0 to 11. Runs on the UI thread, like everything that
 	// touches the inventory. False is the game's own no.
-	bool Quickkey(std::uint32_t a_index);
+	//
+	// `a_toggle` asks for the engine's own toggling: something already worn
+	// or held comes off again instead of being put on a second time. It is
+	// one boolean of one call inside UseQuickkeyItem, which the game passes
+	// as false and which nothing else can reach -- see use.cpp.
+	bool Quickkey(std::uint32_t a_index, bool a_toggle);
 }

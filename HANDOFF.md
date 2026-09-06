@@ -2092,3 +2092,63 @@ Geschmacksfrage, kein Ausweg.
 Nebenbei wurde `CellLeft` auf dieselben zwei Zeilen zurückgeführt — Zeichnen,
 Treffertest und Beschriftung lesen die Geometrie damit weiterhin aus einer
 einzigen Quelle.
+
+## 35. Der Schalter saß im Aufruf, nicht neben ihm (2026-09-06)
+
+Das Ablegen über `ActorEquipManager::UnequipObject` ist gescheitert, und das
+Log war dabei präzise: der getragene Stapel wurde gefunden
+(`is worn on stack 0 of 1`), der Manager lehnte ab. Vier verschiedene
+Argumentkombinationen, alle abgelehnt.
+
+**Die ToggleEquip-Mod von alexj hat den Weg gezeigt.** Ihr eigener Code sagt,
+wie sie es macht — die REL-IDs stehen als Konstanten in ihrer DLL und lassen
+sich allesamt benennen:
+
+| ID im Thunk | ist |
+| --- | --- |
+| 303130 | `FavoritesManager::UseQuickkeyItem` — plus `0x1b3`, die gehookte Stelle |
+| 303410 | `PlayerCharacter` — der Vergleich prüft „ist der Akteur der Spieler" |
+| 501899 | `BGSInventoryInterface` — nur fürs Protokollieren |
+
+Und bei `UseQuickkeyItem + 0x1b3` steht:
+
+```
+mov  rdx, [rip + ...]          ; der Spieler
+mov  rcx, [rip + ...]          ; der ActorEquipManager
+mov  byte ptr [rsp+0x30], 0    ; das zweite Boolean
+lea  r8,  [rsp+0x40]           ; das Inventar-Handle, zwei Zeilen vorher gebaut
+mov  r9d, ebp                  ; der Index
+mov  byte ptr [rsp+0x28], 0    ; das erste -- dieses hier
+mov  qword ptr [rsp+0x20], 0   ; kein Equip-Slot
+call 0xe1c750                  ; [ID 332489]
+```
+
+`true` an dieser Stelle heißt **„und nimm es wieder ab, wenn es schon an
+ist"**. Das Spiel übergibt immer `false`. Die Signatur deckt sich exakt mit dem
+RTTI-Namen aus der Mod:
+
+```
+bool (ActorEquipManager*, Actor*, InventoryInterface::Handle&,
+      uint32, BGSEquipSlot*, bool, bool)
+```
+
+### Warum gehookt und nicht direkt gerufen
+
+Das `Handle` ist ein `uint32` aus einer Agent-Tabelle, und `UseQuickkeyItem`
+baut es zwei Befehle vorher (ID 868852) und gibt es zwei Befehle später wieder
+frei (ID 1214840). Es selbst zu besorgen hieße, drei weitere Engine-Aufrufe
+nachzubauen, um am Ende denselben Aufruf zu machen. Der Hook ist der kürzere
+und ehrlichere Weg.
+
+**Er wirkt nur, wenn dieses Plugin es verlangt.** `use::Quickkey` setzt eine
+Flagge für die Dauer des einen Aufrufs; alles andere, was durch dieselbe
+Stelle läuft — die Zifferntasten des Spiels voran —, bleibt unberührt.
+
+Nebeneffekt, und ein guter: **die Regeln gehören wieder der Engine.** Die
+Power-Armor-Sonderbehandlung aus Abschnitt 34 ist wieder raus. Sie war nötig,
+solange wir den Equip-Manager selbst riefen; jetzt entscheidet dieselbe
+Funktion wie bei einem Ziffernkorb, und was sie dort verweigert, verweigert sie
+auch hier.
+
+`F4SE::AllocTrampoline(64)` in `F4SEPlugin_Load` — der eine Aufruf ist der
+einzige, den dieses Plugin umleitet.
