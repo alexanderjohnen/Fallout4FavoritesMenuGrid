@@ -1676,3 +1676,58 @@ genau so, wie `FavoritesMenu.swf` seine Schriften aus `fonts_en.swf` importiert.
 `tools/build_swf.py` schreibt rohe Tags, kann das also. Dann aber zwei Fassungen
 — eine mit Import, eine ohne — und beim Laden die passende wählen, sonst wird
 eine fehlende Bibliothek zur harten Abhängigkeit.
+
+## 28. Benutzen läuft, das Crosshair sitzt, die Symbole nicht (2026-09-06)
+
+**Drei Antworten aus einem Start:**
+
+```
+use: UseQuickkeyItem is 0x126fcb0 (ID 303130)
+use: [1] "[Aid] Antibiotics" on page 1 -- the game used it
+use: [5] "[Grenade] Dynamite" on page 1 -- the game used it
+crosshair: found at HUDMenu.CenterGroup_mc.HUDCrosshair_mc
+grid: "m_M8r.Repo.MedSyringe" came back as nothing at all
+```
+
+**Benutzen funktioniert** — Klick und Taste, über die Seiten hinweg. Damit sind
+die Punkte 1 und 2 aus Abschnitt 21 abgeschlossen und Punkt 3 (das Label) auch.
+
+**Das Crosshair** liegt eine Ebene tief in `CenterGroup_mc`, nicht an der
+Wurzel; die Suche über vier Ebenen findet es. Auf diesem Rechner streiten sich
+mehrere Mods darum, deshalb wird es jedes Bild wieder heruntergedrückt.
+
+### Die Symbole brauchen einen anderen Weg
+
+`CreateObject("m_M8r.Repo.MedSyringe")` liefert **nichts**. Erwartet: unser
+Movie hat 36 Bytes und seine Bibliothek registriert keine einzige Klasse, und
+`CreateObject` baut genau das, was die *eigene* Bibliothek kennt.
+
+Damit bleiben zwei Wege, und sie sind nicht gleich teuer:
+
+1. **Zur Laufzeit nachladen**, in die eigene Anwendungsdomäne dieses Movies —
+   danach fände `CreateObject` die Klassen der Bibliothek unter ihrem Namen.
+   Braucht `flash.display.Loader`, `URLRequest`, `LoaderContext` und vor allem
+   `ApplicationDomain.currentDomain`. **Scaleforms AS3 ist nicht Flashs AS3**
+   und lässt vieles weg, also ist das eine offene Frage, keine Annahme.
+2. **`ImportAssets2` in unsere eigene SWF schreiben**, so wie
+   `FavoritesMenu.swf` seine Schriften aus `fonts_en.swf` importiert. Dann
+   müsste die SWF beim Start erzeugt werden — aus dem, was tatsächlich
+   installiert ist —, sonst zeigt ein Importtag auf eine Datei, die es
+   vielleicht nicht gibt, und aus einer optionalen Verzierung würde eine
+   Voraussetzung für das ganze Gitter.
+   Offen bleibt dabei auch, ob ein importiertes Symbol in einem AS3-Movie
+   überhaupt per Namen erzeugbar ist — dort braucht es eine Klasse, und die
+   käme aus einem `SymbolClass`-Tag ohne zugehörigen Bytecode.
+
+Deshalb erst die Messung: der nächste Start fragt die vier Klassen und die
+aktuelle Domäne einzeln ab und schreibt ins Log, was davon dieser Player
+überhaupt kennt. **Was antwortet, entscheidet den Weg.**
+
+### Zur Abhängigkeit, zum Mitschreiben
+
+Wir liefern nichts von FallUI oder FIS mit; wir lesen nur, was der Spieler
+liegen hat. `Interface\ItemSorter\` ist ohnehin **FallUIs** Mechanismus — die
+`Auto-detect.xml` sagt das in ihrem eigenen Kommentar —, und darin liegen hier
+zwei Konfigurationen, FIS und DEF_UI. Fehlt das alles, bleiben die Zellen leer
+und das Gitter tut alles andere unverändert. Eine weiche Abhängigkeit auf der
+Modseite ist normal; eine harte beim Laden der SWF wäre es nicht.

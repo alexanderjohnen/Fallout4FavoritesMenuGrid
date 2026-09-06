@@ -645,6 +645,45 @@ void grid::Draw(
 				icon.IsDisplayObject() ? "a display object"
 					: icon.IsObject()  ? "an object, but not one that can be drawn"
 									   : "nothing at all");
+
+			// It came back as nothing, which was the expectation: our movie
+			// is 36 bytes and its library registers no classes. That leaves
+			// two ways in, and they are not equally cheap:
+			//
+			//   * load the library at runtime, into this movie's own
+			//     application domain, after which CreateObject would find
+			//     its classes by name;
+			//   * or name the symbols in an ImportAssets2 tag written into
+			//     our own SWF, which means writing that SWF from here.
+			//
+			// The first needs flash.display.Loader and friends, and
+			// Scaleform's AS3 is not Flash's -- it leaves plenty out. So
+			// before anything is built on either, the pieces are asked for
+			// by name. What answers decides the road.
+			if (!icon.IsDisplayObject()) {
+				for (const auto* name : { "flash.display.Loader",
+						 "flash.net.URLRequest",
+						 "flash.system.LoaderContext",
+						 "flash.system.ApplicationDomain" }) {
+					RE::Scaleform::GFx::Value made;
+					a_canvas->uiMovie->CreateObject(&made, name);
+					logger::info(
+						"grid: {} is {}",
+						name,
+						made.IsObject() ? "there" : "not in this player");
+				}
+
+				// The current domain is the one thing that cannot be built,
+				// only read: a library loaded anywhere else would register
+				// its classes where CreateObject does not look.
+				RE::Scaleform::GFx::Value domain;
+				const auto reached = a_canvas->uiMovie->GetVariable(
+					&domain, "flash.system.ApplicationDomain.currentDomain");
+				logger::info(
+					"grid: the current application domain {}",
+					reached && domain.IsObject() ? "can be reached"
+												 : "cannot be reached");
+			}
 		}
 
 		if (icon.IsDisplayObject()) {
