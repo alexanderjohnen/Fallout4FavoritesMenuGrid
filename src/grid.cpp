@@ -20,20 +20,21 @@ namespace
 		double rowLabelSize{ 11.0 };
 		double titleSize{ 13.0 };
 		double titleHeight{ 18.0 };
+		double keyRowHeight{ 22.0 };
 		std::size_t nameRoom{ 10 };
 	};
 
-	// The key number, from the same movie: an edit text of AIN_Font_Bold,
-	// height 36 of those 100 cell units, white and fully opaque, centred in a
-	// box that covers the top left quadrant -- x -5 to 48, y -2 to 51. All of
-	// it is kept as a fraction of the cell, so one number in the INI still
-	// moves the whole panel.
+	// The key number, at the size the game gives it: an edit text of
+	// AIN_Font_Bold, height 36 of the 100 units its cell is wide, white and
+	// fully opaque. Kept as a fraction of the cell, so one number in the INI
+	// still moves the whole panel.
+	//
+	// It stands once, above the first row, and not in every cell. Fallout 4
+	// repeats it in each cell because it has one row; with three, the same
+	// twelve numbers three times over are a pattern the eye has to read past
+	// to see what is actually there. A column is labelled at its head.
 	constexpr double kKeyTextSize = 0.36;
-	constexpr double kKeyBoxLeft = -0.05;
-	constexpr double kKeyBoxTop = -0.02;
-	constexpr double kKeyBoxWidth = 0.53;
 	constexpr double kKeyAlpha = 1.0;
-	constexpr double kEmptyKeyAlpha = 0.25;
 
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
 	{
@@ -52,6 +53,7 @@ namespace
 		m.rowLabelSize = floorAt(a_cell * 0.23, 9.0);
 		m.titleSize = floorAt(a_cell * 0.27, 10.0);
 		m.titleHeight = m.titleSize + 5.0;
+		m.keyRowHeight = m.keySize + m.gap + 2.0;
 		// Roughly what fits at this size in a condensed face.
 		m.nameRoom = static_cast<std::size_t>(
 			std::max(4.0, a_cell / (m.nameSize * 0.48)));
@@ -73,10 +75,6 @@ namespace
 	// picking one page out would say that the others are further off.
 	constexpr std::uint32_t kPlate = 0xFFFFFF;
 	constexpr double kCellAlpha = 0.20;
-	// An empty key gets no plate. The faintest of outlines says the key is
-	// there and holds nothing, which is more than the game itself shows -- it
-	// hides an empty key entirely -- and less than a slab of dark.
-	constexpr double kEmptyLineAlpha = 0.12;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
@@ -102,9 +100,15 @@ namespace
 			(a_m.cell + a_m.gap) * static_cast<double>(a_slot);
 	}
 
+	// The head of the columns, where the twelve key names stand.
+	[[nodiscard]] double KeyRowTop(const Metrics& a_m)
+	{
+		return a_m.padding + a_m.titleHeight;
+	}
+
 	[[nodiscard]] double RowTop(const Metrics& a_m, std::size_t a_row)
 	{
-		return a_m.padding + a_m.titleHeight +
+		return KeyRowTop(a_m) + a_m.keyRowHeight +
 			RowHeight(a_m) * static_cast<double>(a_row);
 	}
 
@@ -121,6 +125,12 @@ namespace
 	double g_left{ 0.0 };
 	double g_top{ 0.0 };
 	std::size_t g_rows{ 0 };
+	// The pointer is reported once per panel: what the cursor says, what the
+	// movie says, and what the two make together. A mark that never appears
+	// looks the same whether the cursor stands still, counts in units nobody
+	// expected, or lands somewhere off the panel -- and these three numbers
+	// tell them apart in one opening of the menu.
+	bool g_pointerReported{ false };
 
 	// Scaleform hands numbers over as Int as often as as Number, so both
 	// have to be accepted or every read comes back as the fallback.
@@ -462,7 +472,7 @@ void grid::Draw(
 
 	const auto m = MetricsFor(a_where.cellSize);
 	const auto width = PanelWidth(m);
-	const auto height = m.padding * 2.0 + m.titleHeight +
+	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size());
 
 	// In the middle of the screen by default, where the eye already is.
@@ -500,6 +510,7 @@ void grid::Draw(
 	g_left = left;
 	g_top = top;
 	g_rows = a_pages.size();
+	g_pointerReported = false;
 
 	// The stage, outlined. The panel is demonstrably drawn where it should
 	// be and only part of it arrives, so the question is no longer where the
@@ -553,6 +564,22 @@ void grid::Draw(
 			1.0);
 	}
 
+	// The twelve key names, once, at the head of their columns. They are the
+	// only thing on the panel that is the same on every page, so they are the
+	// one thing that is not repeated per page.
+	for (std::size_t slot = 0; slot < kSlots; ++slot) {
+		Label(
+			a_canvas,
+			a_font,
+			a_pages.front()[slot].label,
+			CellLeft(m, slot),
+			KeyRowTop(m),
+			m.cell,
+			m.keySize,
+			kPlate,
+			kKeyAlpha);
+	}
+
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
 		const auto rowTop = RowTop(m, row);
 
@@ -567,44 +594,20 @@ void grid::Draw(
 			a_color,
 			1.0);
 
+		// Every cell gets the same plate, whether a key holds something or
+		// not. An empty key is still a key: it is where something can be
+		// put, and a lattice with holes in it reads as damage rather than as
+		// room. What lies on a key will be said by its icon, once there is
+		// one, and not by whether its plate is there at all.
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
-			const auto cellLeft = CellLeft(m, slot);
-			const auto& cell = a_pages[row][slot];
-			const bool taken = !cell.name.empty();
-
-			// An empty key gets no plate at all. Two pages of nothing were
-			// two dark slabs across the middle of the screen, and the game
-			// draws no such thing: what is there is drawn, what is not is
-			// not.
-			if (taken) {
-				Fill(
-					graphics, cellLeft, rowTop, m.cell, m.cell, kPlate, kCellAlpha);
-			} else {
-				Outline(
-					graphics,
-					cellLeft,
-					rowTop,
-					m.cell,
-					m.cell,
-					kPlate,
-					kEmptyLineAlpha);
-			}
-
-			// The key, in the top left quadrant, at the size and in the place
-			// the game's own cell puts it. A cell of this game holds its key
-			// and its icon and nothing else; the name of whatever is picked
-			// belongs in one place below, the way the cross has always shown
-			// it.
-			Label(
-				a_canvas,
-				a_font,
-				cell.label,
-				cellLeft + m.cell * kKeyBoxLeft,
-				rowTop + m.cell * kKeyBoxTop,
-				m.cell * kKeyBoxWidth,
-				m.keySize,
+			Fill(
+				graphics,
+				CellLeft(m, slot),
+				rowTop,
+				m.cell,
+				m.cell,
 				kPlate,
-				taken ? kKeyAlpha : kEmptyKeyAlpha);
+				kCellAlpha);
 		}
 	}
 
@@ -624,6 +627,8 @@ void grid::Draw(
 		}
 		g_panel.Invoke("addChild", nullptr, &g_marker, 1);
 	}
+
+
 	Mark(a_marked);
 
 	// What was asked for, and what the movie made of it. The two drifting
@@ -659,24 +664,68 @@ bool grid::Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y)
 		return false;
 	}
 
-	// The cursor counts screen pixels -- 2560 by 1440 on the machine this
-	// was measured on -- and the panel is laid out in the movie's own units,
-	// of which there are 1280 by 720. The viewport is the first, the visible
-	// frame the second, and the menu answers for both, so nothing here has
-	// to assume a resolution.
+	// The cursor counts screen pixels and the panel is laid out in the
+	// movie's own units, of which there are 1280 by 720. What has to be
+	// known is the range the cursor moves in, and the cursor carries it
+	// itself: minCursorX to maxCursorX. That is better than the viewport,
+	// because it stays right whatever unit the cursor turns out to count in
+	// -- and this project has already lost an evening to assuming one.
 	RE::Scaleform::GFx::Viewport view{};
 	a_canvas->uiMovie->GetViewport(&view);
-	if (view.width <= 0 || view.height <= 0) {
-		return false;
-	}
 	const auto frame = a_canvas->uiMovie->GetVisibleFrameRect();
 
+	const auto span = [](double a_low, double a_high, double a_fallback) {
+		return a_high > a_low ? a_high - a_low : a_fallback;
+	};
+	const auto width = span(cursor->minCursorX, cursor->maxCursorX, view.width);
+	const auto height = span(cursor->minCursorY, cursor->maxCursorY, view.height);
+	if (width <= 0.0 || height <= 0.0) {
+		return false;
+	}
+
+	const auto low = [](double a_min, double a_max) {
+		return a_max > a_min ? a_min : 0.0;
+	};
 	a_x = frame.x1 +
-		(static_cast<double>(cursor->cursorPosX) - view.left) *
-			(frame.x2 - frame.x1) / view.width;
+		(cursor->cursorPosX - low(cursor->minCursorX, cursor->maxCursorX)) *
+			(frame.x2 - frame.x1) / width;
 	a_y = frame.y1 +
-		(static_cast<double>(cursor->cursorPosY) - view.top) *
-			(frame.y2 - frame.y1) / view.height;
+		(cursor->cursorPosY - low(cursor->minCursorY, cursor->maxCursorY)) *
+			(frame.y2 - frame.y1) / height;
+
+	if (!g_pointerReported) {
+		g_pointerReported = true;
+		const auto over = At(a_x, a_y);
+		logger::info(
+			"grid: the cursor is at {},{} of {},{} to {},{} ({} registered); "
+			"the viewport is {}x{} at {},{} and the frame {:.0f},{:.0f} to "
+			"{:.0f},{:.0f}; that makes {:.0f},{:.0f} on the stage, and the "
+			"panel runs {:.0f},{:.0f} to {:.0f},{:.0f} -- {}",
+			cursor->cursorPosX,
+			cursor->cursorPosY,
+			cursor->minCursorX,
+			cursor->minCursorY,
+			cursor->maxCursorX,
+			cursor->maxCursorY,
+			cursor->registeredCursors,
+			view.width,
+			view.height,
+			view.left,
+			view.top,
+			frame.x1,
+			frame.y1,
+			frame.x2,
+			frame.y2,
+			a_x,
+			a_y,
+			g_left,
+			g_top,
+			g_left + PanelWidth(g_metrics),
+			g_top + RowTop(g_metrics, g_rows),
+			over ? std::format("on page {} key {}", over->page + 1, over->slot + 1)
+				 : std::string("on no cell"));
+	}
+
 	return true;
 }
 
@@ -688,7 +737,7 @@ std::optional<grid::Spot> grid::At(double a_x, double a_y)
 
 	const auto& m = g_metrics;
 	const auto fromLeft = a_x - g_left - m.padding - m.rowLabelWidth;
-	const auto fromTop = a_y - g_top - m.padding - m.titleHeight;
+	const auto fromTop = a_y - g_top - RowTop(m, 0);
 	if (fromLeft < 0.0 || fromTop < 0.0) {
 		return std::nullopt;
 	}

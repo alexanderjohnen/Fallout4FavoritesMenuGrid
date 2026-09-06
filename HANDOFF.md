@@ -1459,3 +1459,46 @@ Schriftbibliothek des Spiels, und unsere SWF hat 36 Bytes und keine Schrift.
 Ob ein Name aus `fonts_en.swf` auf unserer eigenen Bühne ankommt oder eine
 Reihe Kästchen ergibt, ist ungemessen. Das ist der nächste Anlauf beim Design
 — zusammen mit den Symbolen, die dasselbe Problem in größer sind.
+
+## 24. Das Gitter wird ein Gitter (2026-09-06)
+
+**Getestet:** Kein Absturz mehr beim Klicken. Der Zeiger **markiert aber nichts**
+— gemessen wird das jetzt, statt weiter zu vermuten.
+
+### Die Darstellung
+
+Zwei Änderungen, beide aus dem Screenshot heraus entschieden:
+
+- **Jede Zelle bekommt dieselbe Platte**, ob die Taste etwas hält oder nicht.
+  Vorher blieb eine leere Taste ein blasser Umriss, und weil auf Seite 2 und 3
+  nichts geparkt war, sahen die unteren Reihen aus wie ein Schaden am Gitter.
+  Eine leere Taste ist trotzdem eine Taste — sie ist der Platz, auf den etwas
+  kann. Was auf einer Taste liegt, wird künftig ihr Symbol sagen, nicht das
+  Vorhandensein ihrer Platte.
+- **Die Tastennamen stehen einmal über der ersten Reihe**, nicht in jeder
+  Zelle. Fallout 4 wiederholt sie pro Zelle, weil es eine Reihe hat; bei drei
+  sind dieselben zwölf Zahlen dreimal ein Muster, an dem das Auge vorbeilesen
+  muss, um zu sehen, was wirklich dasteht. Eine Spalte beschriftet man am Kopf.
+
+Dafür hat `Metrics` eine `keyRowHeight` bekommen, und `RowTop` geht jetzt über
+`KeyRowTop` — Zeichnen und Treffertest lesen weiterhin aus denselben zwei
+Zeilen, sonst läge eine Zelle für die Maus woanders als für das Auge.
+
+### Der Zeiger: drei Zahlen statt einer Vermutung
+
+Der Cursor **ist** da (das Spiel zeichnet ihn selbst — ein eigener wäre einer
+zu viel gewesen; der Versuch wurde wieder herausgenommen). Er markiert nur
+nichts. Dafür gibt es drei Erklärungen, die von außen gleich aussehen: der
+Cursor steht still, er zählt in einer anderen Einheit als angenommen, oder das
+Ergebnis landet neben dem Panel.
+
+`grid::Pointer` schreibt deshalb **einmal pro geöffnetem Panel** alles auf, was
+in die Rechnung eingeht: Cursorposition, sein eigenes Minimum und Maximum, wie
+viele Cursor registriert sind, den Viewport, den sichtbaren Rahmen, das
+Ergebnis in Bühneneinheiten, die Ausmaße des Panels — und ob das auf eine Zelle
+fällt. Eine Zeile, und die drei Fälle sind unterscheidbar.
+
+Gleichzeitig rechnet er nicht mehr über den Viewport, sondern über
+`minCursorX`…`maxCursorX`, die der Cursor selbst mitbringt. Das bleibt richtig,
+in welcher Einheit er auch zählt — und genau eine solche Annahme hat dieses
+Projekt schon einmal einen Abend gekostet (`GridX=-1` als `UINT`).
