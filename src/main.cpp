@@ -2024,11 +2024,67 @@ namespace
 			return false;
 		}
 
+		// Which slot the thing occupies. Handing over nothing and hoping the
+		// manager would work it out was the first attempt, and it was
+		// refused. Anything equippable knows its own slot -- BGSEquipType is
+		// a base of both weapons and armour, and its GetEquipSlot takes the
+		// instance data, so a modded piece answers as itself.
+		const RE::BGSEquipType* equippable = nullptr;
+		if (auto* weapon = a_object->As<RE::TESObjectWEAP>()) {
+			equippable = weapon;
+		} else if (auto* armor = a_object->As<RE::TESObjectARMO>()) {
+			equippable = armor;
+		}
+		const RE::BGSEquipSlot* slot =
+			equippable ? equippable->GetEquipSlot(data) : nullptr;
+
 		const RE::BGSObjectInstance instance{ a_object, data };
-		const auto off = equipment->UnequipObject(
-			player, &instance, 1, nullptr, stackID, false, false, true, true, nullptr);
-		logger::info("equip: taking it off {}", off ? "worked" : "was refused");
-		return off;
+
+		// Four ways of asking, tried until one is not refused.
+		//
+		// The manager takes ten arguments and the meaning of half of them is
+		// not written down anywhere; refused tells us nothing about which one
+		// was wrong. Four attempts in one key press cost a moment, where four
+		// guesses would cost four evenings -- and whichever one works is the
+		// one that gets written down and kept.
+		struct Attempt
+		{
+			const char* what;
+			const RE::BGSEquipSlot* slot;
+			bool queue;
+			bool force;
+			bool applyNow;
+		};
+
+		const std::array<Attempt, 4> attempts{ {
+			{ "its own slot", slot, false, false, true },
+			{ "queued", nullptr, true, false, true },
+			{ "queued, forced, its own slot", slot, true, true, true },
+			{ "forced, not applied now", nullptr, false, true, false },
+		} };
+
+		for (const auto& attempt : attempts) {
+			if (equipment->UnequipObject(
+					player,
+					&instance,
+					1,
+					attempt.slot,
+					stackID,
+					attempt.queue,
+					attempt.force,
+					true,
+					attempt.applyNow,
+					nullptr)) {
+				logger::info("equip: taking it off worked -- {}", attempt.what);
+				return true;
+			}
+			logger::info("equip: refused -- {}", attempt.what);
+		}
+
+		logger::warn(
+			"equip: the manager will not take \"{}\" off at all",
+			RE::TESFullName::GetFullName(*a_object));
+		return false;
 	}
 
 	// Using what is marked. A cell on another page is used by going there
