@@ -34,6 +34,10 @@ namespace
 	// twelve numbers three times over are a pattern the eye has to read past
 	// to see what is actually there. A column is labelled at its head.
 	constexpr double kKeyTextSize = 0.36;
+
+	// The marked cell: the same plate with more light in it.
+	constexpr double kMarkFillAlpha = 0.18;
+	constexpr double kMarkLineAlpha = 0.9;
 	constexpr double kKeyAlpha = 1.0;
 
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
@@ -69,11 +73,19 @@ namespace
 	// leftover: Fallout 4 draws its cells as thin sheets of light with no
 	// outline at all, and they work by brightening what is behind them.
 	//
+	// The white is not the colour the player sees. Nothing in the menu's own
+	// ActionScript sets a colour anywhere -- the engine does it, by wrapping
+	// a display object in a BSGFxShaderFXTarget and calling SetToHUDColor,
+	// which hangs filters on it and renews them on every ApplyColorUpdateEvent.
+	// White is simply what a tint is applied to. Our menu is our own and is
+	// wired to none of that, so what arrives white in the vanilla movie is
+	// drawn here in the player's own HUD colour: same intention, one step
+	// earlier.
+	//
 	// Every page is drawn the same. The engine hands the twelve keys to one
 	// page at a time, but that is its business rather than the player's: with
 	// the pointer and the keys, every cell on the panel is one move away, and
 	// picking one page out would say that the others are further off.
-	constexpr std::uint32_t kPlate = 0xFFFFFF;
 	constexpr double kCellAlpha = 0.20;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
@@ -583,7 +595,7 @@ void grid::Draw(
 			KeyRowTop(m),
 			m.cell,
 			m.keySize,
-			kPlate,
+			a_color,
 			kKeyAlpha);
 	}
 
@@ -613,7 +625,7 @@ void grid::Draw(
 				rowTop,
 				m.cell,
 				m.cell,
-				kPlate,
+				a_color,
 				kCellAlpha);
 		}
 	}
@@ -629,8 +641,12 @@ void grid::Draw(
 		g_marker.SetMember("visible", RE::Scaleform::GFx::Value(false));
 		RE::Scaleform::GFx::Value pen;
 		if (g_marker.GetMember("graphics", &pen) && pen.IsObject()) {
-			Fill(pen, 0.0, 0.0, m.cell, m.cell, kPlate, 0.15);
-			Outline(pen, 0.0, 0.0, m.cell, m.cell, kPlate, 0.9, 2.0);
+			// Brighter, not different. The game marks a cell by giving it
+			// more of the same light, and a colour of its own here would
+			// say "this cell is not like the others" where what is meant is
+			// "this cell is the one".
+			Fill(pen, 0.0, 0.0, m.cell, m.cell, a_color, kMarkFillAlpha);
+			Outline(pen, 0.0, 0.0, m.cell, m.cell, a_color, kMarkLineAlpha, 2.0);
 		}
 		g_panel.Invoke("addChild", nullptr, &g_marker, 1);
 	}

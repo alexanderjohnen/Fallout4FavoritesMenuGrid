@@ -82,6 +82,11 @@ namespace
 	// Anything above white means "take the colour the player set for the HUD".
 	std::uint32_t g_indicatorColor = 0x1000000;
 
+	// The grid's own, on the same terms. It is a colour of its own because
+	// the grid is the whole panel now and the marker inside the favorites
+	// menu is a different thing on a different canvas.
+	std::uint32_t g_gridColor = 0x1000000;
+
 	// The cross shows no page of its own, so turning one is announced the
 	// way the game announces everything else. The wording is a setting
 	// because the game is not played in English everywhere; the numbers are
@@ -310,6 +315,8 @@ namespace
 			L"Display", L"PageIndicatorSize", 18, path.c_str()));
 		g_indicatorColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
 			L"Display", L"PageIndicatorColor", 0x1000000, path.c_str()));
+		g_gridColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
+			L"Display", L"GridColor", 0x1000000, path.c_str()));
 		g_indicatorText =
 			ReadText(path, L"Display", L"PageIndicatorText", L"Favorites");
 		g_indicatorFont = ReadText(path, L"Display", L"PageIndicatorFont", L"");
@@ -1291,7 +1298,7 @@ namespace
 			std::string{},
 			BuildGridPages(),
 			g_marked,
-			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor(),
+			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			g_gridWhere);
 	}
 

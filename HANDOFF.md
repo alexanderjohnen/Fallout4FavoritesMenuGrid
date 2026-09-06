@@ -1552,3 +1552,38 @@ nächste Funktion, die die Vtable nennt, liegt 0x150 dahinter.
   ersetzten HUD fährt, behält sein Crosshair, und das Log zählt dann die Kinder
   des HUD auf, damit der nächste Name feststeht statt geraten wird.
   Schalter: `[Display] HideCrosshair`.
+
+## 26. Wie Fallout 4 seine Menüs einfärbt (2026-09-06)
+
+**Beobachtung:** Das Grid folgte der HUD-Farbe nur teilweise — Titel und
+Zeilennummern waren blau wie der HUD, die Platten und Tastennamen weiß.
+
+Das war so gebaut, und die Begründung war falsch. In `FavoritesMenu.swf` ist
+die Zelle weiß (`ff ff ff 33`), und **nichts im ActionScript des Menüs setzt
+jemals eine Farbe** — geprüft in `FavoritesMenu.as`, `FavoritesCross.as`,
+`FavoritesEntry.as` und `GlobalFunc.as`. Die Färbung macht die Engine:
+
+```cpp
+class BSGFxShaderFXTarget : BSGFxDisplayObject, BSTEventSink<ApplyColorUpdateEvent>
+    void SetToHUDColor(bool a_useWarningColor)
+        CreateAndSetFiltersToHUD(HUDColorTypes::kGameplayHUDColor, 1.0);
+```
+
+Ein Anzeigeobjekt wird in so ein Ziel gewickelt, bekommt Filter aufgesetzt und
+meldet sich für `ApplyColorUpdateEvent` an, damit die Filter bei jeder
+Farbänderung erneuert werden. **Weiß ist nur das, worauf getönt wird.**
+
+Unser Menü ist unser eigenes und hängt an keinem davon. Also wird die Farbe
+eine Stufe früher eingesetzt: Platten, Tastennamen, Zeilennummern und die
+Markierung zeichnen in der HUD-Farbe des Spielers, die Alphawerte bleiben die
+gemessenen (Platte 0.20, Markierung 0.18 gefüllt und 0.9 im Strich — heller,
+nicht anders). Neue Einstellung `[Display] GridColor`, gleiche Regel wie beim
+Seitenmarker: über Weiß heißt „nimm die HUD-Farbe".
+
+**Der saubere Weg wäre der andere:** `RE::BSGFxShaderFXTarget` ist in
+CommonLibF4 vollständig konstruierbar (`BSGFxShaderFXTarget(const
+Scaleform::GFx::Value&)`), unser Panel ließe sich damit umwickeln und würde
+Powerrüstungs- und Warnfarben von selbst mitmachen. Dagegen sprach für heute
+nur, dass es ein Engine-Aufruf über eine Bibliotheks-ID mehr ist — und davon
+waren in diesem Projekt schon zwei falsch. Steht als Möglichkeit, nicht als
+Schuld.
