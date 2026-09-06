@@ -437,12 +437,12 @@ namespace
 			GetPrivateProfileIntW(L"Display", L"GridCorners", 0, path.c_str()) != 0;
 		g_gridWhere.cornerArm = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerLength", 40, path.c_str())),
+				L"Display", L"GridCornerLength", 20, path.c_str())),
 			5,
 			200) / 100.0;
 		g_gridWhere.cornerThickness = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerThickness", 3, path.c_str())),
+				L"Display", L"GridCornerThickness", 1, path.c_str())),
 			1,
 			16);
 		g_gridWhere.cornerOutset = std::clamp(
