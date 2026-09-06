@@ -18,6 +18,7 @@
 #include "PCH.h"
 
 #include "grid.h"
+#include "icons.h"
 #include "input.h"
 #include "menu.h"
 #include "peek.h"
@@ -58,6 +59,9 @@ namespace
 	// open afterwards would be the one place in the game where using a
 	// favorite leaves you standing in a menu.
 	bool g_closeAfterUse = true;
+
+	// Which icon library to bring in. Empty switches the whole thing off.
+	std::string g_iconLibrary = "FallUI_IconLib.swf";
 
 	// The crosshair belongs to the HUD, and the HUD has no idea the favorites
 	// menu is open.
@@ -296,6 +300,8 @@ namespace
 			GetPrivateProfileIntW(L"Display", L"GridInMenuRoot", 0, path.c_str()) != 0;
 		g_gridWhere.canvas = ReadText(path, L"Display", L"GridMenu", L"HUDMenu");
 		g_gridWhere.iconProbe = ReadText(path, L"Debug", L"IconProbe", L"");
+		g_iconLibrary =
+			ReadText(path, L"Display", L"IconLibrary", L"FallUI_IconLib.swf");
 		g_gridWhere.cellSize = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
 				L"Display", L"GridCellSize", 48, path.c_str())),
@@ -1506,6 +1512,13 @@ namespace
 	{
 		KeepCrosshairDown();
 
+		// The library arrives some frames after it was asked for, and the
+		// panel was drawn before that. So when it lands, the panel is drawn
+		// again -- once -- and this time its cells can carry symbols.
+		if (auto* canvas = GetMenu(g_gridWhere.canvas)) {
+			icons::Poll(canvas, []() { ShowGrid(); });
+		}
+
 		if (!g_useGrid) {
 			return;
 		}
@@ -1903,6 +1916,7 @@ namespace
 				// is dropped on close and built again on the next open.
 				if (!a_event.opening) {
 					input::Listen(false);
+					icons::Release();
 					ShowCrosshair();
 					g_marked.reset();
 					ForgetPointer();
@@ -1947,6 +1961,9 @@ namespace
 
 		menu::Register();
 		menu::SetOnReady([]() {
+			if (auto* canvas = GetMenu(g_gridWhere.canvas)) {
+				icons::Begin(canvas, g_iconLibrary);
+			}
 			ShowGrid();
 			HideCrosshair();
 			// Only now: the keys mean pages and cells while the grid is up,

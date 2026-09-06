@@ -42,6 +42,8 @@ add_library(
 	SHARED
 	src/grid.cpp
 	src/grid.h
+	src/icons.cpp
+	src/icons.h
 	src/input.cpp
 	src/input.h
 	src/menu.cpp

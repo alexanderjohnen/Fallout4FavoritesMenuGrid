@@ -1731,3 +1731,54 @@ liegen hat. `Interface\ItemSorter\` ist ohnehin **FallUIs** Mechanismus — die
 zwei Konfigurationen, FIS und DEF_UI. Fehlt das alles, bleiben die Zellen leer
 und das Gitter tut alles andere unverändert. Eine weiche Abhängigkeit auf der
 Modseite ist normal; eine harte beim Laden der SWF wäre es nicht.
+
+## 29. Der Ladeweg ist offen (2026-09-06)
+
+```
+grid: flash.display.Loader is there
+grid: flash.net.URLRequest is there
+grid: flash.system.LoaderContext is there
+grid: flash.system.ApplicationDomain is there
+grid: the current application domain cannot be reached
+```
+
+**Alle vier Klassen sind da.** Scaleforms AS3 lässt in diesem Player also
+genau das übrig, was zum Nachladen nötig ist — der teure Weg über einen selbst
+geschriebenen `ImportAssets2`-Tag entfällt.
+
+Die letzte Zeile war kein Befund, sondern mein Fehler: `Movie::GetVariable`
+läuft über den Wurzelpfad des Movies, und `flash.system.*` liegt dort nicht.
+Die aktuelle Domäne holt man über das Anzeigeobjekt selbst:
+
+```
+root -> loaderInfo -> applicationDomain
+```
+
+### `src/icons.cpp`
+
+```
+context = new LoaderContext(false, jene Domäne)
+loader  = new Loader()
+loader.load(new URLRequest("FallUI_IconLib.swf"), context)
+```
+
+Das zweite Argument von `LoaderContext` ist der ganze Punkt: ohne es entsteht
+eine **Kinddomäne**, und deren Klassen sind nicht die, die `CreateObject`
+findet — das sähe von außen aus wie ein fehlgeschlagener Ladevorgang.
+
+Gewartet wird über `contentLoaderInfo.bytesLoaded`/`bytesTotal`, einmal pro
+Bild, dieselbe Stelle, an der auch der Zeiger gelesen wird. Eine fehlende Datei
+lässt `bytesTotal` für immer auf null, deshalb wird nach 600 Bildern
+aufgegeben und das ins Log geschrieben.
+
+Ist die Bibliothek da, wird das Panel **einmal** neu gezeichnet — vorher gab es
+die Symbole noch nicht. `IconProbe` hängt dann sein Symbol in die erste Zelle:
+das ist der Beweis, dass der Weg trägt, und erst danach lohnt die Zuordnung
+Tag → Symbol aus der Sorter-XML.
+
+Die Bibliothek ist 69 KB groß, also kostet ein Laden pro Öffnen des Menüs
+nichts Nennenswertes. Unser Menü wird beim Schließen abgebaut, das Movie mit
+ihm, und damit auch die geladenen Klassen — `icons::Release` räumt den Loader
+weg, bevor das Movie geht.
+
+Neue Einstellung `[Display] IconLibrary`, leer schaltet Symbole ab.
