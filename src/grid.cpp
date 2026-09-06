@@ -312,22 +312,30 @@ namespace
 
 	// ---- Icons -----------------------------------------------------------
 
-	// Paints white artwork in one flat colour: every multiplier at zero and
-	// the colour as an offset. Transparency is left alone -- its multiplier
-	// stays at one -- so only what was drawn takes the colour.
+	// Tints artwork by multiplying it, not by replacing it.
+	//
+	// The first attempt set every multiplier to zero and put the colour in as
+	// an offset. That paints each visible pixel exactly the same colour --
+	// which turns a drawing into a silhouette. It looked right on the plates,
+	// where there is nothing to lose, and wrong on the icons, where the
+	// difference between light and dark parts is the whole picture: beside
+	// the Pip-Boy's own med kit ours had no cross in it.
+	//
+	// Multiplying keeps that difference. White comes out the colour, grey
+	// comes out darker, and transparency is untouched.
 	void Paint(
 		RE::IMenu* a_canvas,
 		RE::Scaleform::GFx::Value& a_icon,
 		std::uint32_t a_color)
 	{
 		const std::array parts{
-			RE::Scaleform::GFx::Value(0.0),
-			RE::Scaleform::GFx::Value(0.0),
-			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(((a_color >> 16) & 0xFF) / 255.0),
+			RE::Scaleform::GFx::Value(((a_color >> 8) & 0xFF) / 255.0),
+			RE::Scaleform::GFx::Value((a_color & 0xFF) / 255.0),
 			RE::Scaleform::GFx::Value(1.0),
-			RE::Scaleform::GFx::Value(static_cast<double>((a_color >> 16) & 0xFF)),
-			RE::Scaleform::GFx::Value(static_cast<double>((a_color >> 8) & 0xFF)),
-			RE::Scaleform::GFx::Value(static_cast<double>(a_color & 0xFF)),
+			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(0.0),
+			RE::Scaleform::GFx::Value(0.0),
 			RE::Scaleform::GFx::Value(0.0)
 		};
 		RE::Scaleform::GFx::Value paint;

@@ -1931,6 +1931,10 @@ namespace
 	// where in its chain it sits. The chain position is the stack ID -- that
 	// is literally what GetStackByID walks -- and the equip manager wants it
 	// alongside the object itself.
+	//
+	// The item is found first and its chain walked afterwards, rather than
+	// both at once inside the visitor: what a visitor's answer means to
+	// ForEachStack is the library's business, and the walk needs none of it.
 	[[nodiscard]] bool WornStack(
 		RE::TESBoundObject* a_object,
 		std::uint32_t& a_stackID,
@@ -1941,33 +1945,45 @@ namespace
 			return false;
 		}
 
-		bool worn = false;
+		RE::BGSInventoryItem* found = nullptr;
 		player->inventoryList->ForEachStack(
 			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
-			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
-				if (worn || !a_stack.IsEquipped()) {
-					return true;
-				}
-
-				std::uint32_t index = 0;
-				for (auto* walk = a_item.stackData.get(); walk;
-					 walk = walk->nextStack.get(), ++index) {
-					if (walk == &a_stack) {
-						worn = true;
-						a_stackID = index;
-						a_data = nullptr;
-						if (a_stack.extra) {
-							if (auto* instance =
-									a_stack.extra->GetByType<RE::ExtraInstanceData>()) {
-								a_data = instance->data.get();
-							}
-						}
-						return false;
-					}
-				}
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack&) {
+				found = &a_item;
 				return true;
 			});
-		return worn;
+		if (!found) {
+			return false;
+		}
+
+		std::uint32_t index = 0;
+		std::uint32_t stacks = 0;
+		for (auto* walk = found->stackData.get(); walk;
+			 walk = walk->nextStack.get(), ++stacks) {
+			if (!walk->IsEquipped()) {
+				continue;
+			}
+			a_stackID = stacks;
+			a_data = nullptr;
+			if (walk->extra) {
+				if (auto* instance = walk->extra->GetByType<RE::ExtraInstanceData>()) {
+					a_data = instance->data.get();
+				}
+			}
+			index = stacks;
+			logger::info(
+				"equip: \"{}\" is worn on stack {} of {}",
+				RE::TESFullName::GetFullName(*a_object),
+				index,
+				stacks + 1);
+			return true;
+		}
+
+		logger::info(
+			"equip: \"{}\" is not worn -- {} stack(s), none of them equipped",
+			RE::TESFullName::GetFullName(*a_object),
+			stacks);
+		return false;
 	}
 
 	// Takes off what is already on. A second press on something you are
@@ -1985,12 +2001,15 @@ namespace
 		auto* player = RE::PlayerCharacter::GetSingleton();
 		auto* equipment = RE::ActorEquipManager::GetSingleton();
 		if (!player || !equipment) {
+			logger::warn("equip: there is no equip manager to ask");
 			return false;
 		}
 
 		const RE::BGSObjectInstance instance{ a_object, data };
-		return equipment->UnequipObject(
+		const auto off = equipment->UnequipObject(
 			player, &instance, 1, nullptr, stackID, false, false, true, true, nullptr);
+		logger::info("equip: taking it off {}", off ? "worked" : "was refused");
+		return off;
 	}
 
 	// Using what is marked. A cell on another page is used by going there
