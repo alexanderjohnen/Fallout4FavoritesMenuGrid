@@ -90,9 +90,9 @@ namespace grid
 		// Taken from the compass along the bottom of the screen: the game's
 		// own line weight is one stage unit, and its end marks are short. A
 		// heavier stroke reads as a border rather than as a mark.
-		double cornerArm{ 0.2 };        // of a cell
-		double cornerThickness{ 1.0 };  // stage units
-		double cornerOutset{ 6.0 };     // how far outside the cells they sit
+		double cornerArm{ 0.12 };       // of a cell
+		double cornerThickness{ 2.0 };  // stage units
+		double cornerOutset{ 3.0 };     // how far outside the cells they sit
 
 		// The air under the two lines, before the key names begin. A text
 		// field is taller than the size of the type in it -- there is room
