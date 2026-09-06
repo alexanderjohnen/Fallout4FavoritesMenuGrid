@@ -1272,13 +1272,16 @@ namespace
 			return;
 		}
 
+		// The title carries no page number any more. With every page drawn
+		// alike there is no "here" to count from, and a number that said
+		// which page the digits still belong to would be the one thing on
+		// the panel a player could not act on.
 		grid::Draw(
 			canvas,
 			menu,
 			font,
-			PageWording(g_indicatorText),
+			g_indicatorText,
 			BuildGridPages(),
-			g_currentPage,
 			g_marked,
 			g_indicatorColor <= 0xFFFFFF ? g_indicatorColor : HUDColor(),
 			g_gridWhere);
@@ -1653,10 +1656,14 @@ namespace
 			if (tasks && rotate && !previousRotate) {
 				tasks->AddUITask([]() { RotateFavorites(); });
 			}
-			if (tasks && nextPage && !previousNext) {
+			// Turning pages by hand is what the grid did away with: every
+			// cell of every page is one move from the pointer or the keys,
+			// and using one turns to its page on the way. The keys stay for
+			// anyone who runs with UseGrid=0 and the vanilla cross.
+			if (tasks && !g_useGrid && nextPage && !previousNext) {
 				tasks->AddUITask([]() { TurnPage(1); });
 			}
-			if (tasks && previousPage && !previousBack) {
+			if (tasks && !g_useGrid && previousPage && !previousBack) {
 				tasks->AddUITask([]() { TurnPage(-1); });
 			}
 			// Reading memory only, so this one needs no UI task.
@@ -1749,7 +1756,7 @@ namespace
 
 		// The one call the grid cannot make up for itself. Looked for once,
 		// here, so a failure is in the log before anyone clicks anything.
-		use::Find();
+		use::Find(GetSettingsPath());
 
 		input::SetKeys(g_gridKeys);
 		input::SetOnAction(&OnAction);

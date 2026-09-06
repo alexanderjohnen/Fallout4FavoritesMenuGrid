@@ -6,21 +6,14 @@
 
 namespace
 {
-	// The bytes FavoritesMenuEx keys on. Only the tail is compared: the call
-	// itself carries an address that differs at every site, and the four
-	// bytes of it are what we are after.
-	//
-	//     E8 ? ? ? ?      call    ...
-	//     83 F8 0C        cmp     eax, 0Ch
-	//     74 04           je      short ...
-	constexpr std::array<std::uint8_t, 5> kAfterTheCall{ 0x83, 0xF8, 0x0C, 0x74, 0x04 };
-	constexpr std::size_t kCallLength = 5;
-
-	// Enough of the function to recognise it in a disassembly, and enough of
-	// the call site to see what it is handed.
-	constexpr std::size_t kFunctionSample = 0x140;
-	constexpr std::size_t kCallSiteSample = 0x40;
-	constexpr std::size_t kCallSiteLead = 0x20;
+	// FavoritesManager carries four vtables and the one with the input
+	// handlers sits at object offset 0x10 -- measured, not assumed: what is
+	// at offset 0 has a single entry. Of its nine slots, the eighth is
+	// OnButtonEvent, which is where the game uses a favorite when a digit is
+	// pressed.
+	constexpr std::size_t kInputVTableOffset = 0x10;
+	constexpr std::size_t kShouldHandleEvent = 1;
+	constexpr std::size_t kOnButtonEvent = 8;
 
 	void (*g_useQuickkey)(RE::FavoritesManager*, std::uint32_t) = nullptr;
 
@@ -30,43 +23,8 @@ namespace
 		return a_address >= text.address() && a_address < text.address() + text.size();
 	}
 
-	// Every call in the code whose answer is compared with twelve.
-	[[nodiscard]] std::vector<std::uintptr_t> FindCallSites()
-	{
-		const auto text = REL::Module::get().segment(REL::Segment::text);
-		const auto* bytes = reinterpret_cast<const std::uint8_t*>(text.address());
-		const auto size = static_cast<std::size_t>(text.size());
-
-		std::vector<std::uintptr_t> sites;
-		for (std::size_t index = 0;
-			 index + kCallLength + kAfterTheCall.size() <= size;
-			 ++index) {
-			if (bytes[index] != 0xE8) {
-				continue;
-			}
-			if (std::equal(
-					kAfterTheCall.begin(),
-					kAfterTheCall.end(),
-					bytes + index + kCallLength)) {
-				sites.push_back(text.address() + index);
-			}
-		}
-		return sites;
-	}
-
-	[[nodiscard]] std::uintptr_t TargetOf(std::uintptr_t a_site)
-	{
-		std::int32_t displacement = 0;
-		std::memcpy(
-			&displacement,
-			reinterpret_cast<const void*>(a_site + 1),
-			sizeof(displacement));
-		return a_site + kCallLength + displacement;
-	}
-
-	// The Address Library the other way round, so the finding can be named
-	// rather than only pointed at. Nothing is built until there is something
-	// to look up.
+	// The Address Library the other way round, so a finding can be named
+	// rather than only pointed at.
 	[[nodiscard]] std::uint64_t IdentityOf(std::uintptr_t a_address)
 	{
 		static const REL::IDDatabase::Offset2ID map;
@@ -84,61 +42,107 @@ namespace
 		// than no ID at all.
 		return found != map.end() && found->offset == offset ? found->id : 0;
 	}
+
+	// Writes out the two handlers the manager brings to the input, so the
+	// one call we still lack can be read out of the one that already makes
+	// it. Reading only.
+	void WriteOutTheHandlers()
+	{
+		const auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!manager) {
+			return;
+		}
+
+		const auto* object = reinterpret_cast<const std::uint8_t*>(manager);
+		std::uintptr_t vtable = 0;
+		std::memcpy(&vtable, object + kInputVTableOffset, sizeof(vtable));
+		const auto rdata = REL::Module::get().segment(REL::Segment::rdata);
+		if (vtable < rdata.address() || vtable >= rdata.address() + rdata.size()) {
+			logger::warn("use: the manager has no vtable where one should be");
+			return;
+		}
+
+		const auto* slots = reinterpret_cast<const std::uintptr_t*>(vtable);
+		const auto base = REL::Module::get().base();
+		for (const auto [slot, name] :
+			 { std::pair{ kOnButtonEvent, "FavoritesManager::OnButtonEvent" },
+				 std::pair{ kShouldHandleEvent,
+					 "FavoritesManager::ShouldHandleEvent" } }) {
+			const auto address = slots[slot];
+			if (!InText(address)) {
+				continue;
+			}
+			logger::info(
+				"use: {} is {:#x} (ID {})",
+				name,
+				address - base,
+				IdentityOf(address));
+			// The whole function, not a sample: the call we are after is
+			// somewhere in it, and a cut-off dump would only mean another
+			// start of the game.
+			peek::Note(name, address, 0);
+		}
+	}
+
+	[[nodiscard]] std::optional<std::uintptr_t> FromTheSettings(
+		const std::filesystem::path& a_settings)
+	{
+		const auto base = REL::Module::get().base();
+
+		const auto identifier = static_cast<std::uint64_t>(GetPrivateProfileIntW(
+			L"Debug", L"UseQuickkeyID", 0, a_settings.c_str()));
+		if (identifier != 0) {
+			return base + REL::IDDatabase::get().id2offset(identifier);
+		}
+
+		std::wstring raw(64, L'\0');
+		raw.resize(GetPrivateProfileStringW(
+			L"Debug",
+			L"UseQuickkeyRVA",
+			L"",
+			raw.data(),
+			static_cast<DWORD>(raw.size()),
+			a_settings.c_str()));
+		if (raw.empty()) {
+			return std::nullopt;
+		}
+		const auto offset = std::wcstoull(raw.c_str(), nullptr, 0);
+		return offset != 0 ? std::optional{ base + offset } : std::nullopt;
+	}
 }
 
-void use::Find()
+void use::Find(const std::filesystem::path& a_settings)
 {
-	const auto sites = FindCallSites();
-	if (sites.empty()) {
+	WriteOutTheHandlers();
+
+	// The first answer here was found by the bytes around a call --
+	// FavoritesMenuEx names the signature `E8 ? ? ? ? 83 F8 0C 74 04` -- and
+	// it was the wrong function: the call it lands on is a classifier that
+	// walks a form's vtable against a dozen known ones and answers with a
+	// number, twelve meaning "none of them". Handed a key index instead of a
+	// pointer it read from address 1 and took the game with it. Hence the
+	// dump above, and hence nothing at all is called until an address is
+	// named here by someone who has read that dump.
+	const auto address = FromTheSettings(a_settings);
+	if (!address) {
+		logger::info(
+			"use: no UseQuickkeyItem named in the INI -- using a cell will do "
+			"nothing until there is one");
+		return;
+	}
+	if (!InText(*address)) {
 		logger::warn(
-			"use: no call of that shape in the code -- nothing will be used");
+			"use: {:#x} is not in the code section -- nothing will be called",
+			*address - REL::Module::get().base());
 		return;
 	}
 
-	std::vector<std::uintptr_t> targets;
-	for (const auto site : sites) {
-		const auto target = TargetOf(site);
-		if (InText(target) &&
-			std::find(targets.begin(), targets.end(), target) == targets.end()) {
-			targets.push_back(target);
-		}
-	}
-
-	const auto base = REL::Module::get().base();
-	if (targets.size() != 1) {
-		std::string all;
-		for (const auto target : targets) {
-			all += std::format("{:#x} ", target - base);
-		}
-		logger::warn(
-			"use: {} call site(s) point at {} different functions ({}) -- too "
-			"unclear to call any of them",
-			sites.size(),
-			targets.size(),
-			all);
-		return;
-	}
-
-	const auto target = targets.front();
 	logger::info(
-		"use: UseQuickkeyItem looks to be {:#x} (ID {}), called from {:#x} in "
-		"{} place(s)",
-		target - base,
-		IdentityOf(target),
-		sites.front() - base,
-		sites.size());
-
-	// Written down before it is ever called. If the first call turns out to
-	// be the wrong function and takes the game with it, this file still says
-	// what was called.
-	peek::Note("FavoritesManager::UseQuickkeyItem", target, kFunctionSample);
-	peek::Note(
-		"the call that named it",
-		sites.front() - kCallSiteLead,
-		kCallSiteSample);
-
+		"use: UseQuickkeyItem taken from the INI as {:#x} (ID {})",
+		*address - REL::Module::get().base(),
+		IdentityOf(*address));
 	g_useQuickkey =
-		reinterpret_cast<void (*)(RE::FavoritesManager*, std::uint32_t)>(target);
+		reinterpret_cast<void (*)(RE::FavoritesManager*, std::uint32_t)>(*address);
 }
 
 bool use::Ready()

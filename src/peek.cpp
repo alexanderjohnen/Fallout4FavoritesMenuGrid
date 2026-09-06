@@ -307,5 +307,7 @@ void peek::Note(
 		out << std::format("# base {:#x}\n", REL::Module::get().base());
 	}
 
-	WriteBlock(out, a_label, a_address, a_length);
+	// Length zero means the whole function around the address, the same as
+	// in the INI: a finding is worth having entire.
+	WritePlace(out, a_label, a_address, a_length);
 }

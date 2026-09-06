@@ -1341,3 +1341,121 @@ Spielers hält — der Abschnitt wurde ihr diesmal von Hand angehängt.
 - **Das Gamepad** ist bewusst außen vor. Es geht weiter ans Kreuz; ein
   falscher Griff dort nähme dem Controller das Menü ganz.
 - Punkte 4 bis 6 aus Abschnitt 21 unverändert.
+
+## 23. Der Klick stürzt ab, und warum (2026-09-06)
+
+**Getestet:** WASD läuft durch die Reihen, die Markierung folgt, der Zeiger
+markiert. **Der Linksklick hat das Spiel abgestürzt** — und die Vorsorge aus
+Abschnitt 22 hat den Fall beantwortet, ohne dass eine zweite Messrunde nötig
+war.
+
+### Die Signatur führt woandershin
+
+`FavoritesMenuGrid.found.txt` enthielt die Funktion, die aufgerufen wurde,
+`0x1271480` (ID **1330478**). Disassembliert ist sie eindeutig **kein**
+`UseQuickkeyItem`:
+
+```
+mov  ebx, 0xc                    ; die Antwort, falls nichts passt
+mov  rdi, rdx                    ; das zweite Argument ist ein Zeiger
+...
+cmp  qword ptr [rdi], rax        ; [Objekt] gegen eine bekannte Vtable
+je   -> ebx = 0
+cmp  qword ptr [rdi], rax        ; die nächste
+je   -> ebx = 1
+...
+```
+
+Ein **Typ-Klassifizierer**: er vergleicht die Vtable eines Formulars gegen ein
+Dutzend bekannter und antwortet mit 0…11, zwölf heißt „keine davon". Wir haben
+ihm als `rdx` den Tastenindex **1** übergeben — also wurde von Adresse 1
+gelesen. Der Absturz ist damit vollständig erklärt.
+
+Die Aufrufstelle `0x126f8eb` liegt in **`ShouldHandleEvent`** (0x126f6c0), nicht
+in einem Benutzen-Pfad: dort wird geprüft, ob die Taste überhaupt etwas
+Brauchbares hält. Die Signatur aus FavoritesMenuEx ist also nicht falsch
+abgeschrieben — sie zeigt nur nicht dorthin, wo wir sie vermutet haben.
+
+### Gesucht wird nicht mehr, gelesen wird
+
+Vtables liegen in `.rdata` und sind **auch aus der gepackten EXE lesbar**. Die
+Eingabe-Vtable von `FavoritesManager` (Objektoffset 0x10, RVA `0x2d874f8`) gibt:
+
+| Slot | | RVA | ID |
+| --- | --- | --- | --- |
+| 1 | `ShouldHandleEvent` | 0x126f6c0 | 1342580 |
+| 2–7 | die leeren Vorgaben | 0x1e07xx | |
+| 8 | `OnButtonEvent` | **0x126f930** | **1049251** |
+
+`OnButtonEvent` ist die Stelle, an der das Spiel einen Favoriten benutzt, wenn
+eine Ziffer gedrückt wird. `use::Find` schreibt sie jetzt bei jedem Start
+**ganz** nach `FavoritesMenuGrid.found.txt` (Länge 0 heißt bei `peek::Note`
+neuerdings „die ganze Funktion"). Der nächste Schritt ist also kein Raten mehr,
+sondern:
+
+```
+py -3 tools/f4dis.py peek "...\FavoritesMenuGrid.found.txt"
+```
+
+und der Aufruf darin ablesen.
+
+**Bis dahin wird nichts aufgerufen.** Die Adresse kommt aus der INI —
+`[Debug] UseQuickkeyID=` oder `UseQuickkeyRVA=` — und ohne sie protokolliert
+ein Klick nur, dass er nichts tun kann. Steht die Adresse erst fest, ist sie
+ohne Neuübersetzung prüfbar; danach kann sie fest verdrahtet werden.
+
+### Alle Seiten gleich
+
+Die gespielte Seite wird nicht mehr hervorgehoben — kein doppeltes Alpha, keine
+gedimmten Zeilennummern. Die Engine gibt die zwölf Tasten immer nur einer Seite,
+aber das ist ihre Angelegenheit und nicht die des Spielers: mit Zeiger und
+Tasten ist jede Zelle einen Zug entfernt, und eine hervorgehobene Seite würde
+sagen, die anderen seien weiter weg.
+
+Folgerichtig fällt zweierlei weg:
+
+- **Der Seitenzähler im Titel.** „Favorites 2 / 3" zählte von einem „hier",
+  das es nicht mehr gibt. Es steht nur noch `PageIndicatorText`.
+- **Das Blättern mit Bild auf/ab.** Mit dem Grid braucht es das nicht; das
+  Benutzen einer Zelle blättert unterwegs von selbst. Die Tasten bleiben für
+  `UseGrid=0` erhalten.
+
+**Das bleibt zu bedenken:** Die Zifferntasten des Spiels wirken weiterhin auf
+die Seite, die die Engine gerade hält — und die ist auf dem Panel nun nicht
+mehr zu erkennen. Wer „3" drückt, benutzt nicht unbedingt, was er unter der
+Drei sieht. Das ist der Preis der einheitlichen Darstellung und war eine
+bewusste Entscheidung.
+
+### Das Design, aus der Vanilla-SWF statt nach Augenmaß
+
+Die einzige `DefineShape4` in `FavoritesMenu.swf` ist ein Quadrat von 100 × 100
+Einheiten:
+
+- Füllung `ff ff ff 33` — Weiß bei einem Fünftel. War schon übernommen.
+- **Der Rahmen ist keiner.** Der einzige `LINESTYLE2` ist 1 Einheit breit,
+  Farbe `00 ff 00`, Alpha **2 von 255**. Das ist ein Überbleibsel, kein
+  Strich: Fallout 4 zeichnet um seine Zellen nichts. `kCellLineAlpha = 0.0`
+  war also richtig geraten, und die offene Aufgabe „Rahmen holen" aus
+  Abschnitt 21 löst sich auf.
+
+Die vier `DefineEditText` geben das Textformat. Das für `Quickkey_tf`:
+
+| | |
+| --- | --- |
+| Schrift | `AIN_Font_Bold` (aus `fonts_en.swf` importiert) |
+| Höhe | **36** von 100 Zelleneinheiten |
+| Farbe | Weiß, voll deckend |
+| Ausrichtung | zentriert |
+| Kasten | x −5…48, y −2…51 — das linke obere Viertel |
+
+Alles davon ist jetzt als Bruchteil der Zelle in `grid.cpp` hinterlegt
+(`kKeyTextSize` 0.36, `kKeyBoxLeft` −0.05, `kKeyBoxTop` −0.02,
+`kKeyBoxWidth` 0.53), damit die eine Zahl in der INI weiterhin alles bewegt.
+Die Zifferntaste war vorher 0.19 der Zelle und linksbündig — also halb so groß
+wie im Spiel und an der falschen Stelle.
+
+**Die Schrift selbst ist nicht übernommen.** `AIN_Font_Bold` liegt in der
+Schriftbibliothek des Spiels, und unsere SWF hat 36 Bytes und keine Schrift.
+Ob ein Name aus `fonts_en.swf` auf unserer eigenen Bühne ankommt oder eine
+Reihe Kästchen ergibt, ist ungemessen. Das ist der nächste Anlauf beim Design
+— zusammen mit den Symbolen, die dasselbe Problem in größer sind.

@@ -23,6 +23,18 @@ namespace
 		std::size_t nameRoom{ 10 };
 	};
 
+	// The key number, from the same movie: an edit text of AIN_Font_Bold,
+	// height 36 of those 100 cell units, white and fully opaque, centred in a
+	// box that covers the top left quadrant -- x -5 to 48, y -2 to 51. All of
+	// it is kept as a fraction of the cell, so one number in the INI still
+	// moves the whole panel.
+	constexpr double kKeyTextSize = 0.36;
+	constexpr double kKeyBoxLeft = -0.05;
+	constexpr double kKeyBoxTop = -0.02;
+	constexpr double kKeyBoxWidth = 0.53;
+	constexpr double kKeyAlpha = 1.0;
+	constexpr double kEmptyKeyAlpha = 0.25;
+
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
 	{
 		const auto floorAt = [](double a_value, double a_least) {
@@ -36,7 +48,7 @@ namespace
 		m.padding = a_cell * 0.2;
 		m.nameSize = floorAt(a_cell * 0.19, 8.0);
 		m.nameHeight = m.nameSize + 2.0;
-		m.keySize = floorAt(a_cell * 0.19, 8.0);
+		m.keySize = floorAt(a_cell * kKeyTextSize, 8.0);
 		m.rowLabelSize = floorAt(a_cell * 0.23, 9.0);
 		m.titleSize = floorAt(a_cell * 0.27, 10.0);
 		m.titleHeight = m.titleSize + 5.0;
@@ -48,21 +60,23 @@ namespace
 
 	constexpr std::size_t kSlots = 12;
 
-	// Fallout 4's own cells are thin sheets of light with no border: they
-	// brighten what is behind them. Ours were the HUD colour at a low
-	// strength, which over a night scene comes out as dark boxes -- the
-	// opposite effect, and the main reason the grid looked foreign. So the
-	// plates are white and only their strength changes.
-	// Read out of the vanilla movie rather than matched by eye: the cell in
-	// FavoritesMenu.swf is a solid fill of ff ff ff 33 -- white at 0x33 of
-	// 255, so a fifth. That is the plate the game draws, and it is what the
-	// played page gets. The other pages are the same plate at half strength,
-	// which is a decision of ours: the game has only ever had one page.
+	// The cell, measured out of FavoritesMenu.swf rather than matched by eye.
+	// Its one DefineShape4 is a square of 100 by 100 units filled with
+	// ff ff ff 33 -- white at a fifth -- and the only line style in it is one
+	// unit of 00 ff 00 at alpha 2 of 255. That is not a border, it is a
+	// leftover: Fallout 4 draws its cells as thin sheets of light with no
+	// outline at all, and they work by brightening what is behind them.
+	//
+	// Every page is drawn the same. The engine hands the twelve keys to one
+	// page at a time, but that is its business rather than the player's: with
+	// the pointer and the keys, every cell on the panel is one move away, and
+	// picking one page out would say that the others are further off.
 	constexpr std::uint32_t kPlate = 0xFFFFFF;
-	constexpr double kCurrentAlpha = 0.20;
-	constexpr double kCellAlpha = 0.10;
-	constexpr double kCellLineAlpha = 0.0;
-	constexpr double kCurrentLineAlpha = 0.0;
+	constexpr double kCellAlpha = 0.20;
+	// An empty key gets no plate. The faintest of outlines says the key is
+	// there and holds nothing, which is more than the game itself shows -- it
+	// hides an empty key entirely -- and less than a slab of dark.
+	constexpr double kEmptyLineAlpha = 0.12;
 	// Only drawn when a backdrop is asked for.
 	constexpr double kPanelAlpha = 0.72;
 
@@ -283,7 +297,6 @@ void grid::Draw(
 	const std::string& a_font,
 	const std::string& a_title,
 	const std::vector<Page>& a_pages,
-	std::size_t a_current,
 	const std::optional<Spot>& a_marked,
 	std::uint32_t a_color,
 	const Placement& a_where)
@@ -542,7 +555,6 @@ void grid::Draw(
 
 	for (std::size_t row = 0; row < a_pages.size(); ++row) {
 		const auto rowTop = RowTop(m, row);
-		const bool playing = row == a_current;
 
 		Label(
 			a_canvas,
@@ -553,7 +565,7 @@ void grid::Draw(
 			m.rowLabelWidth,
 			m.rowLabelSize,
 			a_color,
-			playing ? 1.0 : 0.5);
+			1.0);
 
 		for (std::size_t slot = 0; slot < kSlots; ++slot) {
 			const auto cellLeft = CellLeft(m, slot);
@@ -566,13 +578,7 @@ void grid::Draw(
 			// not.
 			if (taken) {
 				Fill(
-					graphics,
-					cellLeft,
-					rowTop,
-					m.cell,
-					m.cell,
-					kPlate,
-					playing ? kCurrentAlpha : kCellAlpha);
+					graphics, cellLeft, rowTop, m.cell, m.cell, kPlate, kCellAlpha);
 			} else {
 				Outline(
 					graphics,
@@ -581,24 +587,24 @@ void grid::Draw(
 					m.cell,
 					m.cell,
 					kPlate,
-					playing ? 0.22 : 0.10);
+					kEmptyLineAlpha);
 			}
 
-			// The key, top left, small -- where the cross puts it. A cell of
-			// this game holds its key and its icon and nothing else; the
-			// name of whatever is picked belongs in one place below, the way
-			// the cross has always shown it.
+			// The key, in the top left quadrant, at the size and in the place
+			// the game's own cell puts it. A cell of this game holds its key
+			// and its icon and nothing else; the name of whatever is picked
+			// belongs in one place below, the way the cross has always shown
+			// it.
 			Label(
 				a_canvas,
 				a_font,
 				cell.label,
-				cellLeft + m.cell * 0.08,
-				rowTop + m.cell * 0.06,
-				m.cell * 0.5,
+				cellLeft + m.cell * kKeyBoxLeft,
+				rowTop + m.cell * kKeyBoxTop,
+				m.cell * kKeyBoxWidth,
 				m.keySize,
 				kPlate,
-				taken ? 0.85 : 0.25,
-				"left");
+				taken ? kKeyAlpha : kEmptyKeyAlpha);
 		}
 	}
 
@@ -629,11 +635,10 @@ void grid::Draw(
 		"ItemAmmo_tf", left + width / 2.0 - 150.0, top + height + m.gap + 26.0);
 
 	logger::info(
-		"grid: {} pages, playing {}; stage {:.0f}x{:.0f}, panel asked for "
+		"grid: {} pages; stage {:.0f}x{:.0f}, panel asked for "
 		"{:.0f}x{:.0f} at {:.0f},{:.0f}, reports {:.0f}x{:.0f} at {:.0f},{:.0f} "
 		"with {:.0f} children",
 		a_pages.size(),
-		a_current + 1,
 		stageWidth,
 		stageHeight,
 		width,

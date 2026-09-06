@@ -9,9 +9,11 @@
 // cares about. The Starfield version of this mod arrived at the same answer
 // for the same reason.
 //
-// The cross keeps working exactly as it does. The grid only shows what the
-// twelve keys hold on every page, so a player can see where a page switch
-// is going before making it.
+// The cross keeps working exactly as it does. The grid shows what the twelve
+// keys hold on every page, and shows every page alike: the engine hands the
+// keys to one page at a time, but with the pointer and the keys every cell is
+// one move away, so picking one page out would only say that the others are
+// further off.
 namespace grid
 {
 	// One key of one page.
@@ -84,7 +86,6 @@ namespace grid
 		const std::string& a_font,
 		const std::string& a_title,
 		const std::vector<Page>& a_pages,
-		std::size_t a_current,
 		const std::optional<Spot>& a_marked,
 		std::uint32_t a_color,
 		const Placement& a_where);

@@ -30,6 +30,7 @@ namespace peek
 	// in the INI. It goes into a file of its own -- FavoritesMenuGrid.found
 	// .txt, which tools/f4dis.py reads exactly like the other one -- and it
 	// is written the moment the address is found, so it survives whatever
-	// the first call to it does.
+	// the first call to it does. A length of zero means the whole function
+	// around the address, exactly as under PeekRVAs.
 	void Note(std::string_view a_label, std::uintptr_t a_address, std::size_t a_length);
 }

@@ -8,22 +8,26 @@
 // difference between kinds of item lives in there, so calling it is the only
 // answer that stays right.
 //
-// It has no Address Library ID we know of. FavoritesMenuEx finds it by the
-// bytes around a call to it, and names it in its own strings:
+// It has no Address Library ID we know of, and the signature FavoritesMenuEx
+// carries for it -- `E8 ? ? ? ? 83 F8 0C 74 04`, a call whose answer is
+// compared with twelve -- was tried and led somewhere else: to a classifier
+// that walks a form's vtable against a dozen known ones and answers with a
+// number, twelve meaning "none of them". Handed a key index instead of a
+// pointer, it read from address 1 and took the game with it.
 //
-//     FavoritesManager_useQuickkey (FavoritesManager::UseQuickkeyItem)
-//     E8 ? ? ? ? 83 F8 0C 74 04
+// So the search was given up in favour of reading. FavoritesManager brings
+// the input handler that uses a favorite when a digit is pressed, and its
+// address is not a guess: it is the eighth slot of the vtable the living
+// object carries at offset 0x10. That function is written out whole, next to
+// the log, and the call inside it is read there rather than here.
 //
-// That is a call whose answer is compared with twelve -- the number of keys
-// -- which is what makes the place unmistakable among the millions of bytes
-// of code. Fallout4.exe is packed on disk, so this can only be done in the
-// running game, and the bytes that were found are written out before the
-// first call is ever made: see peek::Note. A crash on the way then still
-// leaves behind what was called.
+// Until an address is named in the INI, nothing is called at all. Fallout4
+// .exe is packed on disk, so all of this can only happen in the running game.
 namespace use
 {
-	// Looks for the function, once, and writes down what it found.
-	void Find();
+	// Writes out what the manager brings to the input, and takes the address
+	// of UseQuickkeyItem from the INI if one is named there.
+	void Find(const std::filesystem::path& a_settings);
 
 	[[nodiscard]] bool Ready();
 
