@@ -1990,8 +1990,27 @@ namespace
 	// wearing or holding is the same gesture as holstering, and every other
 	// menu in this game treats it that way; without it the only thing a
 	// favorite could not do is undo itself.
+	//
+	// Putting something on goes through the engine's own UseQuickkeyItem, so
+	// whatever rules it keeps -- power armour among them -- it keeps for us
+	// too. Taking something off does not: it is our call to the equip
+	// manager, and the manager does what it is told. So the one rule that
+	// would otherwise be broken here is kept by hand.
 	[[nodiscard]] bool TakeOff(RE::TESBoundObject* a_object)
 	{
+		// Inside power armour the suit wears the slots, and what the
+		// character had on underneath is still equipped but out of reach --
+		// the Pip-Boy will not let it be changed, and neither should a
+		// favorite. Weapons are a different matter: those work in a suit
+		// exactly as they do outside one.
+		if (a_object->GetFormType() == RE::ENUM_FORM_ID::kARMO &&
+			RE::PowerArmor::PlayerInPowerArmor()) {
+			logger::info(
+				"equip: \"{}\" stays on -- the character is in power armour",
+				RE::TESFullName::GetFullName(*a_object));
+			return false;
+		}
+
 		std::uint32_t stackID = 0;
 		RE::TBO_InstanceData* data = nullptr;
 		if (!WornStack(a_object, stackID, data)) {
