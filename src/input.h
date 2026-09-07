@@ -123,6 +123,16 @@ namespace input
 	// favorites menu, w and s are walking again.
 	void Listen(bool a_on);
 
+	// Claim the four directions and nothing else.
+	//
+	// In the Pip-Boy the grid stands inside the game's own ASSIGN FAVORITE
+	// dialog, and that dialog is still the thing doing the assigning: its
+	// Accept must reach it. So there the grid takes the directions -- which
+	// is the whole point, the vanilla cross walks its twelve in the shape of
+	// a cross and ours is a row -- and lets everything else through
+	// untouched.
+	void ClaimDirectionsOnly(bool a_on);
+
 	// The panel says it is still there, once a frame.
 	//
 	// Listen is switched off by the menu's close event, and an event that

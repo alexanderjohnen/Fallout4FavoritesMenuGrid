@@ -3191,3 +3191,65 @@ darüber liegt, bleibt im Spielstand stehen und wird nur nicht mehr gezeigt;
 `EnsurePages` schneidet die Liste auf die Einstellung zurück. Das Log sagt es
 einmal deutlich, statt Seiten wortlos verschwinden zu lassen — wer von zwölf
 auf acht geht, soll erfahren, wo seine vier geblieben sind.
+
+## 51. Das Kreuz im Pip-Boy ist jetzt unseres (2026-09-07)
+
+Drei Dinge, die dort noch fehlten und die im HUD längst gelöst waren. Alle
+drei hatten dort schon eine Antwort; hier ging es darum, sie am richtigen
+Film noch einmal anzuwenden.
+
+### Von selbst statt auf Tastendruck
+
+Der Dialog wird gebaut, wenn er gebraucht wird, und verschwindet, wenn er
+fertig ist — **ein Ereignis dafür gibt es nicht**. Also wird nachgesehen,
+fünfmal in der Sekunde, und nur solange der Pip-Boy offen ist (was ein
+eigenes Atomic aus dem Menüereignis weiß, damit die Tastaturschleife nicht in
+die Tabellen der UI greifen muss).
+
+Die Suche ist **vier Ebenen tief statt zehn**. Das ist kein Feinschliff: bei
+zehn läuft sie über tausend Knoten, wenn der Dialog *nicht* offen ist, und das
+ist der häufige Fall. `Cross_mc` liegt bei
+`PipboyMenu.<Seite>.ModalFadeRect_mc.<Dialog>.Cross_mc`, also reicht fünf.
+
+`PipboyCrossKey` bleibt, aber als das Gegenteil dessen, was es war: es holt
+das Vanilla-Kreuz für einen Moment zurück.
+
+### Hoch/runter ist die Seite, links/rechts sind alle Tasten
+
+Vorher navigierte das versteckte Vanilla-Kreuz selbst, und das läuft in der
+Form eines Kreuzes — hoch und runter sprangen zwischen dessen Armen. Unser
+Panel ist eine Reihe je Seite, also muss die Bewegung unsere sein.
+
+`input::ClaimDirectionsOnly` ist dafür neu: im Pip-Boy nimmt der Handler die
+**vier Richtungen und sonst nichts**. Alles andere geht durch — vor allem
+Accept, denn das gehört dem Dialog, und der Dialog ist weiterhin das, was
+zuweist.
+
+Links und rechts laufen durch die zwölf Tasten einer Reihe und **weiter in die
+nächste Seite**. Hoch und runter wechseln die Seite — und das ist dort keine
+Anzeigesache, sondern *auf welche Seite der Favorit geht*: der Reihenwechsel
+dreht die Seite der Engine, und der Dialog schreibt danach in deren zwölf
+Tasten, ohne zu merken, dass etwas passiert ist. Die Taste innerhalb der Seite
+bekommt das versteckte Kreuz als `selectedIndex`, was sein Accept liest.
+
+Zwischen diesen beiden Zeilen gehört uns nichts vom Zuweisen.
+
+Der Anspruch auf die Tasten hängt am selben Wachhund wie im eigenen Menü
+(Abschnitt 43): die Schleife stempelt `input::Alive`, solange das Panel dort
+steht. Bleibt der Schalter hängen, hört das Stempeln auf, und der Anspruch
+verfällt von selbst.
+
+### Symbole
+
+`icons::Want` lädt in den Film, auf dem gezeichnet wird, und der Zustand des
+Laders ist global. Da Favoritenmenü und Pip-Boy nie zugleich offen sind,
+genügt es, beim Abbau `icons::Release` zu rufen — was jetzt an allen drei
+Wegen hinaus geschieht.
+
+### Was noch fehlt
+
+**Die Maus im Pip-Boy.** Der Zeiger findet die Zellen dort nicht: unsere
+Umrechnung geht von Bildschirmpixeln über die Bühne (Abschnitt 22), und das
+Panel hängt hier in einem Clip mit eigener Transformation. Der Weg dahin ist
+`globalToLocal` auf dem haltenden Clip statt der Bühnenrechnung — ein anderer
+Mechanismus, kein Nachziehen von Zahlen, deshalb ein eigener Schritt.

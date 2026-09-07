@@ -1205,6 +1205,10 @@ namespace
 	// UI's own answer needs the UI thread.
 	std::atomic_bool g_favoritesMenuOpen{ false };
 
+	// The same, for the Pip-Boy, so the polling thread can ask without
+	// touching the UI's own tables.
+	std::atomic_bool g_pipboyOpen{ false };
+
 	// The cell the grid is pointing at. Empty until the pointer finds one or
 	// a key is pressed: a menu that opens with something already chosen
 	// invites using it by accident.
@@ -1885,46 +1889,44 @@ namespace
 		grid::Mark(grid::Spot{ g_currentPage, slot });
 	}
 
-	void TogglePipboyCross()
+	// Takes the panel out of the Pip-Boy and gives the dialog its cross
+	// back. Safe while the Pip-Boy is open: the clip our panel hangs on is
+	// still there to be taken off. On the way out of the menu itself it is
+	// Forget that is wanted instead -- see the close event.
+	void TakePipboyGridDown()
 	{
-		RE::Scaleform::GFx::Value root;
-		if (!PipboyRoot(root)) {
+		if (!g_pipboyGridUp) {
 			return;
 		}
-
-		RE::Scaleform::GFx::Value cross;
-		std::string path = "PipboyMenu";
-		if (!FindByName(root, "Cross_mc", 10, cross, path) ||
-			!cross.IsDisplayObject()) {
-			logger::info(
-				"pipboy: no Cross_mc anywhere -- is ASSIGN FAVORITE open?");
-			return;
+		grid::Release();
+		icons::Release();
+		if (g_pipboyCross.IsDisplayObject()) {
+			g_pipboyCross.SetMember("visible", RE::Scaleform::GFx::Value(true));
 		}
+		input::Listen(false);
+		input::ClaimDirectionsOnly(false);
+		ForgetPipboyGrid();
+	}
 
-		// Standing there already: take it down and give the cross back.
-		if (g_pipboyGridUp) {
-			grid::Release();
-			cross.SetMember("visible", RE::Scaleform::GFx::Value(true));
-			ForgetPipboyGrid();
-			logger::info("pipboy: the grid is down, the cross is back");
-			return;
-		}
-
+	// Puts the panel where the dialog's cross is, and takes the four
+	// directions while it stands there.
+	void DrawPipboyGrid(RE::Scaleform::GFx::Value& a_cross, std::string_view a_path)
+	{
 		// The rectangle to fill, in the coordinates of whatever holds the
-		// cross -- which is the one frame of reference in there that means
-		// anything. The clip between the dimmer and the cross was called
-		// instance402 in one run and instance389 in the next.
+		// cross -- the one frame of reference in there that means anything.
+		// The clip between the dimmer and the cross was called instance402
+		// in one run and instance389 in the next.
 		RE::Scaleform::GFx::Value parent;
-		if (!cross.GetMember("parent", &parent) || !parent.IsDisplayObject()) {
+		if (!a_cross.GetMember("parent", &parent) || !parent.IsDisplayObject()) {
 			logger::info("pipboy: the cross has no parent to draw on");
 			return;
 		}
 		grid::Host host;
 		host.parent = &parent;
-		host.x = ReadNumber(cross, "x", 0.0);
-		host.y = ReadNumber(cross, "y", 0.0);
-		host.width = ReadNumber(cross, "width", 0.0);
-		host.height = ReadNumber(cross, "height", 0.0);
+		host.x = ReadNumber(a_cross, "x", 0.0);
+		host.y = ReadNumber(a_cross, "y", 0.0);
+		host.width = ReadNumber(a_cross, "width", 0.0);
+		host.height = ReadNumber(a_cross, "height", 0.0);
 		if (host.width <= 0.0 || host.height <= 0.0) {
 			logger::info("pipboy: the cross has no size to fill");
 			return;
@@ -1937,16 +1939,13 @@ namespace
 
 		// The same class as the favorites menu's cross -- EntryHolder_mc,
 		// Quickkey_tf and all -- so the font is measured the same way.
-		auto font = CrossFont(cross);
+		auto font = CrossFont(a_cross);
 		if (!g_gridFont.empty()) {
 			font = g_gridFont;
 		}
 
-		cross.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		a_cross.SetMember("visible", RE::Scaleform::GFx::Value(false));
 
-		// Twelve columns into 418 units is a cell of about 33, which is well
-		// inside what the INI allows -- there is more room in that dialog
-		// than the cross uses.
 		const auto pages = BuildGridPages();
 
 		auto where = g_gridWhere;
@@ -1967,25 +1966,159 @@ namespace
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			where,
 			&host);
+
+		// The artwork lives in libraries that have to be loaded into the
+		// movie being drawn on, and this is a different movie from our own.
+		// Poll carries them in over the next few frames and draws again.
+		for (const auto& library : g_wantedLibraries) {
+			icons::Want(pipboy, library);
+		}
+
 		g_pipboyGridUp = true;
-		g_pipboyCross = cross;
+		g_pipboyCross = a_cross;
 		// A page and a key that cannot be the first answer, so the first
 		// refresh always draws a mark.
 		g_pipboyPage = std::numeric_limits<std::size_t>::max();
 		g_pipboySlot = 12;
+
+		// The four directions, and only those: Accept belongs to the dialog.
+		input::ClaimDirectionsOnly(true);
+		input::Listen(true);
+
 		RefreshPipboyGrid();
 
-		logger::info(
-			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f}; the grid went in at "
-			"cell {:.1f} for {} pages, written in \"{}\"",
-			path,
-			host.x,
-			host.y,
-			host.width,
-			host.height,
-			where.cellSize,
-			pages.size(),
-			font);
+		if (!a_path.empty()) {
+			logger::info(
+				"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f}; the grid went in "
+				"at cell {:.1f} for {} pages, written in \"{}\"",
+				a_path,
+				host.x,
+				host.y,
+				host.width,
+				host.height,
+				where.cellSize,
+				pages.size(),
+				font);
+		}
+	}
+
+	// Finds the dialog's cross, if it is on screen at all. Shallow on
+	// purpose: it lives four levels down --
+	// PipboyMenu.<page>.ModalFadeRect_mc.<dialog>.Cross_mc -- and this is
+	// asked several times a second, so there is no walking the whole tree
+	// for it.
+	[[nodiscard]] bool FindPipboyCross(
+		RE::Scaleform::GFx::Value& a_cross, std::string& a_path)
+	{
+		RE::Scaleform::GFx::Value root;
+		if (!PipboyRoot(root)) {
+			return false;
+		}
+		a_path = "PipboyMenu";
+		return FindByName(root, "Cross_mc", 5, a_cross, a_path) &&
+			a_cross.IsDisplayObject();
+	}
+
+	// Every few ticks while the Pip-Boy is open: the dialog is built when it
+	// is asked for and taken away when it is done, and there is no event for
+	// either, so the grid follows what is on screen.
+	void WatchPipboyDialog()
+	{
+		RE::Scaleform::GFx::Value cross;
+		std::string path;
+		const auto there = FindPipboyCross(cross, path);
+
+		if (!there) {
+			if (g_pipboyGridUp) {
+				// The dialog is gone and our panel with it; the movie is
+				// still alive, so this is an ordinary tidy-up.
+				TakePipboyGridDown();
+			}
+			return;
+		}
+		if (g_pipboyGridUp) {
+			icons::Poll(GetMenu("PipboyMenu"), []() {
+				if (g_pipboyCross.IsDisplayObject()) {
+					std::string again;
+					DrawPipboyGrid(g_pipboyCross, again);
+				}
+			});
+			return;
+		}
+		DrawPipboyGrid(cross, path);
+	}
+
+	// One step through the grid in the Pip-Boy.
+	//
+	// Left and right walk the twelve keys of a row and carry on into the
+	// next page at either end -- every key of every page in one line, which
+	// is what the panel shows. Up and down change the page.
+	//
+	// The page is not a display matter here: it is *the page the favorite
+	// lands on*. So changing rows turns the engine's own page, and the
+	// dialog underneath -- which is still the thing doing the assigning --
+	// then writes into that page's twelve keys without knowing anything
+	// happened.
+	//
+	// The key within the page is handed to the hidden cross as its
+	// selectedIndex, which is what its Accept reads. Between the two,
+	// nothing of the assigning is ours.
+	void MovePipboyMark(int a_pages, int a_slots)
+	{
+		EnsurePages();
+		if (!g_pipboyGridUp || g_pages.empty() ||
+			!g_pipboyCross.IsDisplayObject()) {
+			return;
+		}
+
+		const auto rows = static_cast<int>(g_pages.size());
+		auto page = static_cast<int>(
+			g_pipboyPage < g_pages.size() ? g_pipboyPage : g_currentPage);
+		auto slot = static_cast<int>(g_pipboySlot < 12 ? g_pipboySlot : 0);
+
+		if (a_slots != 0) {
+			slot += a_slots;
+			if (slot >= 12) {
+				slot = 0;
+				page = (page + 1) % rows;
+			} else if (slot < 0) {
+				slot = 11;
+				page = (page + rows - 1) % rows;
+			}
+		}
+		if (a_pages != 0) {
+			page = ((page + a_pages) % rows + rows) % rows;
+		}
+
+		if (static_cast<std::size_t>(page) != g_currentPage) {
+			GoToPage(static_cast<std::size_t>(page));
+			// The twelve keys are different now, so the panel is drawn
+			// again. It is a keypress; it can afford it.
+			std::string again;
+			DrawPipboyGrid(g_pipboyCross, again);
+		}
+
+		g_pipboyCross.SetMember(
+			"selectedIndex",
+			RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(slot)));
+		RefreshPipboyGrid();
+	}
+
+	void TogglePipboyCross()
+	{
+		if (g_pipboyGridUp) {
+			TakePipboyGridDown();
+			logger::info("pipboy: the grid is down, the cross is back");
+			return;
+		}
+		RE::Scaleform::GFx::Value cross;
+		std::string path;
+		if (!FindPipboyCross(cross, path)) {
+			logger::info(
+				"pipboy: no Cross_mc anywhere -- is ASSIGN FAVORITE open?");
+			return;
+		}
+		DrawPipboyGrid(cross, path);
 	}
 
 	void SurveyPipboy()
@@ -2025,7 +2158,12 @@ namespace
 		//
 		// The close event has already said what is true, so ask it.
 		if (!g_favoritesMenuOpen.load()) {
-			grid::Release();
+			// Unless the panel is standing in the Pip-Boy, where turning a
+			// page comes through here on its way to nowhere. Releasing then
+			// would take that panel down under its own feet.
+			if (!g_pipboyGridUp) {
+				grid::Release();
+			}
 			return;
 		}
 
@@ -2636,18 +2774,31 @@ namespace
 		if (!tasks) {
 			return;
 		}
+		// The same four directions mean two different things depending on
+		// which panel is standing: our own menu, or the one inside the
+		// Pip-Boy's assign dialog.
+		const auto pipboy = g_pipboyGridUp;
+
 		switch (a_action) {
 		case input::Action::kPageUp:
-			tasks->AddUITask([]() { MoveMark(-1, 0); });
+			tasks->AddUITask([pipboy]() {
+				pipboy ? MovePipboyMark(-1, 0) : MoveMark(-1, 0);
+			});
 			break;
 		case input::Action::kPageDown:
-			tasks->AddUITask([]() { MoveMark(1, 0); });
+			tasks->AddUITask([pipboy]() {
+				pipboy ? MovePipboyMark(1, 0) : MoveMark(1, 0);
+			});
 			break;
 		case input::Action::kSlotLeft:
-			tasks->AddUITask([]() { MoveMark(0, -1); });
+			tasks->AddUITask([pipboy]() {
+				pipboy ? MovePipboyMark(0, -1) : MoveMark(0, -1);
+			});
 			break;
 		case input::Action::kSlotRight:
-			tasks->AddUITask([]() { MoveMark(0, 1); });
+			tasks->AddUITask([pipboy]() {
+				pipboy ? MovePipboyMark(0, 1) : MoveMark(0, 1);
+			});
 			break;
 		case input::Action::kUse:
 			tasks->AddUITask([]() { UseMarked(); });
@@ -2869,6 +3020,21 @@ namespace
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
 			}
 
+			// The panel is really there, which is what keeps the claim on
+			// the four directions alive -- the same watchdog our own menu
+			// stamps every frame (section 43).
+			if (g_pipboyGridUp) {
+				input::Alive();
+			}
+
+			// The assign dialog is built when it is asked for and taken away
+			// when it is done, and there is no event for either. Five times
+			// a second, and only while the Pip-Boy is open; the search is
+			// four levels deep, not the whole tree.
+			if (g_pipboyOpen && tasks && ticks % 8 == 0) {
+				tasks->AddUITask([]() { WatchPipboyDialog(); });
+			}
+
 			previousPeek = peekNow;
 			previousNext = nextPage;
 			previousBack = previousPage;
@@ -2891,10 +3057,16 @@ namespace
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 		{
 			static const RE::BSFixedString pipboyMenu("PipboyMenu");
+			if (a_event.menuName == pipboyMenu) {
+				g_pipboyOpen = a_event.opening;
+			}
 			if (a_event.menuName == pipboyMenu && !a_event.opening &&
 				g_pipboyGridUp) {
 				// The movie is going away and our panel's objects belong to
 				// it. Forget them rather than reach into them -- section 42.
+				input::Listen(false);
+				input::ClaimDirectionsOnly(false);
+				icons::Release();
 				ForgetPipboyGrid();
 				grid::Forget();
 			}

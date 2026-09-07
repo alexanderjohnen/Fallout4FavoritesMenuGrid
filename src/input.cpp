@@ -33,6 +33,17 @@ namespace
 	// straight back on the next frame.
 	std::atomic_bool g_pointerAwake{ true };
 
+	// See input::ClaimDirectionsOnly.
+	std::atomic_bool g_directionsOnly{ false };
+
+	[[nodiscard]] bool Directional(input::Action a_action)
+	{
+		return a_action == input::Action::kPageUp ||
+			a_action == input::Action::kPageDown ||
+			a_action == input::Action::kSlotLeft ||
+			a_action == input::Action::kSlotRight;
+	}
+
 	// Which button the game closes this menu with, found in Install.
 	//
 	// B until the bindings say otherwise, because B is what the vanilla
@@ -108,9 +119,13 @@ namespace
 	[[nodiscard]] std::optional<input::Action> Claimed(const RE::ButtonEvent& a_event)
 	{
 		const auto code = static_cast<std::int32_t>(a_event.idCode);
+		const auto onlyDirections = g_directionsOnly.load();
 
 		switch (a_event.device.get()) {
 		case RE::INPUT_DEVICE::kMouse:
+			if (onlyDirections) {
+				return std::nullopt;
+			}
 			if (g_keys.useOnClick && code == kLeftMouseButton) {
 				return input::Action::kUse;
 			}
@@ -172,6 +187,18 @@ namespace
 			return input::Action::kMove;
 		}
 		return std::nullopt;
+	}
+
+	// The same answer, with everything but the four directions taken out of
+	// it. One place rather than a check at every return above.
+	[[nodiscard]] std::optional<input::Action> ClaimedNow(
+		const RE::ButtonEvent& a_event)
+	{
+		const auto action = Claimed(a_event);
+		if (action && g_directionsOnly.load() && !Directional(*action)) {
+			return std::nullopt;
+		}
+		return action;
 	}
 
 	// Whether the left stick is ours while the grid is up. All of its events
@@ -245,7 +272,7 @@ namespace
 				return true;
 			}
 			const auto* button = a_event->As<RE::ButtonEvent>();
-			return button && Claimed(*button).has_value();
+			return button && ClaimedNow(*button).has_value();
 		}
 
 		void OnButtonEvent(const RE::ButtonEvent* a_event) override
@@ -253,7 +280,7 @@ namespace
 			if (!a_event || !g_listening || !g_action) {
 				return;
 			}
-			const auto action = Claimed(*a_event);
+			const auto action = ClaimedNow(*a_event);
 			if (!action) {
 				return;
 			}
@@ -500,6 +527,11 @@ void input::SetOnAction(void (*a_action)(Action))
 void input::Alive()
 {
 	g_alive.store(std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
+void input::ClaimDirectionsOnly(bool a_on)
+{
+	g_directionsOnly.store(a_on);
 }
 
 void input::Listen(bool a_on)
