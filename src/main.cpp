@@ -1619,6 +1619,31 @@ namespace
 	// it now, on both screens it appears on, and a HUD message on top of
 	// that is one more thing flashing at somebody who is reading a grid.
 
+	// The twelve keys, frame after frame, across a page switch and the use
+	// that follows it.
+	//
+	// Everything measured so far has been a single instant, and every
+	// instant read correctly. But the player's own account has the shape of
+	// something settling rather than something wrong: the first press after
+	// a switch uses the old page's item, the second press uses the right
+	// one. Whatever the engine reads catches up on its own between those two
+	// presses, and nothing has ever watched it do that.
+	//
+	// So this says the same two lines every frame for a while: the inventory
+	// as it stands, and the engine's own copy of the twelve. If something
+	// puts the old page back after we wrote the new one, it happens in one
+	// of these frames and it will be in the log with a frame number on it.
+	void WatchTheKeys(int a_frames)
+	{
+		if (a_frames <= 0) {
+			return;
+		}
+		LogFavorites(std::format("watching, {} to go", a_frames));
+		if (auto* tasks = F4SE::GetTaskInterface()) {
+			tasks->AddUITask([a_frames]() { WatchTheKeys(a_frames - 1); });
+		}
+	}
+
 	void GoToPage(std::size_t a_page)
 	{
 		EnsurePages();
@@ -1636,6 +1661,7 @@ namespace
 
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
+		WatchTheKeys(12);
 		ShowGrid();
 	}
 
@@ -3052,7 +3078,6 @@ namespace
 		// object: it was overwritten between the frames, and the sync below
 		// is the fix rather than another guess.
 		LogEveryFavorite("at the call");
-		LogEngineList("at the call");
 		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
 			const auto* held = manager->storedFavTypes[a_slot];
 			logger::info(
