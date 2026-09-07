@@ -164,12 +164,6 @@ namespace
 	// colour the player set for the HUD".
 	std::uint32_t g_gridColor = 0x1000000;
 
-	// The cross shows no page of its own, so turning one is announced the
-	// way the game announces everything else. The wording is a setting
-	// because the game is not played in English everywhere; the numbers are
-	// appended to it.
-	std::string g_pageMessage = "Favorites";
-
 	// Writes the pieces of engine code named in the INI next to the log --
 	// see peek.h. The settings are read at that moment, so a new question
 	// needs no restart of the game.
@@ -642,7 +636,6 @@ namespace
 		// Off unless someone asks for it: the corner message lands wherever
 		// the player's HUD mods put it, which is why the page is written
 		// into the menu instead.
-		g_pageMessage = ReadText(path, L"Pages", L"PageMessage", L"");
 
 		// Not a key, so it is read on its own.
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
@@ -1247,26 +1240,10 @@ namespace
 		}
 	}
 
-	// Says which page is being played, in the game's own corner message.
-	void AnnouncePage()
-	{
-		// With the grid up the panel says which page is which by showing all
-		// of them, so nothing has to be announced. Everywhere else -- the
-		// Pip-Boy above all, where a favorite is assigned into whichever page
-		// the engine holds -- the player has no way at all to see it, and a
-		// silent page switch there is a trap. So the corner message is on by
-		// default in exactly that case.
-		auto lead = g_pageMessage;
-		if (lead.empty()) {
-			if (g_favoritesMenuOpen.load()) {
-				return;
-			}
-			lead = "Favorites";
-		}
-		const auto line =
-			std::format("{} {} / {}", lead, g_currentPage + 1, g_pages.size());
-		RE::SendHUDMessage::ShowHUDMessage(line.c_str(), nullptr, false, false);
-	}
+	// The corner message that used to say which page was being played is
+	// gone. It came from the days when nothing else said it; the panel says
+	// it now, on both screens it appears on, and a HUD message on top of
+	// that is one more thing flashing at somebody who is reading a grid.
 
 	void GoToPage(std::size_t a_page)
 	{
@@ -1286,7 +1263,6 @@ namespace
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
 		ShowGrid();
-		AnnouncePage();
 	}
 
 	void TurnPage(int a_by)
@@ -1815,10 +1791,13 @@ namespace
 	RE::Scaleform::GFx::Value g_pipboyCross;
 	std::size_t g_pipboyPage = 0;
 	std::uint32_t g_pipboySlot = 0;
+	// How many times in a row the dialog has been seen. See the watch.
+	int g_pipboySeen = 0;
 
 	void ForgetPipboyGrid()
 	{
 		g_pipboyGridUp = false;
+		g_pipboySeen = 0;
 		g_pipboyCross = RE::Scaleform::GFx::Value();
 	}
 
@@ -1865,11 +1844,34 @@ namespace
 	// turn while the Pip-Boy is open (they always have -- see the polling
 	// loop). So: read the cross's selectedIndex, mark that key on that row,
 	// and a favorite lands on whichever page is showing.
+	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot);
+
 	void RefreshPipboyGrid()
 	{
 		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
 			return;
 		}
+
+		// The pointer first, because it is what a hand is on. The panel
+		// hangs inside the dialog rather than on the stage here, and
+		// grid::Pointer knows to bring the cursor the rest of the way in.
+		if (auto* pipboy = GetMenu("PipboyMenu")) {
+			double x = 0.0;
+			double y = 0.0;
+			if (grid::Pointer(pipboy, x, y)) {
+				if (const auto over = grid::At(x, y)) {
+					if (over->page != g_pipboyPage ||
+						over->slot != g_pipboySlot) {
+						SelectPipboySpot(
+							over->page, static_cast<std::uint32_t>(over->slot));
+					}
+					return;
+				}
+			}
+		}
+
+		// Nothing under the pointer: follow what the dialog itself chose, so
+		// its own keys still move the mark.
 		RE::Scaleform::GFx::Value chosen;
 		if (!g_pipboyCross.GetMember("selectedIndex", &chosen)) {
 			return;
@@ -1944,6 +1946,24 @@ namespace
 			font = g_gridFont;
 		}
 
+		// Will this cross answer at all? The dialog is built when it is
+		// asked for, and caught too early it has a clip but no entries yet
+		// -- the first attempt drew with an empty font for exactly that
+		// reason, GetEntryClip having come back with nothing. Writing a
+		// selection into something in that state is not a thing to try.
+		RE::Scaleform::GFx::Value chosen;
+		if (!a_cross.GetMember("selectedIndex", &chosen) ||
+			!(chosen.IsNumber() || chosen.IsUInt() || chosen.IsInt())) {
+			static bool said = false;
+			if (!said) {
+				said = true;
+				logger::info(
+					"pipboy: the cross has no selectedIndex to write -- the "
+					"grid stays out of it");
+			}
+			return;
+		}
+
 		a_cross.SetMember("visible", RE::Scaleform::GFx::Value(false));
 
 		const auto pages = BuildGridPages();
@@ -1984,8 +2004,6 @@ namespace
 		// The four directions, and only those: Accept belongs to the dialog.
 		input::ClaimDirectionsOnly(true);
 		input::Listen(true);
-
-		RefreshPipboyGrid();
 
 		if (!a_path.empty()) {
 			logger::info(
@@ -2029,6 +2047,7 @@ namespace
 		const auto there = FindPipboyCross(cross, path);
 
 		if (!there) {
+			g_pipboySeen = 0;
 			if (g_pipboyGridUp) {
 				// The dialog is gone and our panel with it; the movie is
 				// still alive, so this is an ordinary tidy-up.
@@ -2043,6 +2062,13 @@ namespace
 					DrawPipboyGrid(g_pipboyCross, again);
 				}
 			});
+			return;
+		}
+		// Not on the first sighting. The dialog is found the moment it is
+		// created, and a clip that exists is not yet a clip that is built:
+		// one tick later its entries are there, its font can be measured,
+		// and its selection can be written.
+		if (++g_pipboySeen < 2) {
 			return;
 		}
 		DrawPipboyGrid(cross, path);
@@ -2063,6 +2089,59 @@ namespace
 	// The key within the page is handed to the hidden cross as its
 	// selectedIndex, which is what its Accept reads. Between the two,
 	// nothing of the assigning is ours.
+	// Marks a cell in the Pip-Boy, and makes the dialog underneath agree.
+	//
+	// Two halves. The **page** is not a display matter here -- it is the
+	// page the favorite lands on -- so a different row turns the engine's
+	// own page and the twelve keys with it. The **key** is handed to the
+	// hidden cross as its selectedIndex, which is what its Accept reads.
+	//
+	// Both the keys and the pointer come through here, so the two cannot
+	// drift apart.
+	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot)
+	{
+		// Choosing draws again, drawing marks again, and marking is what
+		// asked to choose. One at a time.
+		static bool busy = false;
+		if (busy) {
+			return;
+		}
+		busy = true;
+		const auto done = std::unique_ptr<bool, void (*)(bool*)>{
+			&busy, [](bool* a_flag) { *a_flag = false; }
+		};
+
+		EnsurePages();
+		if (!g_pipboyGridUp || a_page >= g_pages.size() || a_slot >= 12) {
+			return;
+		}
+
+		if (a_page != g_currentPage) {
+			GoToPage(a_page);
+			// The twelve keys are different now, and so is the dialog's own
+			// cross: it is found again rather than trusted, because what
+			// rewriting the keys does to that clip is the game's business
+			// and not something to hold a pointer through.
+			RE::Scaleform::GFx::Value found;
+			std::string path;
+			if (!FindPipboyCross(found, path)) {
+				TakePipboyGridDown();
+				return;
+			}
+			std::string quiet;
+			DrawPipboyGrid(found, quiet);
+			if (!g_pipboyGridUp) {
+				return;
+			}
+		}
+
+		g_pipboyCross.SetMember(
+			"selectedIndex", RE::Scaleform::GFx::Value(a_slot));
+		g_pipboyPage = a_page;
+		g_pipboySlot = a_slot;
+		grid::Mark(grid::Spot{ a_page, a_slot });
+	}
+
 	void MovePipboyMark(int a_pages, int a_slots)
 	{
 		EnsurePages();
@@ -2090,18 +2169,8 @@ namespace
 			page = ((page + a_pages) % rows + rows) % rows;
 		}
 
-		if (static_cast<std::size_t>(page) != g_currentPage) {
-			GoToPage(static_cast<std::size_t>(page));
-			// The twelve keys are different now, so the panel is drawn
-			// again. It is a keypress; it can afford it.
-			std::string again;
-			DrawPipboyGrid(g_pipboyCross, again);
-		}
-
-		g_pipboyCross.SetMember(
-			"selectedIndex",
-			RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(slot)));
-		RefreshPipboyGrid();
+		SelectPipboySpot(
+			static_cast<std::size_t>(page), static_cast<std::uint32_t>(slot));
 	}
 
 	void TogglePipboyCross()
@@ -3016,7 +3085,9 @@ namespace
 			// dialog's own selection. Not every tick: a Scaleform read ten
 			// times a second is plenty for a thumb, and forty would be
 			// forty.
-			if (g_pipboyGridUp && tasks && ++ticks % 4 == 0) {
+			// Twice as often as before: this now follows the mouse as well,
+			// and ten times a second reads as a pointer that lags.
+			if (g_pipboyGridUp && tasks && ++ticks % 2 == 0) {
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
 			}
 

@@ -185,6 +185,10 @@ namespace
 	// another.
 	double g_labelBottom{ 0.0 };
 	std::size_t g_rows{ 0 };
+	// Whether the panel hangs in a clip of its own rather than on the stage.
+	// The pointer has to be brought into that clip's coordinates, which the
+	// stage-based arithmetic knows nothing about.
+	bool g_hosted{ false };
 	// The pointer is reported once per panel: what the cursor says, what the
 	// movie says, and what the two make together. A mark that never appears
 	// looks the same whether the cursor stands still, counts in units nobody
@@ -601,6 +605,7 @@ namespace
 
 void grid::Forget()
 {
+	g_hosted = false;
 	g_hidden.clear();
 	g_panel = RE::Scaleform::GFx::Value();
 	g_marker = RE::Scaleform::GFx::Value();
@@ -671,6 +676,7 @@ void grid::Draw(
 	const auto hosted =
 		a_host && a_host->parent && a_host->parent->IsDisplayObject();
 	auto& ground = hosted ? *a_host->parent : stage;
+	g_hosted = hosted;
 
 	// Everything is drawn from scratch, children and all. A page switch
 	// changes most cells anyway, and rebuilding is one code path instead of
@@ -1077,6 +1083,29 @@ bool grid::Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y)
 	a_y = frame.y1 +
 		(cursor->cursorPosY - low(cursor->minCursorY, cursor->maxCursorY)) *
 			(frame.y2 - frame.y1) / height;
+
+	// In a host, what has been worked out so far is a point on the stage and
+	// the panel is measured in the coordinates of the clip that holds it.
+	// Flash converts between the two itself, and asking it is the only way
+	// that stays right through whatever the dialog is scaled or moved by.
+	if (g_hosted && g_panel.IsDisplayObject()) {
+		RE::Scaleform::GFx::Value parent;
+		if (g_panel.GetMember("parent", &parent) && parent.IsDisplayObject()) {
+			const std::array<RE::Scaleform::GFx::Value, 2> at{
+				RE::Scaleform::GFx::Value(a_x), RE::Scaleform::GFx::Value(a_y)
+			};
+			RE::Scaleform::GFx::Value point;
+			a_canvas->uiMovie->CreateObject(
+				&point, "flash.geom.Point", at.data(), 2);
+			RE::Scaleform::GFx::Value local;
+			if (point.IsObject() &&
+				parent.Invoke("globalToLocal", &local, &point, 1) &&
+				local.IsObject()) {
+				a_x = ReadNumber(local, "x", a_x);
+				a_y = ReadNumber(local, "y", a_y);
+			}
+		}
+	}
 
 	if (!g_pointerReported) {
 		g_pointerReported = true;
