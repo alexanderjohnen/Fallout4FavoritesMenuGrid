@@ -123,6 +123,20 @@ namespace input
 	// favorites menu, w and s are walking again.
 	void Listen(bool a_on);
 
+	// The panel says it is still there, once a frame.
+	//
+	// Listen is switched off by the menu's close event, and an event that
+	// never arrives leaves it switched on -- and this handler stands in
+	// front of everyone else. A player would then find w, a, s, d, E,
+	// Return, Insert, Delete, the D-pad, three face buttons **and the left
+	// stick** all swallowed, everywhere, for the rest of the session. That
+	// is not a bug you shrug at; that is a game you have to restart.
+	//
+	// So a switch is not enough. Nothing is claimed unless the grid's own
+	// menu drew a frame in the last half-second, which no missed event and
+	// no lost window focus can fake.
+	void Alive();
+
 	// What the player last pressed something on. Answered from the input
 	// thread and read from the UI one, so it is an atomic and nothing more:
 	// whoever asks gets the last device, not a promise about the next.

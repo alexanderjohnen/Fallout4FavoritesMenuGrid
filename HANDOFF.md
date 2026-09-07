@@ -2764,3 +2764,61 @@ dass mehrere Dateien denselben Namen verschieden definieren.
   die Schleife räumt sie.
 - `... START BACK LB B stay with the game, and B is the way out` — kein
   `0xffff` mehr, und die Schließen-Taste ist benannt.
+
+## 43. Ein Schalter, der hängen bleibt, nimmt dem Spiel die Steuerung (2026-09-07)
+
+Gemeldet: nach einem Controller-Screenshot (Xbox-Taste plus RT) war die
+Steuerung von Fallout 4 vollständig weg. Das klingt nach einem fremden
+Problem und ist mit hoher Wahrscheinlichkeit unseres.
+
+### Warum ein Schalter nicht reicht
+
+`input::Listen` wird vom Schließereignis des Favoritenmenüs ausgeschaltet.
+Kommt dieses Ereignis nicht — weil das Fenster den Fokus verliert, weil ein
+Overlay dazwischenfährt, weil das Menü auf einem anderen Weg verschwindet —,
+bleibt der Schalter an. Und dieser Handler steht **vorn** in
+`MenuControls::handlers`.
+
+Was dann verschluckt wird: `w`, `a`, `s`, `d`, `E`, Return, Einfügen,
+Entfernen, das Steuerkreuz, drei Knöpfe — **und der linke Stick**, denn den
+beanspruchen wir ganz oder gar nicht (Abschnitt 38). Also: kein Gehen, kein
+Umsehen mit der Tastatur, kein Gehen mit dem Controller. Für den Rest der
+Sitzung.
+
+Ein boolescher Schalter kann diesen Fall nicht abfangen, weil genau der
+Vorgang fehlt, der ihn umlegen würde. **Ein Herzschlag kann es.**
+
+`TrackPointer` läuft in `AdvanceMovie` unseres eigenen Menüs, also nur, wenn
+das Panel wirklich gezeichnet wird. Es stempelt jetzt als Allererstes
+`input::Alive()`. `ShouldHandleEvent` beansprucht nichts mehr, wenn dieser
+Stempel älter als eine halbe Sekunde ist. Kein verpasstes Ereignis und kein
+verlorener Fensterfokus kann das fälschen: hört das Panel auf zu zeichnen,
+hört der Anspruch auf.
+
+### Und das, was außerhalb liegt
+
+Zwei Dinge greifen aus dem Menü hinaus: das versteckte Crosshair und der
+versteckte Mauszeiger. Beide wurden bisher nur im Schließereignis
+zurückgegeben — mit demselben Fehler dahinter. Ein hängengebliebener
+`CursorMenu.visible = false` heißt: kein Mauszeiger mehr, in keinem Menü.
+
+`menu::SetOnGone` hängt jetzt im **Destruktor** von `GridMenu`. Der läuft,
+wie das Menü auch verschwindet. Dort werden `Listen(false)`, der Zeiger und
+das Crosshair zurückgegeben — und ausdrücklich **nichts** aus unserem eigenen
+Film angefasst: der ist ja gerade das, was zerstört wird (Abschnitt 42 sagt,
+was das sonst kostet).
+
+**Die Regel dahinter, für alles Weitere:** was diese Mod außerhalb ihres
+eigenen Menüs anfasst, wird im Destruktor zurückgegeben, nicht im
+Schließereignis. Das Ereignis ist der gewöhnliche Weg, nicht der einzige.
+
+### Nicht unsere Meldung
+
+Im vierten Screenshot stand unten „[Grenade] Fragmentation Grenade". Das ist
+nicht von uns: diese Mod schreibt genau **eine** HUD-Meldung, und die hat die
+Form `<Wort> <n> / <m>` — nie einen Gegenstandsnamen. Im Spiel liegt
+`VisibleFavorites.dll`, die Favoriten am Körper anzeigt und ihre
+`VisibleFavorites.ini` in vierundzwanzig `[SlotN]`-Blöcken mit je einem `Fav=`
+führt. Ein Seitenwechsel schreibt alle zwölf Tasten neu; dass eine Mod, die
+auf Favoriten hört, darauf etwas sagt, ist die naheliegende Erklärung. Zu
+prüfen mit `bEnableOverlay=0` in deren INI.

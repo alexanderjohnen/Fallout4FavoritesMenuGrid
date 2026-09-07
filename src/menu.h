@@ -37,6 +37,15 @@ namespace menu
 	// and the one that cannot fall behind.
 	void SetOnAdvance(void (*a_advance)());
 
+	// The menu is being destroyed, however that came about -- the ordinary
+	// close, or something that took it away without one. Whatever this mod
+	// reached outside its own menu has to be put back here, because this is
+	// the one moment that is certain to happen.
+	//
+	// Nothing inside our own movie may be touched from it: the movie is what
+	// is going away.
+	void SetOnGone(void (*a_gone)());
+
 	// Opens and closes it. Both are messages to the UI queue, so they take
 	// effect on the game's own terms rather than immediately.
 	void Show();

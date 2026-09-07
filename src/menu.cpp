@@ -9,6 +9,7 @@ namespace
 
 	void (*g_ready)() = nullptr;
 	void (*g_advance)() = nullptr;
+	void (*g_gone)() = nullptr;
 
 	class GridMenu : public RE::IMenu
 	{
@@ -66,6 +67,17 @@ namespace
 			}
 		}
 
+		// Whatever happens to this menu, it ends here. The close event is
+		// the ordinary way and not the only one, and everything this mod
+		// reached for outside its own movie -- the crosshair, the cursor,
+		// the claim on the keyboard -- has to be given back on all of them.
+		~GridMenu() override
+		{
+			if (g_gone) {
+				g_gone();
+			}
+		}
+
 		// Every frame the menu is up. The base class does the drawing; what
 		// is added is the one question that has to be asked again and again
 		// -- where the pointer is now.
@@ -103,6 +115,11 @@ void menu::SetOnReady(void (*a_ready)())
 void menu::SetOnAdvance(void (*a_advance)())
 {
 	g_advance = a_advance;
+}
+
+void menu::SetOnGone(void (*a_gone)())
+{
+	g_gone = a_gone;
 }
 
 void menu::Show()

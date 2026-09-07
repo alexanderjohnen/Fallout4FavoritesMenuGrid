@@ -1888,6 +1888,11 @@ namespace
 	// Every frame the grid is up.
 	void TrackPointer()
 	{
+		// First, and unconditionally: this is what tells the input thread
+		// that the panel is really on screen. Everything below may return
+		// early; this may not.
+		input::Alive();
+
 		KeepCrosshairDown();
 
 		// The library arrives some frames after it was asked for, and the
@@ -2468,6 +2473,13 @@ namespace
 			input::Listen(true);
 		});
 		menu::SetOnAdvance(&TrackPointer);
+		// The last word, whatever took the menu away. Only things that live
+		// outside our own movie: it is the movie that is being destroyed.
+		menu::SetOnGone([]() {
+			input::Listen(false);
+			ReleasePointerHiding();
+			ShowCrosshair();
+		});
 
 		// The one call the grid cannot make up for itself. Looked for once,
 		// here, so a failure is in the log before anyone clicks anything.

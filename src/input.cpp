@@ -8,6 +8,23 @@ namespace
 	input::Pad g_pad;
 	void (*g_action)(input::Action) = nullptr;
 	std::atomic_bool g_listening{ false };
+
+	// When the panel last drew, in steady-clock ticks. Written on the UI
+	// thread, read on the input one, so it travels as a plain number.
+	std::atomic<std::int64_t> g_alive{ 0 };
+	constexpr auto kAliveFor = std::chrono::milliseconds(500);
+
+	[[nodiscard]] bool StillDrawing()
+	{
+		const auto seen = g_alive.load();
+		if (seen == 0) {
+			return false;
+		}
+		const std::chrono::steady_clock::time_point when{
+			std::chrono::steady_clock::duration(seen)
+		};
+		return std::chrono::steady_clock::now() - when < kAliveFor;
+	}
 	std::atomic<input::Device> g_lastDevice{ input::Device::kNone };
 
 	// The pointer sleeps while the keys are being used. Two ways of choosing
@@ -218,7 +235,10 @@ namespace
 			// picked a controller up.
 			Remember(*a_event);
 
-			if (!g_listening) {
+			// Both, and the second is the one that cannot get stuck: a
+			// switch left on by an event that never came would take the
+			// keyboard and the left stick away from the whole game.
+			if (!g_listening || !StillDrawing()) {
 				return false;
 			}
 			if (ClaimsStick(*a_event)) {
@@ -477,9 +497,17 @@ void input::SetOnAction(void (*a_action)(Action))
 	g_action = a_action;
 }
 
+void input::Alive()
+{
+	g_alive.store(std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
 void input::Listen(bool a_on)
 {
 	g_listening = a_on;
+	if (!a_on) {
+		g_alive.store(0);
+	}
 	if (a_on) {
 		// A player who came in on a controller should not be handed a mouse
 		// pointer they did not ask for.
