@@ -3447,3 +3447,54 @@ Zeile einer Liste markiert, und die Zahlen der übrigen Reihen etwas ruhiger.
 Nicht die alte Eckmeldung zurück — die stand an einer Stelle, an der ein HUD
 sie hinschieben konnte, wohin er wollte, und sagte etwas, das dorthin gehört,
 wo man es liest. Der Balken steht auch dann, wenn `ShowPageNumbers` aus ist.
+
+## 56. Zurück auf das, was lief (2026-09-07)
+
+Gefragt wurde: hat das nicht früher funktioniert? **Ja.** Abschnitt 37 hat es
+im Spiel bestätigt — „Benutzen per Klick und Taste, über Seiten hinweg". Was
+seither dazwischenkam, kam alles aus dieser einen Sitzung.
+
+Drei Dinge sind zurückgenommen.
+
+### Das Leihen einer Taste
+
+Die Idee ist besser als der Seitenwechsel — zwei Schreibvorgänge statt
+vierundzwanzig — und sie ist trotzdem raus. Sie hinterlässt die zwölf Tasten
+in einem halb angewandten Zustand, und die Seitenbuchführung schreibt genau
+diesen Zustand anschließend in eine gespeicherte Seite zurück. Im Log sieht
+man es an Seite 1, die plötzlich ein Stimpak auf Taste 4 trägt.
+
+**Weniger bewegliche Teile ist erst dann eine Verbesserung, wenn die
+bleibenden nachweislich stimmen.** Der Seitenwechsel ist der Teil, von dem
+das gilt. Das Leihen kommt wieder, wenn die Buchführung darunter bewiesen ist
+— nicht davor.
+
+### Der Anzeiger
+
+Raus, auf Zuruf, und der Grund ist der bessere: **für den Spieler soll alles
+wie eine Seite aussehen.** Das ist die Haltung, aus der dieses Panel
+überhaupt entstanden ist (Abschnitt 19), und ein Balken, der eine Reihe
+hervorhebt, widerspricht ihr. Abschnitt 55 hat ihn damit begründet, dass ohne
+Seitenwechsel niemand mehr weiß, was die Ziffern draußen bedeuten — das war
+richtig gedacht und an der falschen Stelle beantwortet. Da das Leihen weg ist,
+stellt sich die Frage ohnehin nicht mehr.
+
+### Die Übernahme im Pip-Boy
+
+Sie stürzt ab. Das Gitter geht dort weiter über `PipboyCrossKey` hinein — wo
+es lief —, aber nicht mehr von selbst.
+
+Was nicht bekannt ist: ob das Übernehmen **ungefragt** oder das Übernehmen
+**so früh** der Grund ist. Abschnitt 53 hat gezeigt, dass der Dialog beim
+ersten Erblicken noch nicht fertig gebaut ist; die zweite Sichtung war die
+Antwort darauf und offenbar nicht genug. Um das zu klären, muss man messen —
+und einen Absturz auszuliefern, um dabei zuzusehen, ist kein Plan.
+
+### Was bleibt, weil es bewiesen ist
+
+- Der Cache wird nach jedem `ApplyPage` nachgezogen (53). Die Log-Zeilen
+  `favorites (after the page)` und `cache` müssen gleich sein, und sie sind es.
+- Eine Taste wird von **allen** Gegenständen geräumt, nicht von einem je
+  Taste (54).
+
+Beides sind echte Fehler gewesen, beide unabhängig vom Rest nachweisbar.

@@ -1969,7 +1969,6 @@ namespace
 		auto where = g_gridWhere;
 		where.cellSize = CellSizeFor(host.width, host.height, pages.size());
 		where.hint.clear();
-		where.livePage = g_currentPage;
 		// The two lines the dialog already has of its own; ours would be a
 		// second pair saying the same thing.
 		where.labelSize = 1.0;
@@ -2261,9 +2260,6 @@ namespace
 				font,
 				g_gridFont.empty() ? "the cross's own key labels" : "the INI");
 		}
-
-		// Which row the digits mean, so the panel can mark it.
-		g_gridWhere.livePage = g_currentPage;
 
 		// The keys, so the line under the panel can name them. A drawn
 		// button is set larger than the words, so the field is told what the
@@ -2664,32 +2660,18 @@ namespace
 			return;
 		}
 
-		// A cell on another page is used by **borrowing one key**, not by
-		// turning the page.
+		// A cell on another page is used by going there first. The engine
+		// hands out the twelve keys one page at a time, and this is the way
+		// that has been played and confirmed.
 		//
-		// Turning it wrote all twelve favorites through the engine, moved
-		// the page the digits 1-0 mean, and had to be undone on close. It
-		// was also where three separate bugs lived: the stale cache, the
-		// second object holding the same key, the split stack. Two writes
-		// instead of twenty-four leave far less room for any of that.
-		//
-		// What is on that key now is put back afterwards. The page the
-		// engine holds never changes, so nothing has to be restored later
-		// and nothing outside this menu notices.
-		const auto borrowed = spot.page != g_currentPage;
-		RE::TESBoundObject* displaced = nullptr;
-		if (borrowed) {
-			displaced = ReadFavorites()[spot.slot].object;
-			if (displaced == object) {
-				displaced = nullptr;
-			} else {
-				ClearKey(static_cast<std::uint8_t>(spot.slot));
-				if (const auto from = FindFree(object)) {
-					WriteFavorite(
-						object, *from, static_cast<std::uint8_t>(spot.slot));
-				}
-				SyncFavoritesCache();
-			}
+		// Borrowing a single key instead was tried and taken out again the
+		// same evening. It is the better idea -- two writes rather than
+		// twenty-four -- and it left the twelve keys in a half-applied state
+		// that the page bookkeeping then wrote back into a stored page. Fewer
+		// moving parts is only an improvement once the parts that stay are
+		// known to be right, and the page switch is the part that is.
+		if (spot.page != g_currentPage) {
+			GoToPage(spot.page);
 		}
 
 		// Whether this press may take something off again rather than put it
@@ -2713,17 +2695,6 @@ namespace
 		const auto used = use::Quickkey(
 			static_cast<std::uint32_t>(spot.slot), g_toggleEquip && worn);
 
-		// And the key goes back to whoever had it. Not conditional on the
-		// use having worked: the borrowing happened either way.
-		if (borrowed && displaced) {
-			ClearKey(static_cast<std::uint8_t>(spot.slot));
-			if (const auto from = FindFree(displaced)) {
-				WriteFavorite(
-					displaced, *from, static_cast<std::uint8_t>(spot.slot));
-			}
-			SyncFavoritesCache();
-			RefreshCross();
-		}
 		logger::info(
 			"use: [{}] \"{}\" on page {} -- the game {}",
 			KeyLabel(spot.slot),
@@ -3137,10 +3108,16 @@ namespace
 			}
 
 			// The assign dialog is built when it is asked for and taken away
-			// when it is done, and there is no event for either. Five times
-			// a second, and only while the Pip-Boy is open; the search is
-			// four levels deep, not the whole tree.
-			if (g_pipboyOpen && tasks && ticks % 8 == 0) {
+			// when it is done, and there is no event for either -- so this
+			// looked for it five times a second and took it over on sight.
+			//
+			// It crashes, and until that is understood it does not run. The
+			// grid still goes into the Pip-Boy on PipboyCrossKey, which is
+			// where it was when it was working; what is not known is which
+			// of the two -- taking over unasked, or taking over that early
+			// -- is the one that kills it, and shipping a crash to find out
+			// is not a plan.
+			if (g_pipboyOpen && g_crossKey != 0 && tasks && ticks % 8 == 0) {
 				tasks->AddUITask([]() { WatchPipboyDialog(); });
 			}
 
