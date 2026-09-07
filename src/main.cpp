@@ -1305,6 +1305,66 @@ namespace
 		}
 	}
 
+	// Which page the twelve keys are really holding.
+	//
+	// g_currentPage is a belief, and a belief can be wrong. The twelve keys
+	// live inside the game's own save; the page list lives beside it in the
+	// co-save; and nothing makes the two agree at load time. When they do
+	// not, everything built on top is built on sand: RememberCurrentPage
+	// writes the live twelve into the wrong page, a use of "the page being
+	// played" reaches into the inventory for somebody else's items, and a
+	// switch to the page that is already live is skipped as needless.
+	//
+	// That last one is what the player saw. Load a save, open the grid,
+	// click a cell on page 1 -- if the keys really hold page 3 while we
+	// believe page 1, no switch happens at all and page 3's item is used.
+	// Every time, the same item, until something turns a page for real.
+	//
+	// So the belief is checked against the inventory instead of trusted.
+	// Nothing is rearranged here: this only decides which page we are
+	// looking at.
+	void ReconcileCurrentPage()
+	{
+		EnsurePages();
+		if (g_pages.size() < 2) {
+			return;
+		}
+
+		const auto live = ReadFavorites();
+		const auto holds = [&](std::size_t a_page) {
+			for (std::size_t key = 0; key < 12; ++key) {
+				if (g_pages[a_page][key] != live[key].object) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		if (holds(g_currentPage)) {
+			return;
+		}
+		for (std::size_t page = 0; page < g_pages.size(); ++page) {
+			if (page == g_currentPage || !holds(page)) {
+				continue;
+			}
+			logger::warn(
+				"page: the twelve keys hold page {} and we believed page {} "
+				"-- the inventory is the one that counts",
+				page + 1,
+				g_currentPage + 1);
+			g_currentPage = page;
+			return;
+		}
+
+		// No page owns them. The player assigned a favorite by hand since we
+		// last looked, which is theirs to do -- the keys belong to the page
+		// we are on, and RememberCurrentPage writes them there.
+		logger::info(
+			"page: the twelve keys match no stored page -- they are taken as "
+			"page {}",
+			g_currentPage + 1);
+	}
+
 	// The corner message that used to say which page was being played is
 	// gone. It came from the days when nothing else said it; the panel says
 	// it now, on both screens it appears on, and a HUD message on top of
@@ -2798,7 +2858,9 @@ namespace
 		}
 
 		// The page being played is only in the inventory, so it is read back
-		// before anything on it is looked up.
+		// before anything on it is looked up -- and which page that is, is
+		// checked before it is written into.
+		ReconcileCurrentPage();
 		RememberCurrentPage();
 		auto* object = g_pages[spot.page][spot.slot];
 		if (!object) {
@@ -3337,6 +3399,15 @@ namespace
 					// interruptible: the reason to wait is gone the moment
 					// the menu is back.
 					g_restoreIn = 0;
+
+					// And before anything is drawn: whose twelve keys are
+					// these? A save carries them in the game's own file and
+					// our pages beside it, and after a load the two can
+					// name different pages. The panel draws the live keys as
+					// the row it believes is current, so a wrong belief puts
+					// the wrong items in the wrong row -- and then uses them
+					// from there.
+					ReconcileCurrentPage();
 				}
 				if (a_event.opening && g_logIcons) {
 					g_logIconsDue.store(true);
