@@ -783,13 +783,33 @@ void grid::Draw(
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size()) + m.hintHeight;
 
-	// In the middle of the screen by default, where the eye already is.
+	// In the middle of the screen by default, where the eye already is --
+	// and the thing that is put there is **the cells**, not the panel.
+	//
+	// The two are not the same middle. The page numbers stand down the left
+	// side only, and the writing above the grid is taller than the key line
+	// below it; centring the whole panel therefore pushes the cells to the
+	// right and downward by half of each. Nobody looks at a panel. They look
+	// at the twelve squares, and those are what the crosshair used to be
+	// over.
+	//
+	// This is the same correction section 34 made for the two lines above
+	// the grid, one level up: there they were centred on the panel instead
+	// of on the cells, here the panel is placed by the cells instead of by
+	// itself. Everything else keeps its place relative to them and simply
+	// follows.
 	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
 	const auto stageHeight = ReadNumber(stage, "stageHeight", 720.0);
-	const auto left =
-		a_where.x < 0.0 ? (stageWidth - width) / 2.0 : a_where.x;
-	const auto top =
-		a_where.y < 0.0 ? (stageHeight - height) / 2.0 : a_where.y;
+	// Where the block of cells sits inside the panel, and how big it is.
+	const auto cellsTop = RowTop(m, 0);
+	const auto cellsHeight =
+		RowHeight(m) * static_cast<double>(a_pages.size()) - m.gap;
+	const auto left = a_where.x < 0.0
+		? (stageWidth - CellsWidth(m)) / 2.0 - CellsLeft(m)
+		: a_where.x;
+	const auto top = a_where.y < 0.0
+		? (stageHeight - cellsHeight) / 2.0 - cellsTop
+		: a_where.y;
 	// Setting x and y is not always enough. On the HUD they read back as
 	// nonsense afterwards, so the older names are tried as well and the
 	// result is logged -- a panel of the right size in the wrong place looks
@@ -981,8 +1001,8 @@ void grid::Draw(
 		stageHeight,
 		width,
 		height,
-		(stageWidth - width) / 2.0,
-		(stageHeight - height) / 2.0,
+		left,
+		top,
 		ReadNumber(g_panel, "width", -1.0),
 		ReadNumber(g_panel, "height", -1.0),
 		ReadNumber(g_panel, "x", -1.0),

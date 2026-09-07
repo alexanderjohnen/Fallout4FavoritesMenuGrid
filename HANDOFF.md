@@ -2902,3 +2902,39 @@ vorgibt.
 **Die Lehre:** zwei Farben in der Liste waren nie ein einzelner Fall. Wer
 sich künftig fragt, warum eine Zelle blasser aussieht als im Pip-Boy, sieht
 zuerst im Tag nach, ob dort ein zweites Attribut steht, das wir nicht lesen.
+
+## 45. Mittig wovon, zweiter Teil (2026-09-07)
+
+Abschnitt 34 hat die Zeilen **über** dem Gitter auf die Zellen zentriert statt
+auf das Panel. Dieselbe Frage eine Ebene höher war offen geblieben: das Panel
+selbst stand mittig auf der Bühne — und das Panel ist nicht das Gitter.
+
+Zwei Gründe, warum die zwei Mitten auseinanderliegen:
+
+- Die Seitenzahlen stehen **nur links**. Ist die Spalte da, sitzen die Zellen
+  um ihre halbe Breite zu weit rechts.
+- Über dem Gitter stehen zwei Zeilen und die Tastennamen, darunter nur die
+  Hinweiszeile. Der obere Block ist deutlich höher als der untere, also sitzen
+  die Zellen um die halbe Differenz zu tief.
+
+Gerechnet für die Einstellungen im Log (Zelle 48, vier Seiten, Seitenzahlen
+aus, Bühne 1280x720): das Panel war 340 hoch und stand bei y=190, die Zellen
+begannen 107 darin und waren 201 hoch — ihre Mitte lag also bei 397 statt bei
+360. **37 Einheiten zu tief**, gut fünf Prozent der Bildhöhe. Waagerecht
+stimmte es bei diesem Spieler zufällig, weil `ShowPageNumbers=0` die Spalte
+auf null setzt; mit Zahlen wären es 13 Einheiten nach rechts gewesen.
+
+Jetzt wird die Ecke des Panels aus den Zellen zurückgerechnet:
+
+```cpp
+left = (stageWidth  - CellsWidth(m)) / 2 - CellsLeft(m);
+top  = (stageHeight - cellsHeight)   / 2 - cellsTop;
+```
+
+Alles andere hängt am Panel und folgt von selbst. Ein ausdrückliches `GridX`
+oder `GridY` bleibt die Ecke des Panels — wer eine Zahl hinschreibt, meint
+eine Stelle, keine Ausrichtung.
+
+Die Log-Zeile nannte übrigens bis eben nicht die tatsächliche Position,
+sondern rechnete die alte Formel noch einmal aus. Sie sagt jetzt `left` und
+`top`, sonst hätte die nächste Messung an dieser Stelle gelogen.
