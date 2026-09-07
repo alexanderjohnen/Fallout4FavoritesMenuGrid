@@ -63,6 +63,11 @@ namespace
 	// Whether cells carry icons at all.
 	bool g_useIcons = true;
 
+	// Whether the mouse pointer goes out of sight while the keys have the
+	// mark. Its own switch, because it is the one part of this that reaches
+	// outside our own menu.
+	bool g_hidePointer = true;
+
 	// The line of keys under the panel, and whatever else should stand in it.
 	// The closing key belongs to the game rather than to us -- it is whatever
 	// the player bound the favorites menu to -- so it is text, not a binding.
@@ -466,6 +471,9 @@ namespace
 		g_gridPad.stick =
 			GetPrivateProfileIntW(
 				L"Controls", L"GridGamepadStick", 1, path.c_str()) != 0;
+		g_hidePointer =
+			GetPrivateProfileIntW(
+				L"Controls", L"GridHidePointer", 1, path.c_str()) != 0;
 		readPad(L"GridPadUpButton", g_gridPad.pageUp);
 		readPad(L"GridPadDownButton", g_gridPad.pageDown);
 		readPad(L"GridPadLeftButton", g_gridPad.slotLeft);
@@ -984,6 +992,10 @@ namespace
 	// Writes one favorite: the stack of a_object that carries a_from ends up
 	// carrying a_to. Both are keys 0..11, kNoKey for a parked favorite or
 	// kNotAFavorite for a stack that has none.
+	// Whether any stack of this object carries that key. Declared here
+	// because clearing a key has to ask until the answer is no.
+	[[nodiscard]] bool Carries(RE::TESBoundObject* a_object, std::uint8_t a_index);
+
 	bool WriteFavorite(
 		RE::TESBoundObject* a_object,
 		std::uint8_t a_from,
@@ -996,8 +1008,30 @@ namespace
 
 		MatchFavoriteFunctor compare{ a_from };
 		SetFavoriteFunctor write{ a_to };
-		player->inventoryList->FindAndWriteStackDataForItem(
-			a_object, compare, write);
+
+		// Once is not always enough. FindAndWriteStackDataForItem writes the
+		// **first** stack that matches, and a favorited stack can be split
+		// in two (section 10) -- one Nuka-Cola of fifty-four and one of one,
+		// both carrying key 8. Clearing the key then cleared one of them,
+		// the other kept it, and the item stood on every page at once.
+		//
+		// So a key is taken off every stack that has it. Only when clearing:
+		// a_from below twelve is a real key, where kNoKey and kNotAFavorite
+		// would match half the inventory and this would favorite all of it.
+		auto rounds = 0;
+		do {
+			player->inventoryList->FindAndWriteStackDataForItem(
+				a_object, compare, write);
+			++rounds;
+		} while (a_from < 12 && rounds < 12 && Carries(a_object, a_from));
+
+		if (rounds > 1) {
+			logger::info(
+				"favorites: \"{}\" carried {} on {} stacks at once",
+				RE::TESFullName::GetFullName(*a_object),
+				KeyLabel(a_from),
+				rounds);
+		}
 		return true;
 	}
 
@@ -1530,7 +1564,7 @@ namespace
 					// The "m_" is the only translation between what the
 					// configuration writes and what the library exports.
 					cell.symbol = "m_" + icon->symbol;
-					cell.color = icon->color;
+					cell.colors = icon->colors;
 					if (!icon->library.empty()) {
 						g_wantedLibraries.insert(icon->library);
 					}
@@ -1747,43 +1781,54 @@ namespace
 	double g_pointerX = std::numeric_limits<double>::lowest();
 	double g_pointerY = std::numeric_limits<double>::lowest();
 
-	// The game's own mouse pointer, which is a menu of its own: CursorMenu.
-	// Kept so it can be put back exactly the way the crosshair is.
-	RE::Scaleform::GFx::Value g_cursorRoot;
+	// The game's own mouse pointer, which is a menu of its own: CursorMenu
+	// (`RE::CursorMenu`, and it carries that name). Hiding it is the same
+	// grip as the crosshair -- `visible` on the menu's own object.
+	//
+	// Nothing is kept between frames. An earlier version held the display
+	// object in a global and wrote to it every frame; that is a reference
+	// into another movie's heap, and the menu it belongs to comes and goes
+	// on the game's own schedule, not ours. It is looked up each time
+	// instead, which costs a hash lookup and owes nobody anything.
+	//
+	// Not through MenuCursor::UnregisterCursor either, which would be the
+	// obvious way and the dangerous one: `registeredCursors` is a counter
+	// shared with every other menu, and lowering it once too often takes the
+	// pointer away from the whole game.
 	bool g_pointerShown = true;
 
-	// Out of sight while the keys have the mark, back the moment the mouse
-	// or the right stick moves. Not a nicety: a pointer resting over a cell
-	// takes the choice back from the keys on the very next frame, so the two
-	// ways of choosing were quietly fighting each other.
 	void SetPointerVisible(bool a_on)
 	{
-		if (!g_cursorRoot.IsDisplayObject()) {
-			auto* cursor = GetMenu("CursorMenu");
-			if (!cursor || !cursor->menuObj.IsObject()) {
-				static bool said = false;
-				if (!said) {
-					said = true;
-					logger::info(
-						"pointer: no CursorMenu to hide -- the cursor stays");
-				}
-				return;
-			}
-			g_cursorRoot = cursor->menuObj;
-			if (!g_cursorRoot.IsDisplayObject()) {
-				g_cursorRoot = RE::Scaleform::GFx::Value();
-				return;
-			}
+		if (!g_hidePointer) {
+			return;
 		}
-		g_cursorRoot.SetMember("visible", RE::Scaleform::GFx::Value(a_on));
+		auto* cursor = GetMenu("CursorMenu");
+		if (!cursor || !cursor->menuObj.IsObject()) {
+			static bool said = false;
+			if (!said) {
+				said = true;
+				logger::info("pointer: no CursorMenu to hide -- it stays");
+			}
+			return;
+		}
+		auto root = cursor->menuObj;
+		if (!root.IsDisplayObject()) {
+			static bool said = false;
+			if (!said) {
+				said = true;
+				logger::info(
+					"pointer: CursorMenu has no display object -- it stays");
+			}
+			return;
+		}
+		root.SetMember("visible", RE::Scaleform::GFx::Value(a_on));
 	}
 
 	void ReleasePointerHiding()
 	{
-		if (g_cursorRoot.IsDisplayObject()) {
-			g_cursorRoot.SetMember("visible", RE::Scaleform::GFx::Value(true));
+		if (!g_pointerShown) {
+			SetPointerVisible(true);
 		}
-		g_cursorRoot = RE::Scaleform::GFx::Value();
 		g_pointerShown = true;
 	}
 

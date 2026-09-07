@@ -2555,3 +2555,114 @@ die Zellplatten, die Marke, die Hinweiszeile — bleiben, wie sie waren.
 - Ob der rechte Stick den Cursor tatsächlich bewegt. Falls das Spiel dafür den
   linken nimmt, weckt der rechte den Zeiger, ohne ihn zu bewegen — dann wäre
   `GridGamepadStick=0` die Lösung, oder das Wecken müsste an den linken Stick.
+
+## 41. Was das Log erzählte (2026-09-07)
+
+Drei Meldungen aus dem Spiel, und das Log beantwortete zwei davon sofort. Das
+ist der Grund, warum so viel darin steht.
+
+### Nuka-Cola stand auf jeder Seite
+
+Im Log, beim Umschalten auf Seite 1 (die Waffenseite):
+
+```
+move: "[Nuka_Cola] Nuka-Cola" 8 -> no key
+...
+favorites (after the page): [1]T60x1 ... [7]Hunting Shotgunx1 [8][Nuka_Cola] Nuka-Colax1
+cross: rewritten from the inventory -- ... [8]Nuka-Cola/54
+```
+
+Also: die Taste **wurde** geräumt, und danach lag der Gegenstand wieder darauf.
+Und zwei Zahlen, die nicht zusammenpassen — `x1` in unserer Zählung, `/54` im
+Kreuz.
+
+Das ist die Stapelspaltung aus Abschnitt 10, nur von der anderen Seite gesehen.
+Es gibt **zwei** Nuka-Cola-Stapel, und **beide** tragen `quickkeyIndex` 8.
+`FindAndWriteStackDataForItem` schreibt aber nur den **ersten** Treffer. Also
+räumte jeder Seitenwechsel einen davon und ließ den anderen liegen — und der
+hielt die Taste über jede Seite hinweg fest.
+
+`WriteFavorite` fragt jetzt nach: solange `Carries` sagt, dass die Taste noch
+irgendwo hängt, wird noch einmal geschrieben, höchstens zwölfmal. Nur beim
+Räumen — `a_from` unter zwölf ist eine echte Taste; mit `kNoKey` oder
+`kNotAFavorite` in derselben Schleife würde man das halbe Inventar
+favorisieren. Brauchte es mehr als eine Runde, steht das im Log.
+
+### Die Zurück-Taste blieb Text
+
+Die Ursache stand ebenfalls im Log, in der Zeile, die extra dafür da ist:
+
+```
+input: ... START BACK LB B 0xffff stay with the game
+```
+
+`0xffff`. Die Bindungstabellen sind voll von Platzhaltern für „nicht belegt",
+und es ist nicht überall derselbe: `-1`, `0` und `0xffff` kommen alle vor. Die
+Prüfung fing die ersten beiden ab und ließ den dritten durch, und weil in
+diesem Spiel gar keine `Cancel`-Bindung fürs Gamepad steht, wurde `0xffff` zur
+Schließen-Taste — ein Knopf, den es nicht gibt, also kein Symbol, also der
+Auffangtext.
+
+Jetzt: `Buttonish` lässt nur die sechzehn Zahlen durch, die überhaupt Knöpfe
+sind, und die Vorgabe für die Schließen-Taste ist **B** statt null. B ist, was
+das Vanilla-Menü auf einem Serien-Controller beantwortet, und steht ohnehin
+unverrückbar auf der Sperrliste. Die `input:`-Zeile sagt jetzt am Ende, welcher
+Knopf der Ausgang ist.
+
+Nebenbei gelernt: `Quickkeys` liegt hier auf **LB**. Wer je vermutet, das Menü
+öffne sich mit dem Steuerkreuz, hat damit ein Gegenbeispiel.
+
+### Der Absturz — nicht bewiesen, aber entschärft
+
+Das Log endet mit
+
+```
+[11:20:04] FavoritesMenu opened
+[11:20:04] menu: FavoritesMenuGrid is up
+```
+
+und nichts danach. Kein `grid: 4 pages`, also fiel es zwischen dem Bau des
+Menüs und der ersten Zeichnung. In genau dieses Fenster fällt `AdvanceMovie`,
+und damit `TrackPointer` — das Neue von Abschnitt 40. Buffout hat nichts
+geschrieben, ein Stack liegt also nicht vor. **Die Ursache ist damit nicht
+bewiesen.**
+
+Was aber sicher falsch war: das Anzeigeobjekt von `CursorMenu` lag in einer
+globalen `GFx::Value` und wurde jedes Bild beschrieben. Das ist eine Referenz
+in den Speicher eines **fremden** Films, und wann dieses Menü kommt und geht,
+entscheidet das Spiel, nicht wir. Jetzt wird es bei jedem Zugriff frisch
+geholt — ein Hash-Lookup, der niemandem etwas schuldet.
+
+Dazu ein Schalter: `GridHidePointer=0` nimmt den ganzen Griff heraus, ohne
+etwas neu zu bauen. Stürzt es weiter ab, ist das der erste Versuch, und dann
+liegt es nicht am Zeiger.
+
+### Die Symbole waren zu einfarbig
+
+Der Grund stand als Kommentar seit Monaten im Code:
+
+> „A symbol built from several shapes names a colour for each, separated by
+> commas -- RadAway is brown and silver. We paint one flat colour, so the
+> first is the one that counts."
+
+Genau das sah man: im Pip-Boy ist RadAway ein brauner Beutel mit silberner
+Kappe, im Gitter war es ein brauner Fleck. `colorname` trägt eine Liste, ein
+Eintrag je Teil des Symbols, und wir haben die Liste am ersten Komma
+abgeschnitten.
+
+Jetzt bleibt die ganze Liste erhalten (`tags::Icon::colors`), und `PaintParts`
+malt die Kinder des Symbols der Reihe nach: Kind *i* in Farbe *i*, von hinten
+nach vorn — die Reihenfolge, in der Flash stapelt und in der die
+Konfiguration schreibt. Weniger Teile als Farben nimmt, was da ist; mehr Teile
+als Farben malt den Rest in der letzten genannten, weil eine Liste, die ausgeht,
+„und der Rest auch" gemeint hat.
+
+**Diese Reihenfolge ist die eine Annahme darin.** Deshalb schreibt sie sich
+einmal ins Log:
+
+```
+icons: a symbol of N parts against M colours
+```
+
+Sehen die Symbole falsch herum eingefärbt aus, ist die Reihenfolge umzudrehen
+— das ist eine Zeile —, und `IconColors=0` ist bis dahin die Rücknahme.

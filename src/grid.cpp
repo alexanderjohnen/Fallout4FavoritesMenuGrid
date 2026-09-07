@@ -363,6 +363,61 @@ namespace
 	// One cell's icon, if its tag named one and its library is in. The
 	// symbol is scaled to fit rather than stretched: an icon squeezed into a
 	// square is worse than none, because it still looks deliberate.
+	// The parts of a symbol, painted one by one.
+	//
+	// A sorter's icon is a stack of shapes and the configuration names a
+	// colour for each: RadAway is a brown bag with a silver cap. The whole
+	// clip used to be painted in the first of them, which is why this grid
+	// came out flatter than the same icons in the Pip-Boy.
+	//
+	// Which child is which part is the order they are stacked in, back to
+	// front, which is the order the configuration writes them in. An icon
+	// with fewer parts than colours takes the ones it has; one with more
+	// paints the rest in the last colour named rather than leaving them
+	// white, because a list that runs out is a list that meant "and the
+	// rest of it too".
+	void PaintParts(
+		RE::IMenu* a_canvas,
+		RE::Scaleform::GFx::Value& a_icon,
+		const std::vector<std::uint32_t>& a_colors)
+	{
+		const auto paintOne = [&](RE::Scaleform::GFx::Value& a_what,
+								   std::uint32_t a_color) {
+			if (a_color <= 0xFFFFFF) {
+				Paint(a_canvas, a_what, a_color);
+			}
+		};
+
+		const auto parts =
+			static_cast<int>(ReadNumber(a_icon, "numChildren", 0.0));
+		if (a_colors.size() < 2 || parts < 2) {
+			paintOne(a_icon, a_colors.front());
+			return;
+		}
+
+		// Said once, so a wrong guess about the order is visible in the log
+		// rather than only on the screen.
+		static bool said = false;
+		if (!said) {
+			said = true;
+			logger::info(
+				"icons: a symbol of {} parts against {} colours",
+				parts,
+				a_colors.size());
+		}
+
+		for (int part = 0; part < parts; ++part) {
+			RE::Scaleform::GFx::Value which(static_cast<double>(part));
+			RE::Scaleform::GFx::Value child;
+			if (!a_icon.Invoke("getChildAt", &child, &which, 1) ||
+				!child.IsDisplayObject()) {
+				continue;
+			}
+			const auto at = static_cast<std::size_t>(part);
+			paintOne(child, a_colors[std::min(at, a_colors.size() - 1)]);
+		}
+	}
+
 	void Symbol(
 		RE::IMenu* a_canvas,
 		const grid::Cell& a_cell,
@@ -401,8 +456,8 @@ namespace
 		icon.SetMember(
 			"y", RE::Scaleform::GFx::Value(a_top + (a_m.cell - height * scale) / 2.0));
 
-		if (a_where.iconColors && a_cell.color <= 0xFFFFFF) {
-			Paint(a_canvas, icon, a_cell.color);
+		if (a_where.iconColors && !a_cell.colors.empty()) {
+			PaintParts(a_canvas, icon, a_cell.colors);
 		}
 
 		g_panel.Invoke("addChild", nullptr, &icon, 1);

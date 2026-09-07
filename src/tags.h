@@ -36,7 +36,18 @@ namespace tags
 	{
 		std::string symbol;   // the class name, without the "m_" the SWF adds
 		std::string library;  // the movie it lives in, as a Scaleform path
-		std::uint32_t color{ kNoColor };
+
+		// One colour per part, in the order the configuration names them.
+		//
+		// A sorter's icon is not one shape: RadAway is a brown bag with a
+		// silver cap, and the configuration says so -- `colorname` carries a
+		// comma-separated list, one entry per part. Painting the first one
+		// over the whole thing is what made this grid so much flatter than
+		// the same icons in the Pip-Boy.
+		//
+		// kNoColor in a slot means that part keeps the colour it was drawn
+		// in. An empty list means the whole icon does.
+		std::vector<std::uint32_t> colors;
 	};
 
 	// Reads every tag configuration under Interface\ItemSorter and merges

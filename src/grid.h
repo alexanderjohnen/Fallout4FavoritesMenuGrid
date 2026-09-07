@@ -22,7 +22,10 @@ namespace grid
 		std::string label;   // the key: 1..9, 0, -, =
 		std::string name;    // what lies on it, empty for a free key
 		std::string symbol;  // the icon's class name, empty when there is none
-		std::uint32_t color{ 0x1000000 };  // above white: leave the icon as it is
+		// One colour per part of the symbol, painted in the order the parts
+		// are stacked. Empty leaves the artwork alone; a single entry above
+		// white does the same for that part.
+		std::vector<std::uint32_t> colors;
 	};
 
 	using Page = std::array<Cell, 12>;

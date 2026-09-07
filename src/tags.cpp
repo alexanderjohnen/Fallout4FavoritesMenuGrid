@@ -11,7 +11,9 @@ namespace
 	// The colour a keyword asks for, by name. Kept beside the icons rather
 	// than in them because a name can only be resolved once every file has
 	// been read: an alias may point at a colour another file defines.
-	std::unordered_map<std::string, std::string> g_wanted;
+	// One colour name per part of the icon, in the order the tag names
+	// them.
+	std::unordered_map<std::string, std::vector<std::string>> g_wanted;
 	std::unordered_map<std::string, std::string> g_colorHex;
 	std::unordered_map<std::string, std::string> g_colorAlias;
 
@@ -166,16 +168,25 @@ namespace
 			entry.library = blocks[block].library;
 			g_icons.insert_or_assign(key, std::move(entry));
 
-			auto color = Attribute(a_element, "colorname");
+			// A symbol built from several shapes names a colour for each,
+			// separated by commas -- RadAway is a brown bag with a silver
+			// cap. All of them are kept, in order: the parts of the icon are
+			// painted one by one.
+			const auto color = Attribute(a_element, "colorname");
 			if (!color.empty()) {
-				// A symbol built from several shapes names a colour for each,
-				// separated by commas -- RadAway is brown and silver. We paint
-				// one flat colour, so the first is the one that counts.
-				const auto comma = color.find(',');
-				if (comma != std::string::npos) {
-					color.resize(comma);
+				std::vector<std::string> wanted;
+				std::size_t at = 0;
+				while (at <= color.size()) {
+					const auto comma = color.find(',', at);
+					const auto end =
+						comma == std::string::npos ? color.size() : comma;
+					wanted.push_back(Lowered(color.substr(at, end - at)));
+					if (comma == std::string::npos) {
+						break;
+					}
+					at = comma + 1;
 				}
-				g_wanted[key] = Lowered(color);
+				g_wanted[key] = std::move(wanted);
 			}
 		});
 	}
@@ -596,8 +607,19 @@ void tags::Load(const std::filesystem::path& a_interface)
 
 	for (auto& [keyword, icon] : g_icons) {
 		const auto wanted = g_wanted.find(keyword);
-		if (wanted != g_wanted.end()) {
-			icon.color = ResolveColor(wanted->second);
+		if (wanted == g_wanted.end()) {
+			continue;
+		}
+		icon.colors.clear();
+		icon.colors.reserve(wanted->second.size());
+		for (const auto& name : wanted->second) {
+			icon.colors.push_back(ResolveColor(name));
+		}
+		// A list that resolved to nothing at all is no list.
+		if (std::ranges::all_of(icon.colors, [](std::uint32_t a_color) {
+				return a_color == tags::kNoColor;
+			})) {
+			icon.colors.clear();
 		}
 	}
 

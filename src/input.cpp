@@ -17,7 +17,13 @@ namespace
 	std::atomic_bool g_pointerAwake{ true };
 
 	// Which button the game closes this menu with, found in Install.
-	std::int32_t g_padClose{ 0 };
+	//
+	// B until the bindings say otherwise, because B is what the vanilla
+	// favorites menu answers to on a stock controller and it is on the
+	// never-claimed list either way. The first run through a real game's
+	// bindings turned up an LB and an 0xffff and no Cancel at all, so a
+	// zero here would have left the hint line spelling a button out.
+	std::int32_t g_padClose{ 0x2000 };
 
 	// A key held down arrives as an event per frame, and acting on every one
 	// of them walked the mark across the panel faster than anyone could read
@@ -336,6 +342,34 @@ namespace
 
 	Handler g_handler;
 
+	// Whether a number out of the bindings is a button at all. The tables
+	// are full of placeholders for "not bound", and they are not all the
+	// same placeholder.
+	[[nodiscard]] bool Buttonish(std::int32_t a_code)
+	{
+		switch (a_code) {
+		case kPadDPadUp:
+		case kPadDPadDown:
+		case kPadDPadLeft:
+		case kPadDPadRight:
+		case kPadStart:
+		case kPadBack:
+		case kPadLStick:
+		case kPadRStick:
+		case kPadLShoulder:
+		case kPadRShoulder:
+		case kPadLTrigger:
+		case kPadRTrigger:
+		case kPadA:
+		case kPadB:
+		case kPadX:
+		case kPadY:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	// What the game has bound "Quickkeys" and "Cancel" to on the controller.
 	// Read rather than assumed: the player may have remapped either, and the
 	// one thing that must never break is the way out of this menu.
@@ -364,15 +398,20 @@ namespace
 				if (mapping.eventID != quickkeys && mapping.eventID != cancel) {
 					continue;
 				}
-				if (mapping.inputKey > 0 &&
-					mapping.inputKey != static_cast<std::int32_t>(-1)) {
-					g_padForbidden.insert(mapping.inputKey);
-					// Cancel is the one to name in the hint line: Quickkeys
-					// is what opened the menu, Cancel is what a player
-					// reaches for to leave one.
-					if (mapping.eventID == cancel || g_padClose == 0) {
-						g_padClose = mapping.inputKey;
-					}
+				if (!Buttonish(mapping.inputKey)) {
+					// An unbound entry, and the bindings are full of them:
+					// 0xffff is what "nothing" looks like here, and -1 and 0
+					// mean the same. Guarding against a button that does not
+					// exist costs nothing; naming it in the hint line would
+					// have cost the line.
+					continue;
+				}
+				g_padForbidden.insert(mapping.inputKey);
+				// Cancel is the one to name in the hint line: Quickkeys is
+				// what opened the menu, Cancel is what a player reaches for
+				// to leave one.
+				if (mapping.eventID == cancel) {
+					g_padClose = mapping.inputKey;
 				}
 			}
 		}
@@ -409,7 +448,10 @@ namespace
 			}
 			guarded += name;
 		}
-		line += std::format("; {} stay with the game", guarded);
+		line += std::format(
+			"; {} stay with the game, and {} is the way out",
+			guarded,
+			input::PadName(g_padClose));
 		return line;
 	}
 }
