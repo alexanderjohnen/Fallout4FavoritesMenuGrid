@@ -168,6 +168,14 @@ namespace
 	// needs no restart of the game.
 	int g_peekKey = VK_F10;
 
+	// Surveys the Pip-Boy where it stands, rather than when it opens.
+	//
+	// The first survey ran on the menu's opening and found no cross at all,
+	// which is the answer: ASSIGN FAVORITE is built when it is asked for and
+	// does not exist before. So the survey has to be triggered by a hand,
+	// with the thing on screen.
+	int g_surveyKey = 0;
+
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
 		std::wstring buffer(MAX_PATH, L'\0');
@@ -510,6 +518,7 @@ namespace
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
 		read(L"Debug", L"PeekKey", g_peekKey);
+		read(L"Debug", L"SurveyKey", g_surveyKey);
 		g_logIcons =
 			GetPrivateProfileIntW(L"Debug", L"LogIcons", 0, path.c_str()) != 0;
 		g_surveyDepth = std::clamp(
@@ -1706,7 +1715,7 @@ namespace
 				ReadNumber(stage, "stageWidth", 0.0),
 				ReadNumber(stage, "stageHeight", 0.0));
 		}
-		SurveyBranch(root, "PipboyMenu", g_surveyDepth);
+		SurveyBranch(root, "PipboyMenu", g_surveyDepth > 0 ? g_surveyDepth : 8);
 	}
 
 	void ShowGrid()
@@ -2162,8 +2171,22 @@ namespace
 		// on a second time. The engine decides what that means -- including
 		// what it refuses inside power armour -- because it is the engine's
 		// own boolean being turned around, not a second call of ours.
+		//
+		// But only for things that are worn or held. A stimpak is not put
+		// on, it is used up, and asking the engine to take it off again
+		// turned a swallowed chem into an equip and an unequip: press once,
+		// nothing happens; press again, nothing happens. The boolean means
+		// "and off again if it is already on", which is a sentence about
+		// weapons and armour and about nothing else.
+		//
+		// Deliberately by form type rather than by asking whether the thing
+		// happens to be equipped right now: an aid item that some mod makes
+		// equippable is still an aid item, and the answer should not depend
+		// on what the player is carrying at the time.
+		const auto worn = object->GetFormType() == RE::ENUM_FORM_ID::kWEAP ||
+			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
 		const auto used = use::Quickkey(
-			static_cast<std::uint32_t>(spot.slot), g_toggleEquip);
+			static_cast<std::uint32_t>(spot.slot), g_toggleEquip && worn);
 		logger::info(
 			"use: [{}] \"{}\" on page {} -- the game {}",
 			KeyLabel(spot.slot),
@@ -2480,6 +2503,7 @@ namespace
 	void KeyboardPollingLoop()
 	{
 		bool previousPeek = false;
+		bool previousSurvey = false;
 		bool previousNext = false;
 		bool previousBack = false;
 
@@ -2514,6 +2538,15 @@ namespace
 			if (peekNow && !previousPeek) {
 				peek::Run(GetSettingsPath());
 			}
+
+			const auto surveyNow = g_surveyKey != 0 && IsKeyDown(g_surveyKey);
+			if (surveyNow && !previousSurvey) {
+				// Scaleform, so not from here.
+				if (tasks) {
+					tasks->AddUITask([]() { SurveyPipboy(); });
+				}
+			}
+			previousSurvey = surveyNow;
 
 			previousPeek = peekNow;
 			previousNext = nextPage;
