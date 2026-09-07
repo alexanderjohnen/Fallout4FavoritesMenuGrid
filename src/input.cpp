@@ -459,6 +459,74 @@ std::string input::PadName(int a_button)
 	}
 }
 
+// The button art the game already owns.
+//
+// Fallout 4 keeps its controller symbols in a font, not in pictures:
+// `$Controller_Buttons` in `Interface\fonts_en.swf`, mapped by
+// `Interface\FontConfig.txt` to the face "Controller  Buttons" -- with two
+// spaces, which is not a typo. A text field set to that font and given the
+// letter "A" draws the A button. The vanilla menus do exactly this; the "A"
+// and "X" sitting in ContainerMenu's fields are authoring placeholders, not
+// the mapping.
+//
+// The mapping was read out of the font itself. It has 57 glyphs: a space,
+// A-Z, a-z, three brackets and a non-breaking space. **A-Z is the Xbox set
+// and a-z the PlayStation one**, in the same order for the parts that
+// matter -- T/t is left, U/u right, V/v down, W/w up. Which set to use is
+// the game's own answer: `ControlMap::pcGamePadMapType`.
+//
+// Nothing here is a guess. The glyph shapes were pulled out of the SWF and
+// drawn, so what stands next to each letter is what the font draws.
+std::string input::PadGlyph(int a_button, bool a_orbis)
+{
+	switch (a_button) {
+	case kPadA:
+		return a_orbis ? "a" : "A";  // cross / A
+	case kPadB:
+		return a_orbis ? "d" : "B";  // circle / B
+	case kPadX:
+		return a_orbis ? "c" : "C";  // square / X
+	case kPadY:
+		return a_orbis ? "b" : "D";  // triangle / Y
+	case kPadDPadUp:
+		return a_orbis ? "w" : "W";
+	case kPadDPadDown:
+		return a_orbis ? "v" : "V";
+	case kPadDPadLeft:
+		return a_orbis ? "t" : "T";
+	case kPadDPadRight:
+		return a_orbis ? "u" : "U";
+	case kPadLShoulder:
+		return a_orbis ? "g" : "G";  // L1 / LB
+	case kPadRShoulder:
+		return a_orbis ? "m" : "L";  // R1 / RB
+	case kPadLTrigger:
+		return a_orbis ? "j" : "I";  // L2 / LT
+	case kPadRTrigger:
+		return a_orbis ? "o" : "N";  // R2 / RT
+	case kPadLStick:
+		return a_orbis ? "f" : "F";  // L3 / left stick
+	case kPadRStick:
+		return a_orbis ? "l" : "K";  // R3 / right stick
+	case kPadStart:
+		return a_orbis ? "p" : "O";  // Options / Menu
+	case kPadBack:
+		return a_orbis ? "e" : "E";  // Share / View
+	default:
+		return {};
+	}
+}
+
+std::string input::PadGlyphDPad(bool a_orbis)
+{
+	return a_orbis ? "s" : "P";
+}
+
+std::string input::PadGlyphStick(bool a_orbis)
+{
+	return a_orbis ? "i" : "F";
+}
+
 void input::Install()
 {
 	auto* controls = RE::MenuControls::GetSingleton();

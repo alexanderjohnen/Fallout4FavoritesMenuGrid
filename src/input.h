@@ -131,4 +131,17 @@ namespace input
 	// What the panel should call a controller button. Empty for a button
 	// that has no name worth printing.
 	[[nodiscard]] std::string PadName(int a_button);
+
+	// The game's own symbol for a controller button -- one character of the
+	// font Fallout 4 keeps its button art in. Empty when that font has none
+	// for this button, and then PadName is what is left.
+	//
+	// `a_orbis` picks the PlayStation set over the Xbox one. Both live in the
+	// same font: A-Z is one controller, a-z the other.
+	[[nodiscard]] std::string PadGlyph(int a_button, bool a_orbis);
+
+	// The whole D-pad as one symbol, and the left stick as another -- what
+	// the game writes when a hint means "any direction" rather than one.
+	[[nodiscard]] std::string PadGlyphDPad(bool a_orbis);
+	[[nodiscard]] std::string PadGlyphStick(bool a_orbis);
 }

@@ -2368,3 +2368,119 @@ dieser Reihenfolge:
 Findet sich in Schritt 1 etwas, ist `GridGamepad=0` die vollständige Rücknahme
 — und der nächste Schritt wäre, in derselben Sperrliste nachzusehen, was das
 Log als `stay with the game` aufgezählt hat.
+
+## 39. Die Symbole der Knöpfe stehen in einer Schrift (2026-09-07)
+
+Die Steuerung lief auf Anhieb. Was falsch aussah, war die Leiste darunter:
+`^<v>) MOVE   A) USE   X) PICK UP   Y)` — ausgeschriebene Behelfsnamen, wo das
+Spiel überall sonst gezeichnete Knöpfe zeigt. Und für einen anderen Controller
+wären sie schlicht falsch.
+
+### Wo die Symbole liegen
+
+Nicht in Bildern, sondern in einer **Schrift**. `Data\Interface\FontConfig.txt`
+sagt es in zwei Zeilen:
+
+```
+fontlib "Interface\fonts_en.swf"
+map "$Controller_Buttons" = "Controller  Buttons" Normal
+map "$Controller_Buttons_inverted" = "Controller  Buttons inverted" Normal
+```
+
+Der Schriftname hat **zwei Leerzeichen** in der Mitte. Ein Textfeld in dieser
+Schrift, in das man ein `A` schreibt, zeigt den A-Knopf.
+
+Dass die Vanilla-Menüs genau das tun, steht in ihren eigenen SWFs. In
+`ContainerMenu.swf` liegt ein `DefineEditText` mit
+`$Controller_Buttons_inverted` und dem Inhalt
+
+```html
+<p align="center"><font face="Controller  Buttons inverted" size="16" …>X</font></p>
+```
+
+**Achtung, Falle:** dieses `X` ist Autorentext, keine Zuordnung. Dieselben
+Felder tragen daneben `TEXT`, `110` und `370/175` — alles Platzhalter, die zur
+Laufzeit ersetzt werden. Wer die Zuordnung aus diesen Buchstaben abliest,
+liest Blindtext.
+
+### Wie die Zuordnung wirklich gemessen wurde
+
+`fonts_en.swf` liegt in `Fallout4 - Interface.ba2`. Ein BA2 vom Typ `GNRL` ist
+in vierzig Zeilen Python gelesen: Kopf, Dateisätze mit Versatz und Größe,
+Namenstabelle am Ende, Daten per zlib. Danach die SWF entpacken und ihre
+`DefineFont3`-Tags durchgehen.
+
+Die Schrift hat **57 Glyphen**: Leerzeichen, `A`–`Z`, `a`–`z`, `{`, `|`, `}`
+und ein geschütztes Leerzeichen. Damit ist die Zeichentabelle bekannt — aber
+nicht, welcher Buchstabe welcher Knopf ist.
+
+Also **gezeichnet**. Die Glyphenumrisse in `DefineFont3` sind gewöhnliche
+SHAPE-Sätze; ein kleiner Parser macht daraus Pfade, ein Rasterer in reinem
+Python (kein Pillow nötig, `zlib` reicht für PNG) macht daraus ein Blatt mit
+allen 57 nebeneinander. Ein Blick darauf beantwortet alles auf einmal:
+
+> **`A`–`Z` ist der Xbox-Satz, `a`–`z` der PlayStation-Satz.**
+
+| | Xbox | PlayStation |
+| --- | --- | --- |
+| Bestätigen | `A` (Ⓐ) | `a` (✕) |
+| Zweiter Knopf | `B` (Ⓑ) | `d` (○) |
+| Dritter | `C` (Ⓧ) | `c` (□) |
+| Vierter | `D` (Ⓨ) | `b` (△) |
+| Kreuz links / rechts / runter / hoch | `T` `U` `V` `W` | `t` `u` `v` `w` |
+| Kreuz ganz | `P` | `s` |
+| Linke Schulter / rechte | `G` / `L` | `g` / `m` |
+| Linker Trigger / rechter | `I` / `N` | `j` / `o` |
+| Linker Stick / rechter | `F` / `K` | `f`/`i` / `l` |
+| Start / Zurück | `O` (≡) / `E` | `p` (OPTIONS) / `e` (SHARE) |
+| Nicht belegt | `R` (?) | — |
+
+Die Richtungen sind in beiden Sätzen **gleich sortiert** — links, rechts,
+runter, hoch —, und das ist auch die Probe: die PlayStation-Kreuze markieren
+die gedrückte Richtung, indem sie deren Arm **hohl** lassen statt ihn zu
+füllen. Programmatisch abgetastet (ein Pixel je Arm) ergibt `t` genau den
+hohlen linken Arm, `u` den rechten, und so weiter — dieselbe Reihenfolge wie
+die Pfeile `T`–`W`. Zwei unabhängige Wege, dieselbe Antwort.
+
+Welcher Satz gilt, entscheidet nicht die Mod, sondern das Spiel:
+`ControlMap::pcGamePadMapType` ist `kDirectX` oder `kOrbis` — dasselbe Feld,
+nach dem sich die Vanilla-Menüs richten.
+
+### Was das im Code heißt
+
+Zwei Schriften in einer Zeile gehen nur über Markup, also ist die Hinweiszeile
+jetzt `htmlText` statt `text`:
+
+```html
+<font face='Controller  Buttons' size='20'>A</font>) USE
+```
+
+Drei Dinge, die dabei zu beachten waren:
+
+- **Kein zweites `setTextFormat`.** Das Feld setzt sein Format sonst über
+  jeden Lauf und malt das `face` aus dem Markup wieder weg. `defaultTextFormat`
+  **vor** dem Zuweisen reicht, und was das Markup nicht selbst sagt, erbt es
+  von dort.
+- **Höhe nach dem größten Lauf.** Ein Symbol steht 145 % der Schriftgröße, und
+  ein Feld, das nur für die Wörter hoch genug ist, schneidet es oben ab. Die
+  Höhe kommt jetzt aus `hintTallest`.
+- **Escapen.** Alles, was nicht Markup sein soll, geht durch `Escape` —
+  `KeyHintExtra` steht in der INI und darf ein `&` enthalten.
+
+Und die Klammer fällt weg, wenn ein Knopf gezeichnet wird: `E) USE` liest sich
+als Taste, `Ⓐ) USE` liest sich als Fehler. Vier Kreuz-Richtungen nebeneinander
+wären außerdem viermal dieselbe Tinte für denselben Satz — liegen die vier auf
+dem Steuerkreuz, steht **ein** Kreuzsymbol da, so wie das Spiel es auch macht.
+
+### Was zu prüfen bleibt
+
+- Ob `face` mit `embedFonts` wirklich greift. Es ist der Weg, den die
+  Vanilla-SWFs gehen, aber unsere Bühne ist eine eigene. Kommen Kästchen statt
+  Knöpfe, ist `GamepadGlyphFont` leer zu setzen — dann steht wieder `LB`,
+  `RT` und so weiter da — und der nächste Versuch wäre `$Controller_Buttons`
+  statt des ausgeschriebenen Namens.
+- Ob `Controller  Buttons` oder `… inverted` besser zum Panel passt. Gemessen
+  ist die nicht invertierte: weiße Scheibe, Buchstabe ausgespart. Auf dunklem
+  Grund ist das die richtige.
+- Die Größe: 145 % ist geschätzt nach dem, was die Vanilla-Felder tun (16 bis
+  20 gegen 18). `GamepadGlyphSize` verstellt sie ohne Neubau.

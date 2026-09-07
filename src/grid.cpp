@@ -430,7 +430,15 @@ namespace
 		double a_size,
 		std::uint32_t a_color,
 		double a_alpha,
-		const char* a_align = "center")
+		const char* a_align = "center",
+		// Markup rather than text. The default format still decides the font,
+		// the size and the colour of everything the markup does not speak
+		// for, so a line that carries one `<font face=...>` run keeps the
+		// panel's own look everywhere else.
+		bool a_html = false,
+		// What the field has to be tall enough for, when the markup sets
+		// something larger than a_size.
+		double a_tallest = 0.0)
 	{
 		RE::Scaleform::GFx::Value field;
 		a_canvas->uiMovie->CreateObject(&field, "flash.text.TextField");
@@ -443,7 +451,9 @@ namespace
 		field.SetMember("multiline", RE::Scaleform::GFx::Value(false));
 		field.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
 		field.SetMember("width", RE::Scaleform::GFx::Value(a_width));
-		field.SetMember("height", RE::Scaleform::GFx::Value(a_size + 6.0));
+		field.SetMember(
+			"height",
+			RE::Scaleform::GFx::Value(std::max(a_size, a_tallest) + 6.0));
 		field.SetMember("x", RE::Scaleform::GFx::Value(a_x));
 		field.SetMember("y", RE::Scaleform::GFx::Value(a_y));
 		field.SetMember("alpha", RE::Scaleform::GFx::Value(a_alpha));
@@ -464,12 +474,20 @@ namespace
 			field.SetMember("defaultTextFormat", format);
 		}
 
-		field.SetMember(
-			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
-		// After the text: defaultTextFormat only reaches what is typed
-		// afterwards, so the format is applied a second time.
-		if (format.IsObject()) {
-			field.Invoke("setTextFormat", nullptr, &format, 1);
+		if (a_html) {
+			// No second setTextFormat here: it would carry the panel's font
+			// over every run and paint the markup's own face away with it.
+			field.SetMember(
+				"htmlText",
+				RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+		} else {
+			field.SetMember(
+				"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
+			// After the text: defaultTextFormat only reaches what is typed
+			// afterwards, so the format is applied a second time.
+			if (format.IsObject()) {
+				field.Invoke("setTextFormat", nullptr, &format, 1);
+			}
 		}
 
 		g_panel.Invoke("addChild", nullptr, &field, 1);
@@ -675,7 +693,9 @@ void grid::Draw(
 		m.rowLabelWidth = 0.0;
 	}
 	m.keyRowHeight = m.keySize + a_where.keyRowGap;
-	m.hintHeight = a_where.hint.empty() ? 0.0 : a_where.hintSize + m.gap * 2.0;
+	m.hintHeight = a_where.hint.empty()
+		? 0.0
+		: std::max(a_where.hintSize, a_where.hintTallest) + m.gap * 2.0;
 	const auto width = PanelWidth(m);
 	const auto height = m.padding * 2.0 + m.titleHeight + m.keyRowHeight +
 		RowHeight(m) * static_cast<double>(a_pages.size()) + m.hintHeight;
@@ -823,7 +843,10 @@ void grid::Draw(
 			CellsWidth(m),
 			a_where.hintSize,
 			a_color,
-			kHintAlpha);
+			kHintAlpha,
+			"center",
+			true,
+			a_where.hintTallest);
 	}
 
 	// The chosen cell, drawn once and afterwards only moved. It is added

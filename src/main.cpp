@@ -70,6 +70,14 @@ namespace
 	std::string g_hintExtra = "TAB) CLOSE";
 	std::string g_hintExtraPad = "B) CLOSE";
 
+	// The game's own button art, which is a font rather than a set of
+	// pictures. Empty switches it off and the line spells the buttons out.
+	std::string g_glyphFont = "Controller  Buttons";
+	// A symbol is set larger than the words beside it -- the game sets its
+	// own icons at 16 to 20 against text at 18 -- in hundredths of the hint
+	// size.
+	int g_glyphScale = 145;
+
 	// Which line is on the panel now, so a switch of device can be noticed
 	// without rebuilding the wording sixty times a second to compare it.
 	input::Device g_hintDevice = input::Device::kNone;
@@ -522,6 +530,13 @@ namespace
 		g_hintExtra = ReadText(path, L"Display", L"KeyHintExtra", L"TAB) CLOSE");
 		g_hintExtraPad =
 			ReadText(path, L"Display", L"KeyHintExtraGamepad", L"B) CLOSE");
+		g_glyphFont = ReadText(
+			path, L"Display", L"GamepadGlyphFont", L"Controller  Buttons");
+		g_glyphScale = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Display", L"GamepadGlyphSize", 145, path.c_str())),
+			50,
+			300);
 		g_gridFont = ReadText(path, L"Display", L"GridFont", L"");
 		g_gridWhere.hintSize = std::clamp(
 			static_cast<int>(
@@ -1324,6 +1339,52 @@ namespace
 		return input::Device::kKeyboard;
 	}
 
+	// The line is markup now, so anything that is not meant as markup has to
+	// say so. Three characters, which is all Flash's parser cares about.
+	[[nodiscard]] std::string Escape(std::string_view a_text)
+	{
+		std::string out;
+		out.reserve(a_text.size());
+		for (const auto character : a_text) {
+			switch (character) {
+			case '&':
+				out += "&amp;";
+				break;
+			case '<':
+				out += "&lt;";
+				break;
+			case '>':
+				out += "&gt;";
+				break;
+			default:
+				out += character;
+			}
+		}
+		return out;
+	}
+
+	// Which of the two sets of button art the game is showing. Its own
+	// answer, not ours: the same field decides what the vanilla menus draw.
+	[[nodiscard]] bool PadIsOrbis()
+	{
+		const auto* controls = RE::ControlMap::GetSingleton();
+		return controls &&
+			controls->pcGamePadMapType == RE::PC_GAMEPAD_TYPE::kOrbis;
+	}
+
+	// One button, drawn in the game's own font, at a size of its own.
+	[[nodiscard]] std::string Glyph(std::string_view a_character)
+	{
+		if (a_character.empty() || g_glyphFont.empty()) {
+			return {};
+		}
+		return std::format(
+			"<font face='{}' size='{}'>{}</font>",
+			g_glyphFont,
+			static_cast<int>(g_gridWhere.hintSize * g_glyphScale / 100.0),
+			a_character);
+	}
+
 	[[nodiscard]] std::string BuildHint()
 	{
 		if (!g_showHint) {
@@ -1338,29 +1399,62 @@ namespace
 			if (!line.empty()) {
 				line += "      ";
 			}
-			line += std::format("{}) {}", a_key, a_what);
+			// "E) USE" for a key, "(A) USE" for a button. The bracket is
+			// what a written-out key needs to read as a key; a drawn button
+			// already is one, and a bracket after it looks like a mistake.
+			// Markup is the one thing a key name never starts with.
+			line += a_key.starts_with('<')
+				? std::format("{} {}", a_key, a_what)
+				: std::format("{}) {}", a_key, a_what);
 		};
 
 		// Whose keys to name. A controller player has no INS and no DEL, and
 		// a line that names them is worse than no line: it says the mod has
 		// not noticed what they are holding.
 		const auto pad = HintDevice() == input::Device::kGamepad;
+		const auto orbis = pad && PadIsOrbis();
+
+		// A button the game has art for is drawn, not spelled. Only when it
+		// has none -- the two triggers have their own symbols, an unbound
+		// button has none at all -- does the short name stand in.
+		const auto name = [pad, orbis](int a_key, int a_button) {
+			if (!pad) {
+				return Escape(KeyName(a_key));
+			}
+			if (auto drawn = Glyph(input::PadGlyph(a_button, orbis)); !drawn.empty()) {
+				return drawn;
+			}
+			return Escape(input::PadName(a_button));
+		};
 
 		// Walking first: it is the one thing a player will try without being
 		// told, and seeing it named says the rest of the line is trustworthy.
-		const auto name = [pad](int a_key, int a_button) {
-			return pad ? input::PadName(a_button) : KeyName(a_key);
-		};
-		const auto up = name(g_gridKeys.pageUp, g_gridPad.pageUp);
-		const auto left = name(g_gridKeys.slotLeft, g_gridPad.slotLeft);
-		const auto down = name(g_gridKeys.pageDown, g_gridPad.pageDown);
-		const auto right = name(g_gridKeys.slotRight, g_gridPad.slotRight);
-		if (!up.empty() && !left.empty() && !down.empty() && !right.empty()) {
-			add(up + left + down + right, "MOVE");
-		} else if (pad && g_gridPad.stick) {
-			// The four may be off and the stick still on, and then the stick
-			// is the whole of it.
-			add("LS", "MOVE");
+		//
+		// On a controller the four directions are one thing with one symbol,
+		// the way the game writes them -- four separate D-pads in a row would
+		// be four times the ink for the same sentence. Only when the four have
+		// been moved off the D-pad does each get named on its own.
+		const auto dpad = pad && g_gridPad.pageUp == 0x0001 &&
+			g_gridPad.pageDown == 0x0002 && g_gridPad.slotLeft == 0x0004 &&
+			g_gridPad.slotRight == 0x0008;
+		if (dpad) {
+			auto walk = Glyph(input::PadGlyphDPad(orbis));
+			if (g_gridPad.stick) {
+				walk += Glyph(input::PadGlyphStick(orbis));
+			}
+			add(walk, "MOVE");
+		} else {
+			const auto up = name(g_gridKeys.pageUp, g_gridPad.pageUp);
+			const auto left = name(g_gridKeys.slotLeft, g_gridPad.slotLeft);
+			const auto down = name(g_gridKeys.pageDown, g_gridPad.pageDown);
+			const auto right = name(g_gridKeys.slotRight, g_gridPad.slotRight);
+			if (!up.empty() && !left.empty() && !down.empty() && !right.empty()) {
+				add(up + left + down + right, "MOVE");
+			} else if (pad && g_gridPad.stick) {
+				// The four may be off and the stick still on, and then the
+				// stick is the whole of it.
+				add(Glyph(input::PadGlyphStick(orbis)), "MOVE");
+			}
 		}
 
 		add(name(g_gridKeys.use, g_gridPad.use), "USE");
@@ -1372,7 +1466,7 @@ namespace
 			if (!line.empty()) {
 				line += "      ";
 			}
-			line += extra;
+			line += Escape(extra);
 		}
 		return line;
 	}
@@ -1460,9 +1554,15 @@ namespace
 				g_gridFont.empty() ? "the cross's own key labels" : "the INI");
 		}
 
-		// The keys, so the line under the panel can name them.
+		// The keys, so the line under the panel can name them. A drawn
+		// button is set larger than the words, so the field is told what the
+		// tallest thing in it will be.
 		g_gridWhere.hint = BuildHint();
 		g_hintDevice = HintDevice();
+		g_gridWhere.hintTallest =
+			g_hintDevice == input::Device::kGamepad && !g_glyphFont.empty()
+			? g_gridWhere.hintSize * g_glyphScale / 100.0
+			: g_gridWhere.hintSize;
 
 		// Our own menu, always. Three other canvases were tried and are
 		// written up in the handoff; a menu of our own is the only one that

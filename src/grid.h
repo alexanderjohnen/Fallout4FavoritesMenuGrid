@@ -100,6 +100,16 @@ namespace grid
 		std::string hint;
 		double hintSize{ 14.0 };
 
+		// The line is written as markup rather than as text, because the
+		// controller symbols are characters of a font of their own and only
+		// markup puts two fonts in one line. Whoever fills `hint` in escapes
+		// what is not meant as markup.
+		//
+		// How tall the tallest run in it is, which is what the field has to
+		// leave room for -- a button symbol is set larger than the words
+		// beside it, the way the game sets its own.
+		double hintTallest{ 14.0 };
+
 		// How far the first row of cells stands below the key names. The two
 		// were a hair apart and read as one crowded block.
 		double keyRowGap{ 8.0 };
