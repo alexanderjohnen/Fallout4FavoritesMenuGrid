@@ -2667,3 +2667,100 @@ icons: a symbol of N parts against M colours
 
 Sehen die Symbole falsch herum eingefärbt aus, ist die Reihenfolge umzudrehen
 — das ist eine Zeile —, und `IconColors=0` ist bis dahin die Rücknahme.
+
+## 42. Der Absturz hatte einen Namen, die Farben auch (2026-09-07)
+
+### Der Absturz: das Panel überlebte sein Menü
+
+Zweimal dieselbe Signatur im Log — und die Signatur ist die halbe Antwort:
+
+```
+FavoritesMenu opened
+menu: FavoritesMenuGrid is up
+                                <- hier hört es auf
+```
+
+Kein `grid: 4 pages`. Der Sturz liegt also zwischen dem Bau des Menüs und der
+ersten Zeichnung. Und die Zeile, die es erklärt, steht **davor**, beim
+Schließen:
+
+```
+FavoritesMenu closed
+page: back to 1 because the menu closed
+...
+grid: 4 pages; ... with 46 children      <- gezeichnet, nachdem geschlossen wurde
+```
+
+Der Ablauf: Schließen stellt `RestoreDefaultPage` als UI-Aufgabe ein, die
+Aufgabe schaltet eine Seite, und `GoToPage` zeichnet danach das Panel. Sie
+läuft **nach** dem Schließereignis, während der Film schon auf dem Weg
+hinaus ist — aber noch gefunden wird. Also wurde das Panel in ein Menü
+gebaut, das gleich zerstört wird, und seine Anzeigeobjekte lagen danach in
+unseren Globalen, ihren Film überlebend. Beim nächsten Öffnen beginnt
+`grid::Draw` mit `Release()`, und `Release()` greift nach genau diesen
+Objekten, um sie von einer Bühne zu nehmen, die es nicht mehr gibt.
+
+Ein Zeiger in freigegebenen Speicher, ein Bild später. Dass es nur manchmal
+sofort abstürzte, ist die übliche Gnade solcher Fehler.
+
+**`ShowGrid` fragt jetzt zuerst `g_favoritesMenuOpen`.** Das Schließereignis
+hat bereits gesagt, was gilt; danach wird nicht mehr gezeichnet. Ein
+Einzeiler, aber kein Gürtel-und-Hosenträger: er ist die Reparatur.
+
+Aufgefallen ist es jetzt, weil `DefaultPage=1` in der INI des Spielers steht.
+Mit `DefaultPage=0` läuft `RestoreDefaultPage` nicht, und der Fehler schlief.
+
+Der Verdacht aus Abschnitt 41 — der zwischengespeicherte `CursorMenu`-Wert —
+war also **nicht** die Ursache. Falsch war er trotzdem, und er bleibt
+korrigiert.
+
+### Die Farben: wir haben alle Paletten gelesen
+
+Der Mehrfarb-Pfad aus Abschnitt 41 lief nachweislich (`icons: a symbol of 2
+parts against 2 colours`), und trotzdem war alles rosa. Die Ursache lag eine
+Ebene tiefer.
+
+`Interface\ItemSorter\ColorSets` enthält mehrere Dateien, die **dieselben**
+Farbnamen **verschieden** definieren:
+
+```xml
+Default.xml : <color name='MedicBrown' alias='brown'   />
+Simple.xml  : <color name='MedicBrown' alias='Medical' />
+              <color name='brown' hex='ffd98e' />   ... und zwanzig weitere
+                                                     auf denselben Wert
+```
+
+Wir lasen alle drei und ließen den letzten gewinnen. Der letzte ist
+alphabetisch `Simple.xml`, und `Simple.xml` ist genau das: eine Palette, die
+fast alles auf einen Farbton legt. Das Gitter war nicht falsch eingefärbt, es
+war korrekt nach der falschen Palette eingefärbt.
+
+Das ist derselbe Fehler wie bei den Variations, nur ohne die Warnung: der
+Ordner `Variations` wurde übersprungen, weil die XML ihn als Alternativsatz
+**deklariert**. Für `ColorSets` tut das keine Datei — die Wahl steht allein in
+FallUIs MCM:
+
+```
+Data\MCM\Settings\FallUIIconLibrary.ini
+[MainSettings]
+sIconsColorSet=Default.xml
+```
+
+Also wird der Ordner jetzt ebenso übersprungen und genau die eine gewählte
+Datei gelesen, zuletzt, damit sie gewinnt. Fehlt die Einstellung, gilt
+`Default.xml` — das, was FallUI ausgewählt ausliefert. Das Log sagt, welche
+Palette es wurde.
+
+**Die Lehre, und sie gilt über diesen Fall hinaus:** „alle Konfigurationen
+lesen und zusammenführen" (Abschnitt 0) stimmt für Dateien, die einander
+**ergänzen**, und ist falsch für Dateien, die einander **ersetzen**. Zwei
+solche Ordner sind jetzt bekannt. Wer einen dritten findet, erkennt ihn daran,
+dass mehrere Dateien denselben Namen verschieden definieren.
+
+### Nebenbei bestätigt
+
+- `favorites: "[Nuka_Cola] Nuka-Cola" carried 3 on 3 stacks at once` — die
+  Stapelspaltung aus Abschnitt 41 war nicht zweifach, sondern dreifach, und
+  die Schleife räumt sie.
+- `... START BACK LB B stay with the game, and B is the way out` — kein
+  `0xffff` mehr, und die Schließen-Taste ist benannt.

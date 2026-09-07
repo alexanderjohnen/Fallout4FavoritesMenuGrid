@@ -540,7 +540,12 @@ namespace
 		for (const auto& entry :
 			std::filesystem::directory_iterator(a_directory, error)) {
 			if (entry.is_directory(error)) {
-				if (Lowered(entry.path().filename().string()) != "variations") {
+				// Two folders hold alternatives rather than additions, and
+				// reading them all is not merging, it is a coin toss.
+				// Variations are icon sets; ColorSets are palettes, and the
+				// player has chosen one of each in MCM.
+				const auto folder = Lowered(entry.path().filename().string());
+				if (folder != "variations" && folder != "colorsets") {
 					ReadEvery(entry.path(), a_interface, a_depth - 1);
 				}
 				continue;
@@ -560,6 +565,43 @@ namespace
 	}
 
 	// The variations the player actually chose, read last so they win.
+	// The palette, of which there is exactly one.
+	//
+	// ColorSets holds several files that define the *same* colour names to
+	// different values: Default.xml gives MedicBrown a brown, Simple.xml
+	// aliases it -- and nearly everything else -- to one flat colour. Reading
+	// all of them and letting the last win meant reading them in alphabetical
+	// order and letting Simple.xml win, which is why this grid came out in
+	// two colours where the Pip-Boy has twenty.
+	//
+	// Which one is chosen is not declared in any of the XML, unlike the icon
+	// variations: it is FallUI's own MCM setting. So it is named here, and a
+	// game without it falls back to Default.xml, which is what FallUI ships
+	// selected.
+	void ReadChosenColorSet(const std::filesystem::path& a_interface)
+	{
+		const Variation chosen{ "FallUIIconLibrary", "MainSettings", {},
+			"sIconsColorSet" };
+		auto value = McmValue(a_interface.parent_path(), chosen);
+		if (value.empty()) {
+			value = "Default.xml";
+		}
+
+		const auto sets = a_interface / "ItemSorter" / "ColorSets";
+		for (const auto& name : { value, std::string("Default.xml") }) {
+			const auto text = ReadFile(sets / name);
+			if (text.empty()) {
+				continue;
+			}
+			logger::info("tags: the palette is \"{}\"", name);
+			ReadColors(text);
+			return;
+		}
+		logger::info(
+			"tags: no palette under ColorSets -- icons keep the colours they "
+			"were drawn in");
+	}
+
 	void ReadChosenVariations(const std::filesystem::path& a_interface)
 	{
 		const auto data = a_interface.parent_path();
@@ -603,6 +645,9 @@ void tags::Load(const std::filesystem::path& a_interface)
 	g_rules.clear();
 	const auto root = a_interface / "ItemSorter";
 	ReadEvery(root, a_interface, 3);
+	// After everything else: a palette read last is a palette that wins, and
+	// this one is the one the player picked.
+	ReadChosenColorSet(a_interface);
 	ReadChosenVariations(a_interface);
 
 	for (auto& [keyword, icon] : g_icons) {

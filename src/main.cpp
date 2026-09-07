@@ -1576,6 +1576,23 @@ namespace
 
 	void ShowGrid()
 	{
+		// Only into a menu that is open. This is not belt and braces -- it
+		// is a crash.
+		//
+		// Closing queues RestoreDefaultPage as a UI task, which turns a page,
+		// and turning a page draws the panel again. That task runs after the
+		// close event, while the movie is on its way out but still findable,
+		// so the panel was rebuilt inside a menu about to be destroyed. Its
+		// display objects then outlived their movie in our globals, and the
+		// next opening began with Release() reaching into freed memory to
+		// take them off a stage that no longer existed.
+		//
+		// The close event has already said what is true, so ask it.
+		if (!g_favoritesMenuOpen.load()) {
+			grid::Release();
+			return;
+		}
+
 		auto* menu = GetFavoritesMenu();
 		if (!menu) {
 			grid::Release();
