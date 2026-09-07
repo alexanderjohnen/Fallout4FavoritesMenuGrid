@@ -3498,3 +3498,53 @@ und einen Absturz auszuliefern, um dabei zuzusehen, ist kein Plan.
   Taste (54).
 
 Beides sind echte Fehler gewesen, beide unabhängig vom Rest nachweisbar.
+
+## 57. Anlegen ist nicht fertig, wenn der Aufruf zurückkommt (2026-09-07)
+
+Das war es. Und es versteckte sich hinter drei Zeilen, die alle **richtig**
+waren:
+
+```
+page: switching to 2 of 4
+favorites (after the page): … [3]Laserx1 …
+cache                     : … [3]Laser …
+use: [3] "Laser" on page 2 -- the game used it
+page: switching to 1 of 4          <- dieselbe Sekunde
+```
+
+Seite umgeschaltet, Inventar richtig, Abbild der Engine richtig, Rückgabe des
+Spiels positiv — und angelegt wurde die Sten Mk II von Seite 1.
+
+**Weil `UseQuickkeyItem` nicht fertig ist, wenn es zurückkommt.** Anlegen ist
+in Fallout 4 eine Warteschlange: Animation, Waffe ziehen, ein Bild später oder
+mehr. Aufgelöst wird sie gegen die zwölf Tasten, die **dann** gelten.
+
+Und mit `GridCloseAfterUse` schließt sich das Menü im selben Atemzug. Das
+Schließen legte bisher sofort die Standardseite zurück — schrieb also alle
+zwölf Tasten neu, bevor das eingereihte Anlegen überhaupt hingesehen hatte.
+Daher „immer die erste Reihe": es war immer das, worauf `DefaultPage` zeigt.
+Und daher auch die Nuka-Cola dazwischen, wenn das Zurücklegen einmal anders
+lag.
+
+Das erklärt zugleich, warum Abschnitt 37 es funktionieren sah: damals stand
+`DefaultPage` auf 0. Es gab keinen zweiten Läufer im Rennen.
+
+Das Zurücklegen wartet jetzt eine halbe Sekunde (zwanzig Ticks der
+Tastaturschleife). Lang genug, dass die Warteschlange durch ist; kurz genug,
+dass niemand vorher wieder an den Ziffern ist.
+
+**Die Lehre, und sie gilt für alles hier:** eine Engine-Funktion, die `true`
+zurückgibt, hat *angenommen*, nicht *getan*. Wer danach die Grundlage
+umschreibt, auf der sie arbeiten wird, überholt sie. Bei allem, was diese Mod
+noch an die zwölf Tasten schreibt, ist die Frage: **kann etwas anderes das
+gerade noch lesen wollen?**
+
+### Nebenbei: ein Schalter, der keiner war
+
+Die automatische Übernahme im Pip-Boy stürzt ab. Abgeschaltet hatte ich sie,
+indem ich sie an `PipboyCrossKey` hängte — und diese Taste war gesetzt. Sie
+lief also weiter und stürzte weiter ab, ohne dass jemand etwas drückte.
+
+`PipboyAuto` ist jetzt ein eigener Schalter, Vorgabe 0. **Was aus sein soll,
+braucht einen eigenen Weg, aus zu sein**, nicht die Abwesenheit von etwas
+anderem.

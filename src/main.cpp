@@ -181,6 +181,14 @@ namespace
 	// whether the dialog still works without it. See TogglePipboyCross.
 	int g_crossKey = 0;
 
+	// Whether the grid takes the Pip-Boy's assign dialog over by itself.
+	//
+	// Off, because it crashes. Tying it to PipboyCrossKey was the first
+	// attempt at switching it off and was no switch at all -- that key was
+	// set, so it kept running and kept crashing without anybody pressing
+	// anything. A thing that is off needs its own way of being off.
+	bool g_pipboyAuto = false;
+
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
 		std::wstring buffer(MAX_PATH, L'\0');
@@ -536,6 +544,7 @@ namespace
 		read(L"Debug", L"PeekKey", g_peekKey);
 		read(L"Debug", L"SurveyKey", g_surveyKey);
 		read(L"Debug", L"PipboyCrossKey", g_crossKey);
+		g_pipboyAuto = yes(L"Debug", L"PipboyAuto", false);
 		g_logIcons = yes(L"Debug", L"LogIcons", false);
 		g_surveyDepth = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
@@ -1199,6 +1208,13 @@ namespace
 	// The same, for the Pip-Boy, so the polling thread can ask without
 	// touching the UI's own tables.
 	std::atomic_bool g_pipboyOpen{ false };
+
+	// Ticks of the keyboard loop still to wait before the default page is
+	// put back; zero means nothing is pending. Twenty of them at 25 ms is
+	// half a second -- long enough for a queued equip to have happened, short
+	// enough that nobody gets back to the digits first.
+	constexpr int kRestoreDelayTicks = 20;
+	std::atomic_int g_restoreIn{ 0 };
 
 	// The cell the grid is pointing at. Empty until the pointer finds one or
 	// a key is pressed: a menu that opens with something already chosen
@@ -3090,6 +3106,12 @@ namespace
 			}
 			previousCross = crossNow;
 
+			// The default page, once whatever the menu was doing has
+			// settled. See the close event.
+			if (tasks && g_restoreIn > 0 && --g_restoreIn == 0) {
+				tasks->AddUITask([]() { RestoreDefaultPage(); });
+			}
+
 			// While the grid stands in the Pip-Boy, the mark follows the
 			// dialog's own selection. Not every tick: a Scaleform read ten
 			// times a second is plenty for a thumb, and forty would be
@@ -3117,7 +3139,7 @@ namespace
 			// of the two -- taking over unasked, or taking over that early
 			// -- is the one that kills it, and shipping a crash to find out
 			// is not a plan.
-			if (g_pipboyOpen && g_crossKey != 0 && tasks && ticks % 8 == 0) {
+			if (g_pipboyOpen && g_pipboyAuto && tasks && ticks % 8 == 0) {
 				tasks->AddUITask([]() { WatchPipboyDialog(); });
 			}
 
@@ -3190,9 +3212,28 @@ namespace
 					// rewrites the twelve keys and refreshes the cross, and
 					// there is no reason for either to happen behind a menu
 					// that is still on screen.
-					if (const auto* tasks = F4SE::GetTaskInterface()) {
-						tasks->AddUITask([]() { RestoreDefaultPage(); });
-					}
+					// Not now. In a moment.
+					//
+					// This is the bug that made using another page's cell
+					// equip the *default* page's item instead, and it hid
+					// behind three correct-looking log lines: the page was
+					// switched, the inventory read right, the engine's cache
+					// read right, and the game still drew the wrong weapon.
+					//
+					// Because equipping is not finished when UseQuickkeyItem
+					// returns. It is queued -- an animation, a weapon drawn
+					// -- and resolves a frame or more later, against
+					// whatever the twelve keys hold *then*. With
+					// GridCloseAfterUse the menu closes in the same breath,
+					// and this restore rewrote all twelve back to the
+					// default page before the queued equip ever looked.
+					// Hence "always the first row": it was always whatever
+					// DefaultPage points at.
+					//
+					// It also says why section 37 saw this work. DefaultPage
+					// was still 0 then, so nothing rewrote anything and the
+					// race had no second runner.
+					g_restoreIn = kRestoreDelayTicks;
 				} else {
 					// Our own menu carries the grid. It answers with
 					// SetOnReady once its movie is loaded, which is when
