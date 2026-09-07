@@ -703,6 +703,80 @@ namespace
 	// pointers and only compared against pointers we already hold, so a
 	// wrong guess about what they are costs a row of question marks rather
 	// than the game.
+	// Is this much memory there to be read at all?
+	//
+	// Everything below walks pointers whose shape is a guess, and a guess
+	// that is wrong must cost a line in the log rather than the game.
+	[[nodiscard]] bool Readable(const void* a_address, std::size_t a_size)
+	{
+		if (!a_address) {
+			return false;
+		}
+		MEMORY_BASIC_INFORMATION info{};
+		if (VirtualQuery(a_address, &info, sizeof(info)) != sizeof(info)) {
+			return false;
+		}
+		if (info.State != MEM_COMMIT) {
+			return false;
+		}
+		constexpr DWORD readable = PAGE_READONLY | PAGE_READWRITE |
+			PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+			PAGE_EXECUTE_WRITECOPY;
+		if ((info.Protect & readable) == 0 ||
+			(info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+			return false;
+		}
+		// One region is enough only while the read stays inside it.
+		const auto* start = reinterpret_cast<const std::byte*>(info.BaseAddress);
+		const auto* here = reinterpret_cast<const std::byte*>(a_address);
+		return static_cast<std::size_t>(
+				   (start + info.RegionSize) - here) >= a_size;
+	}
+
+	// What a thing calls itself.
+	//
+	// The disassembly gives offsets and nothing else, and an offset does not
+	// say whose object it is. A C++ object with virtual functions does say
+	// so: its vtable is preceded by a locator, and the locator points at the
+	// name the compiler wrote down. That turns "somebody else" into a class
+	// name, which is the difference between reading the code and guessing at
+	// it.
+	[[nodiscard]] std::string TypeName(const void* a_object)
+	{
+		if (!Readable(a_object, sizeof(void*))) {
+			return "unreadable";
+		}
+		const auto table = *reinterpret_cast<const std::byte* const*>(a_object);
+		if (!Readable(table - sizeof(void*), sizeof(void*))) {
+			return "no vtable";
+		}
+		const auto* locator = *reinterpret_cast<const std::byte* const* const*>(
+			table - sizeof(void*));
+		if (!Readable(locator, 0x18)) {
+			return "no locator";
+		}
+		// Only the 64-bit form, where everything in the locator is an offset
+		// from the module and the module itself is named in it.
+		if (*reinterpret_cast<const std::uint32_t*>(locator) != 1) {
+			return "not rtti";
+		}
+		const auto base = REL::Module::get().base();
+		const auto* descriptor = reinterpret_cast<const std::byte*>(
+			base + *reinterpret_cast<const std::uint32_t*>(locator + 0x0C));
+		if (!Readable(descriptor, 0x20)) {
+			return "no descriptor";
+		}
+		const auto* name = reinterpret_cast<const char*>(descriptor + 0x10);
+		std::string decorated;
+		for (std::size_t index = 0; index < 128; ++index) {
+			if (!Readable(name + index, 1) || name[index] == '\0') {
+				break;
+			}
+			decorated += name[index];
+		}
+		return decorated.empty() ? "nameless" : decorated;
+	}
+
 	constexpr std::uintptr_t kQuickkeyListOwner = 0x58D0AF0;  // where the pointer lives
 	constexpr std::ptrdiff_t kQuickkeyListData = 0x4A8;
 	constexpr std::ptrdiff_t kQuickkeyListCount = 0x4B8;
@@ -726,7 +800,7 @@ namespace
 		// Who the singleton is, said by name rather than by address: the
 		// disassembly gives an offset and nothing else, and knowing whose
 		// list this is decides where the fix belongs.
-		std::string whose = "somebody else";
+		std::string whose = TypeName(holder);
 		auto* player = RE::PlayerCharacter::GetSingleton();
 		if (holder == RE::FavoritesManager::GetSingleton()) {
 			whose = "the favorites manager";
@@ -791,16 +865,24 @@ namespace
 		}
 
 		std::string line;
-		const auto shown = std::min<std::uint32_t>(count, 40);
+		const auto shown = std::min<std::uint32_t>(count, 8);
 		for (std::uint32_t index = 0; index < shown; ++index) {
 			const auto* entry = data[index];
 			const auto found = known.find(entry);
 			line += std::format(
 				"{}:{} ",
 				index,
-				found != known.end() ? found->second
-									 : std::format("{}", static_cast<const void*>(entry)));
+				found != known.end() ? found->second : TypeName(entry));
 		}
+
+		logger::info(
+			"list ({}): the singleton is {} at {} (module +{:#x}); the player "
+			"carries {} named things",
+			a_reason,
+			whose,
+			static_cast<const void*>(holder),
+			reinterpret_cast<std::uintptr_t>(holder) - base,
+			known.size());
 
 		logger::info(
 			"list ({}): {}, {} entries{}: {}",
