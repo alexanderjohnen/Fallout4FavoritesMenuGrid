@@ -209,6 +209,45 @@ namespace
 	}
 }
 
+std::string detail::DisplayName(RE::TESBoundObject* a_object)
+{
+	if (!a_object) {
+		return {};
+	}
+
+	std::string shown;
+	auto* player = RE::PlayerCharacter::GetSingleton();
+	if (player && player->inventoryList) {
+		// ForEachStack does not lock, so every caller runs as a UI task.
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) { return a_item.object == a_object; },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				// The engine wants the stack by number, and a stack list is
+				// a chain, so the number is found by walking it.
+				std::uint32_t which = 0;
+				for (auto* step = a_item.stackData.get(); step;
+					 step = step->nextStack.get(), ++which) {
+					if (step == &a_stack) {
+						break;
+					}
+				}
+				if (const auto* name = a_item.GetDisplayFullName(which);
+					name && *name) {
+					shown = name;
+					return false;
+				}
+				return true;
+			});
+	}
+
+	// Nothing in the inventory to ask -- a page remembering something the
+	// player has since dropped. The plugin's own name is what is left.
+	if (shown.empty()) {
+		shown = RE::TESFullName::GetFullName(*a_object);
+	}
+	return shown;
+}
+
 detail::Lines detail::Describe(RE::TESBoundObject* a_object, bool a_stripTags)
 {
 	Lines lines;
@@ -216,8 +255,8 @@ detail::Lines detail::Describe(RE::TESBoundObject* a_object, bool a_stripTags)
 		return lines;
 	}
 
-	lines.name =
-		std::string(WithoutTag(RE::TESFullName::GetFullName(*a_object), a_stripTags));
+	const auto shown = DisplayName(a_object);
+	lines.name = std::string(WithoutTag(shown, a_stripTags));
 
 	const auto carried = Find(a_object);
 

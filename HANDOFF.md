@@ -2938,3 +2938,53 @@ eine Stelle, keine Ausrichtung.
 Die Log-Zeile nannte übrigens bis eben nicht die tatsächliche Position,
 sondern rechnete die alte Formel noch einmal aus. Sie sagt jetzt `left` und
 `top`, sonst hätte die nächste Messung an dieser Stelle gelogen.
+
+## 46. Der Name in der Hand, nicht der im Plugin (2026-09-07)
+
+Vier Meldungen auf einmal, und alle vier hatten dieselbe Ursache:
+
+- T60 Pistol zeigte ein Gewehr statt einer Pistole
+- Liberator ein Gewehr statt einer Schrotflinte
+- Righteous Authority eine Laserpistole statt eines Lasergewehrs
+- und ein an der Werkbank umgebautes Sten Mk II änderte sein Symbol nie
+
+Der Auszug aus `LogIcons` sagt es in drei Zeilen:
+
+```
+icon: "T60"       -> [Rifle] M8r.Fo4Wpn.AK
+icon: "Laser"     -> [LaserPistol] M8r.WpnLaser.LaserGun
+icon: "Liberator" -> [Rifle] M8r.Fo4Wpn.AK
+```
+
+**„T60".** Das Pip-Boy nennt dasselbe Ding „T60 Pistol". Wir lasen den Namen
+aus dem Basisobjekt — `TESFullName::GetFullName` —, und das ist der Name im
+Plugin. Für eine Waffe ist das kaum ein Name: das Plugin sagt „T60", „Laser",
+„Hunting Shotgun"; das Spiel sagt „T60 Pistol", „Righteous Authority",
+„Rapid Advanced Hunting Shotgun". Den Unterschied macht die **Instanz** — was
+angebaut ist und was die Namensregeln daraus machen.
+
+Und da das Auto-Tagging des Sorters **den Namen liest**, entscheidet dieser
+Unterschied über Pistole oder Gewehr.
+
+Er erklärt auch den vierten Fall von selbst, und das ist die Probe: ein
+Basisname kann sich nicht ändern, also konnte sich nichts ändern, was wir aus
+ihm ableiten. Eine an der Werkbank umgebaute Waffe war für uns dieselbe Waffe.
+
+Die Engine macht das auf Zuruf: `BGSInventoryItem::GetDisplayFullName`, dem
+man sagt, welcher Stapel gemeint ist. Die Stapel hängen als Kette, die Nummer
+wird also erlaufen. `detail::DisplayName` tut beides und fällt auf den
+Pluginnamen zurück, wenn nichts davon im Inventar liegt — eine Seite, die
+sich an etwas erinnert, das der Spieler weggeworfen hat.
+
+Trägt jemand zweimal dasselbe Basisobjekt mit verschiedenen Anbauten, gewinnt
+der erste Stapel mit Instanzdaten. Das ist dieselbe Wahl, die `Describe` für
+die zweite Zeile längst trifft, und **dass die beiden übereinstimmen, ist
+mehr wert, als dass eine von beiden schlauer wäre.**
+
+### Was daraus folgt
+
+Überall dort, wo diese Mod einen Gegenstand *benennt*, ist ab jetzt der
+angezeigte Name gemeint und nicht der aus dem Plugin. Wer eine neue Stelle
+baut, die etwas aus einem Namen ableitet — Symbol, Farbe, Sortierung —, nimmt
+`detail::DisplayName`. `TESFullName::GetFullName` auf einem Basisobjekt ist
+in dieser Mod nur noch der Notnagel innerhalb dieser einen Funktion.

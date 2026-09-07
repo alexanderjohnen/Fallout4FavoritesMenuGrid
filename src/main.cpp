@@ -1573,7 +1573,13 @@ namespace
 				// The whole name first: the tag in front of it is what says
 				// which icon this is, and stripping it is the last step, not
 				// the first.
-				const std::string full{ RE::TESFullName::GetFullName(*object) };
+				//
+				// The name the *game* shows, not the one in the plugin. A
+				// weapon is named by what is bolted to it -- "T60" in the
+				// plugin is "T60 Pistol" in the hand -- and the sorter's
+				// auto-tagging reads that name to decide the icon. See
+				// detail::DisplayName.
+				const std::string full{ detail::DisplayName(object) };
 				cell.name = std::string(WithoutTag(full));
 				if (!g_useIcons) {
 					continue;
