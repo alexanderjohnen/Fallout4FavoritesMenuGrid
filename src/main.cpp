@@ -176,6 +176,10 @@ namespace
 	// with the thing on screen.
 	int g_surveyKey = 0;
 
+	// Hides and shows the Pip-Boy's own assign-a-favorite cross, to find out
+	// whether the dialog still works without it. See TogglePipboyCross.
+	int g_crossKey = 0;
+
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
 		std::wstring buffer(MAX_PATH, L'\0');
@@ -519,6 +523,7 @@ namespace
 
 		read(L"Debug", L"PeekKey", g_peekKey);
 		read(L"Debug", L"SurveyKey", g_surveyKey);
+		read(L"Debug", L"PipboyCrossKey", g_crossKey);
 		g_logIcons =
 			GetPrivateProfileIntW(L"Debug", L"LogIcons", 0, path.c_str()) != 0;
 		g_surveyDepth = std::clamp(
@@ -1731,21 +1736,99 @@ namespace
 		logger::info("pipboy: the menus up are {}", open.empty() ? "none" : open);
 	}
 
+	// Walks a display tree looking for a named child. Defined further down,
+	// with the crosshair it was written for.
+	[[nodiscard]] bool FindByName(
+		RE::Scaleform::GFx::Value& a_where,
+		const char* a_name,
+		int a_depth,
+		RE::Scaleform::GFx::Value& a_found,
+		std::string& a_path);
+
+	// The Pip-Boy's own display object, whichever of the two ways it
+	// answers to.
+	[[nodiscard]] bool PipboyRoot(RE::Scaleform::GFx::Value& a_root)
+	{
+		auto* pipboy = GetMenu("PipboyMenu");
+		if (!pipboy) {
+			logger::info("pipboy: the Pip-Boy is not open");
+			return false;
+		}
+		a_root = pipboy->menuObj;
+		if (a_root.IsObject()) {
+			return true;
+		}
+		if (pipboy->uiMovie->GetVariable(&a_root, "root") && a_root.IsObject()) {
+			return true;
+		}
+		logger::info("pipboy: the menu has no object to walk");
+		return false;
+	}
+
+	// Step one of putting the grid into the Pip-Boy, and only step one.
+	//
+	// The cross the ASSIGN FAVORITE dialog is built around sits at
+	//
+	//   PipboyMenu.<page>.ModalFadeRect_mc.<dialog>.Cross_mc
+	//
+	// -- inside the dimmer, which is not where anyone would look. The
+	// intermediate names are worthless: the same page was `instance8` in one
+	// run and `instance36` in the next. So it is searched for by name from
+	// the top, the way the crosshair is in the HUD.
+	//
+	// This does nothing but turn it invisible and say what it found, because
+	// there is exactly one thing worth knowing before anything is drawn:
+	// **does the dialog still work when its own cross cannot be seen?** If
+	// it stops answering, the grid cannot take that place and would have to
+	// stand beside it instead. Everything else waits for that answer.
+	//
+	// Nothing is remembered between presses. It reads the visibility it
+	// finds and writes the opposite, so the key is its own undo, and a
+	// reopened dialog brings a fresh, visible cross whatever was done to the
+	// last one. A held reference into another movie's heap is what section
+	// 42 was about.
+	void TogglePipboyCross()
+	{
+		RE::Scaleform::GFx::Value root;
+		if (!PipboyRoot(root)) {
+			return;
+		}
+
+		RE::Scaleform::GFx::Value cross;
+		std::string path = "PipboyMenu";
+		if (!FindByName(root, "Cross_mc", 10, cross, path) ||
+			!cross.IsDisplayObject()) {
+			logger::info(
+				"pipboy: no Cross_mc anywhere -- is ASSIGN FAVORITE open?");
+			return;
+		}
+
+		RE::Scaleform::GFx::Value shown;
+		const auto visible = !cross.GetMember("visible", &shown) ||
+			!shown.IsBoolean() || shown.GetBoolean();
+		cross.SetMember("visible", RE::Scaleform::GFx::Value(!visible));
+
+		logger::info(
+			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f} -- now {}",
+			path,
+			ReadNumber(cross, "x", 0.0),
+			ReadNumber(cross, "y", 0.0),
+			ReadNumber(cross, "width", 0.0),
+			ReadNumber(cross, "height", 0.0),
+			visible ? "hidden" : "shown again");
+	}
+
 	void SurveyPipboy()
 	{
 		SurveyMenus();
 
-		auto* pipboy = GetMenu("PipboyMenu");
-		if (!pipboy) {
-			logger::info("pipboy: no PipboyMenu to survey");
+		RE::Scaleform::GFx::Value root;
+		if (!PipboyRoot(root)) {
 			return;
 		}
-		RE::Scaleform::GFx::Value root = pipboy->menuObj;
-		if (!root.IsObject()) {
-			if (!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject()) {
-				logger::info("pipboy: the menu has no object to walk");
-				return;
-			}
+		auto* pipboy = GetMenu("PipboyMenu");
+		if (!pipboy) {
+			return;
 		}
 		RE::Scaleform::GFx::Value stage;
 		if (root.GetMember("stage", &stage) && stage.IsDisplayObject()) {
@@ -2543,6 +2626,7 @@ namespace
 	{
 		bool previousPeek = false;
 		bool previousSurvey = false;
+		bool previousCross = false;
 		bool previousNext = false;
 		bool previousBack = false;
 
@@ -2586,6 +2670,12 @@ namespace
 				}
 			}
 			previousSurvey = surveyNow;
+
+			const auto crossNow = g_crossKey != 0 && IsKeyDown(g_crossKey);
+			if (crossNow && !previousCross && tasks) {
+				tasks->AddUITask([]() { TogglePipboyCross(); });
+			}
+			previousCross = crossNow;
 
 			previousPeek = peekNow;
 			previousNext = nextPage;
