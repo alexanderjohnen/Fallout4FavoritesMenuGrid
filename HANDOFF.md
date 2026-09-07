@@ -3590,3 +3590,40 @@ hat.
 
 **Nicht gebaut.** Zweimal an einem Abend etwas an diesem Pfad umzubauen und
 zu hoffen, war der Fehler; das hier wird erst besprochen und dann gemacht.
+
+## 59. Eine Seite dreht sich erst im nächsten Bild (2026-09-07)
+
+Der Bericht, der es löste, war eine Abfolge und keine Beschreibung:
+
+> Sten in Reihe 1 wählen — sie wird gezogen. Lasergewehr in Reihe 2 wählen —
+> die Sten wird **weggesteckt**. Lasergewehr noch einmal wählen — es wird
+> gezogen.
+
+Und im zweiten Beispiel dasselbe mit Granaten und Mentats, bis hin zu: Granate
+in Reihe 1 wählen — und **die Mentats** werden noch einmal genommen.
+
+**Jeder erste Druck nach einem Seitenwechsel wirkte eine Seite zurück. Jeder
+zweite stimmte.**
+
+Damit ist es keine Vermutung mehr: die Engine übernimmt die neu geschriebenen
+zwölf Tasten erst im **Bild danach**. Wir haben `GoToPage` und
+`UseQuickkeyItem` im selben Atemzug gerufen, und der Aufruf löste gegen die
+Seite auf, die vorher dort stand.
+
+Das Wegstecken war derselbe Vorgang in anderer Kleidung: die Umschaltung
+fragt „und wieder ab, wenn es schon an ist", die Engine sah die Taste der
+alten Seite, fand die Sten — und die Sten war an.
+
+Die Benutzung wird deshalb als **eigene UI-Aufgabe** eingereiht, wenn vorher
+umgeschaltet werden musste. Hier wird nichts um eine gemessene Zeit verzögert
+(Abschnitt 58 hat gezeigt, wohin geratene Zahlen führen): eine Aufgabe *ist*
+das nächste Bild, und genau das war das Fehlende.
+
+`UseMarked` entscheidet jetzt nur noch; `UseAt` tut es. Getrennt allein
+deshalb: wenn eine Seite gedreht werden musste, gehört die zweite Hälfte in
+das folgende Bild.
+
+**Der dritte Fall desselben Musters an einem Abend.** Erst der eingefrorene
+Cache (53), dann die Warteschlange gegen das Zurücklegen (57), jetzt der
+Seitenwechsel gegen die Benutzung. Alle drei sind eine Frage: *wann* gilt,
+was wir geschrieben haben — und die Antwort war nie „sofort".

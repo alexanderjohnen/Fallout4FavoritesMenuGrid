@@ -2643,6 +2643,59 @@ namespace
 	// Using what is marked. A cell on another page is used by going there
 	// first -- the engine is what hands out the twelve keys, and it only
 	// ever hands out one page of them.
+	// Uses one cell, with the twelve keys already holding its page.
+	//
+	// Split out of UseMarked for one reason: when a page had to be turned
+	// first, this half has to happen a frame later. See there.
+	void UseAt(std::size_t a_page, std::size_t a_slot)
+	{
+		EnsurePages();
+		if (a_page >= g_pages.size() || a_slot >= 12) {
+			return;
+		}
+		auto* object = g_pages[a_page][a_slot];
+		if (!object || !use::Ready()) {
+			return;
+		}
+
+		// Whether this press may take something off again rather than put it
+		// on a second time. The engine decides what that means -- including
+		// what it refuses inside power armour -- because it is the engine's
+		// own boolean being turned around, not a second call of ours.
+		//
+		// But only for things that are worn or held. A stimpak is not put
+		// on, it is used up, and asking the engine to take it off again
+		// turned a swallowed chem into an equip and an unequip: press once,
+		// nothing happens; press again, nothing happens. The boolean means
+		// "and off again if it is already on", which is a sentence about
+		// weapons and armour and about nothing else.
+		//
+		// Deliberately by form type rather than by asking whether the thing
+		// happens to be equipped right now: an aid item that some mod makes
+		// equippable is still an aid item, and the answer should not depend
+		// on what the player is carrying at the time.
+		const auto worn = object->GetFormType() == RE::ENUM_FORM_ID::kWEAP ||
+			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
+		const auto used = use::Quickkey(
+			static_cast<std::uint32_t>(a_slot), g_toggleEquip && worn);
+
+		logger::info(
+			"use: [{}] \"{}\" on page {} -- the game {}",
+			KeyLabel(a_slot),
+			RE::TESFullName::GetFullName(*object),
+			a_page + 1,
+			used ? "used it" : "would not");
+
+		// A refusal leaves the menu open. The game has just said no out
+		// loud, and closing on top of that would look like something
+		// happened.
+		if (g_closeAfterUse && used) {
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
+			}
+		}
+	}
+
 	void UseMarked()
 	{
 		if (!g_marked) {
@@ -2694,44 +2747,36 @@ namespace
 		// known to be right, and the page switch is the part that is.
 		if (spot.page != g_currentPage) {
 			GoToPage(spot.page);
-		}
 
-		// Whether this press may take something off again rather than put it
-		// on a second time. The engine decides what that means -- including
-		// what it refuses inside power armour -- because it is the engine's
-		// own boolean being turned around, not a second call of ours.
-		//
-		// But only for things that are worn or held. A stimpak is not put
-		// on, it is used up, and asking the engine to take it off again
-		// turned a swallowed chem into an equip and an unequip: press once,
-		// nothing happens; press again, nothing happens. The boolean means
-		// "and off again if it is already on", which is a sentence about
-		// weapons and armour and about nothing else.
-		//
-		// Deliberately by form type rather than by asking whether the thing
-		// happens to be equipped right now: an aid item that some mod makes
-		// equippable is still an aid item, and the answer should not depend
-		// on what the player is carrying at the time.
-		const auto worn = object->GetFormType() == RE::ENUM_FORM_ID::kWEAP ||
-			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
-		const auto used = use::Quickkey(
-			static_cast<std::uint32_t>(spot.slot), g_toggleEquip && worn);
-
-		logger::info(
-			"use: [{}] \"{}\" on page {} -- the game {}",
-			KeyLabel(spot.slot),
-			RE::TESFullName::GetFullName(*object),
-			spot.page + 1,
-			used ? "used it" : "would not");
-
-		// A refusal leaves the menu open. The game has just said no out
-		// loud, and closing on top of that would look like something
-		// happened.
-		if (g_closeAfterUse && used) {
-			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-				queue->AddMessage("FavoritesMenu", RE::UI_MESSAGE_TYPE::kHide);
+			// And then wait a frame before using it.
+			//
+			// The engine does not take the new twelve keys as its own until
+			// the frame after they were written. Using in the same breath
+			// resolved against the page that was there **before** the
+			// switch, which is exactly what the player saw: pick the Sten on
+			// page 1 and it is drawn; pick the laser rifle on page 2 and the
+			// Sten is put away again; pick the laser rifle a second time and
+			// it is drawn. Every first press after a switch acted one page
+			// behind, and every second press was right, because by then the
+			// frame had passed.
+			//
+			// The unequipping was the same thing wearing a different coat:
+			// the toggle asked "and off again if it is already on", the
+			// engine looked at the old page's key, found the Sten, and the
+			// Sten was on.
+			//
+			// So the use is posted as its own task. Nothing is delayed by a
+			// measured amount here -- a task is simply the next frame, which
+			// is the thing that had to happen.
+			if (auto* tasks = F4SE::GetTaskInterface()) {
+				const auto page = spot.page;
+				const auto slot = spot.slot;
+				tasks->AddUITask([page, slot]() { UseAt(page, slot); });
+				return;
 			}
 		}
+
+		UseAt(spot.page, spot.slot);
 	}
 
 	// Picks the marked cell up, or puts the held one down on the marked one.
