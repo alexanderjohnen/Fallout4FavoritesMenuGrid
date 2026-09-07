@@ -682,6 +682,135 @@ namespace
 			line);
 	}
 
+	// The list the engine's own lookup actually walks.
+	//
+	// UseQuickkeyItem does not read storedFavTypes to find what sits on a
+	// key. It calls ID 691965, and that function walks an array hanging off
+	// a singleton -- data pointer at +0x4a8, count at +0x4b8, eight bytes an
+	// entry -- handing each entry to a visitor and stopping at the first one
+	// the visitor accepts.
+	//
+	// That array is the last place nobody has looked, and by elimination it
+	// is where the answer is. On the run that finally showed the fault
+	// cleanly, page 3 was live, the player picked a cell on page 2, the
+	// switch ran, and afterwards the inventory said Noodle Cup on key 1, the
+	// engine's own copy said Noodle Cup on key 1, our own reading in the
+	// very frame of the call said Noodle Cup -- and the game drank the
+	// whiskey that had been on key 1 before the switch. Both things we write
+	// were right. So the thing that decides is a third one, and this is it.
+	//
+	// Nothing unknown is dereferenced. The entries are read as plain
+	// pointers and only compared against pointers we already hold, so a
+	// wrong guess about what they are costs a row of question marks rather
+	// than the game.
+	constexpr std::uintptr_t kQuickkeyListOwner = 0x58D0AF0;  // where the pointer lives
+	constexpr std::ptrdiff_t kQuickkeyListData = 0x4A8;
+	constexpr std::ptrdiff_t kQuickkeyListCount = 0x4B8;
+
+	void LogEngineList(std::string_view a_reason)
+	{
+		const auto base = REL::Module::get().base();
+		const auto* holder =
+			*reinterpret_cast<void* const*>(base + kQuickkeyListOwner);
+		if (!holder) {
+			logger::info("list ({}): the singleton is not there", a_reason);
+			return;
+		}
+
+		const auto* bytes = reinterpret_cast<const std::byte*>(holder);
+		const auto* const* data =
+			*reinterpret_cast<void* const* const*>(bytes + kQuickkeyListData);
+		const auto count =
+			*reinterpret_cast<const std::uint32_t*>(bytes + kQuickkeyListCount);
+
+		// Who the singleton is, said by name rather than by address: the
+		// disassembly gives an offset and nothing else, and knowing whose
+		// list this is decides where the fix belongs.
+		std::string whose = "somebody else";
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (holder == RE::FavoritesManager::GetSingleton()) {
+			whose = "the favorites manager";
+		} else if (player && holder == player) {
+			whose = "the player";
+		} else if (player && holder == player->inventoryList) {
+			whose = "the player's inventory list";
+		}
+
+		if (!data || count > 4096) {
+			logger::info(
+				"list ({}): {} at {}, {} entries -- not read",
+				a_reason,
+				whose,
+				static_cast<const void*>(holder),
+				count);
+			return;
+		}
+
+		// Everything we can put a name to, without touching memory whose
+		// shape we are guessing at.
+		std::unordered_map<const void*, std::string> known;
+		if (auto* manager = RE::FavoritesManager::GetSingleton()) {
+			for (std::size_t key = 0; key < 12; ++key) {
+				if (auto* held = manager->storedFavTypes[key]) {
+					known.emplace(
+						held,
+						std::format(
+							"cache[{}] {}",
+							KeyLabel(key),
+							RE::TESFullName::GetFullName(*held)));
+				}
+			}
+		}
+		if (player && player->inventoryList) {
+			player->inventoryList->ForEachStack(
+				[](RE::BGSInventoryItem&) { return true; },
+				[&](RE::BGSInventoryItem& a_item,
+					RE::BGSInventoryItem::Stack& a_stack) {
+					const auto name = a_item.object
+						? RE::TESFullName::GetFullName(*a_item.object)
+						: "?";
+					const auto key = FavoriteOf(a_stack);
+					const auto where = key < 12 ? KeyLabel(key)
+						: key == kNoKey        ? std::string("parked")
+											   : std::string("-");
+					known.insert_or_assign(
+						&a_item, std::format("item {} ({})", name, where));
+					if (a_item.object) {
+						known.emplace(
+							a_item.object, std::format("object {}", name));
+					}
+					known.insert_or_assign(
+						&a_stack, std::format("stack {} ({})", name, where));
+					if (a_stack.extra) {
+						known.insert_or_assign(
+							a_stack.extra.get(),
+							std::format("extra {} ({})", name, where));
+					}
+					return true;
+				});
+		}
+
+		std::string line;
+		const auto shown = std::min<std::uint32_t>(count, 40);
+		for (std::uint32_t index = 0; index < shown; ++index) {
+			const auto* entry = data[index];
+			const auto found = known.find(entry);
+			line += std::format(
+				"{}:{} ",
+				index,
+				found != known.end() ? found->second
+									 : std::format("{}", static_cast<const void*>(entry)));
+		}
+
+		logger::info(
+			"list ({}): {}, {} entries{}: {}",
+			a_reason,
+			whose,
+			count,
+			count > shown ? std::format(" (first {})", shown) : std::string{},
+			line);
+	}
+
 	void LogFavorites(std::string_view a_reason)
 	{
 		const auto slots = ReadFavorites();
@@ -2803,6 +2932,7 @@ namespace
 		// object: it was overwritten between the frames, and the sync below
 		// is the fix rather than another guess.
 		LogEveryFavorite("at the call");
+		LogEngineList("at the call");
 		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
 			const auto* held = manager->storedFavTypes[a_slot];
 			logger::info(
