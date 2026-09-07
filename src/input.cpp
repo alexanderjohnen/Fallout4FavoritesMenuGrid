@@ -10,6 +10,15 @@ namespace
 	std::atomic_bool g_listening{ false };
 	std::atomic<input::Device> g_lastDevice{ input::Device::kNone };
 
+	// The pointer sleeps while the keys are being used. Two ways of choosing
+	// a cell in one menu fight each other otherwise: the mark walks with the
+	// keys, and a cursor lying over some other cell hands the choice
+	// straight back on the next frame.
+	std::atomic_bool g_pointerAwake{ true };
+
+	// Which button the game closes this menu with, found in Install.
+	std::int32_t g_padClose{ 0 };
+
 	// A key held down arrives as an event per frame, and acting on every one
 	// of them walked the mark across the panel faster than anyone could read
 	// it. The first answer was to act only on the press, which is worse in
@@ -57,8 +66,11 @@ namespace
 	constexpr std::int32_t kPadX = 0x4000;
 	constexpr std::int32_t kPadY = 0x8000;
 
-	// The left stick, as the thumbstick event numbers it.
+	// The two sticks, as a thumbstick event numbers them. The right one is
+	// never claimed: it is what the game moves the cursor with, and taking
+	// it would leave a controller with no pointer at all.
 	constexpr std::int32_t kLeftThumbstick = 0x0B;
+	constexpr std::int32_t kRightThumbstick = 0x0C;
 
 	// Buttons this handler will not take, whatever the INI says. B, Start
 	// and Back are in it from the start, and Install adds whatever the game
@@ -297,12 +309,24 @@ namespace
 				if (button->value == 0.0F) {
 					return;
 				}
+				// A press is a hand on the keys, and the pointer stands
+				// down -- except a mouse button, which is the pointer
+				// speaking for itself.
+				if (device == input::Device::kGamepad ||
+					a_event.device.get() == RE::INPUT_DEVICE::kKeyboard) {
+					g_pointerAwake.store(false);
+				}
 			} else if (const auto* stick = a_event.As<RE::ThumbstickEvent>()) {
 				if (std::abs(stick->xValue) < kStickOn &&
 					std::abs(stick->yValue) < kStickOn) {
 					return;
 				}
-			} else if (!a_event.As<RE::MouseMoveEvent>()) {
+				// The right stick is the cursor's own; the left one walks
+				// the mark and puts the cursor to sleep with the keys.
+				g_pointerAwake.store(stick->idCode == kRightThumbstick);
+			} else if (a_event.As<RE::MouseMoveEvent>()) {
+				g_pointerAwake.store(true);
+			} else {
 				return;
 			}
 
@@ -343,6 +367,12 @@ namespace
 				if (mapping.inputKey > 0 &&
 					mapping.inputKey != static_cast<std::int32_t>(-1)) {
 					g_padForbidden.insert(mapping.inputKey);
+					// Cancel is the one to name in the hint line: Quickkeys
+					// is what opened the menu, Cancel is what a player
+					// reaches for to leave one.
+					if (mapping.eventID == cancel || g_padClose == 0) {
+						g_padClose = mapping.inputKey;
+					}
 				}
 			}
 		}
@@ -408,10 +438,24 @@ void input::SetOnAction(void (*a_action)(Action))
 void input::Listen(bool a_on)
 {
 	g_listening = a_on;
-	if (!a_on) {
+	if (a_on) {
+		// A player who came in on a controller should not be handed a mouse
+		// pointer they did not ask for.
+		g_pointerAwake.store(g_lastDevice.load() != Device::kGamepad);
+	} else {
 		g_stickHeld.reset();
 		g_stepped.fill(0.0F);
 	}
+}
+
+int input::PadCloseButton()
+{
+	return g_padClose;
+}
+
+bool input::PointerAwake()
+{
+	return g_pointerAwake.load();
 }
 
 input::Device input::LastDevice()

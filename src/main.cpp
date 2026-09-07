@@ -1461,8 +1461,23 @@ namespace
 		add(name(g_gridKeys.move, g_gridPad.move), "PICK UP");
 		add(name(g_gridKeys.clear, g_gridPad.clear), "CLEAR");
 
+		// Leaving. On a keyboard this is text, because the key that closes
+		// the favorites menu belongs to the game and we never see it named.
+		// On a controller we do: Install had to find that button in order to
+		// keep its hands off it, so it can be drawn like any other.
+		auto said = false;
+		if (pad) {
+			if (const auto close = input::PadCloseButton(); close != 0) {
+				if (auto drawn = Glyph(input::PadGlyph(close, orbis));
+					!drawn.empty()) {
+					add(drawn, "CLOSE");
+					said = true;
+				}
+			}
+		}
+
 		const auto& extra = pad ? g_hintExtraPad : g_hintExtra;
-		if (!extra.empty()) {
+		if (!said && !extra.empty()) {
 			if (!line.empty()) {
 				line += "      ";
 			}
@@ -1732,6 +1747,46 @@ namespace
 	double g_pointerX = std::numeric_limits<double>::lowest();
 	double g_pointerY = std::numeric_limits<double>::lowest();
 
+	// The game's own mouse pointer, which is a menu of its own: CursorMenu.
+	// Kept so it can be put back exactly the way the crosshair is.
+	RE::Scaleform::GFx::Value g_cursorRoot;
+	bool g_pointerShown = true;
+
+	// Out of sight while the keys have the mark, back the moment the mouse
+	// or the right stick moves. Not a nicety: a pointer resting over a cell
+	// takes the choice back from the keys on the very next frame, so the two
+	// ways of choosing were quietly fighting each other.
+	void SetPointerVisible(bool a_on)
+	{
+		if (!g_cursorRoot.IsDisplayObject()) {
+			auto* cursor = GetMenu("CursorMenu");
+			if (!cursor || !cursor->menuObj.IsObject()) {
+				static bool said = false;
+				if (!said) {
+					said = true;
+					logger::info(
+						"pointer: no CursorMenu to hide -- the cursor stays");
+				}
+				return;
+			}
+			g_cursorRoot = cursor->menuObj;
+			if (!g_cursorRoot.IsDisplayObject()) {
+				g_cursorRoot = RE::Scaleform::GFx::Value();
+				return;
+			}
+		}
+		g_cursorRoot.SetMember("visible", RE::Scaleform::GFx::Value(a_on));
+	}
+
+	void ReleasePointerHiding()
+	{
+		if (g_cursorRoot.IsDisplayObject()) {
+			g_cursorRoot.SetMember("visible", RE::Scaleform::GFx::Value(true));
+		}
+		g_cursorRoot = RE::Scaleform::GFx::Value();
+		g_pointerShown = true;
+	}
+
 	void ForgetPointer()
 	{
 		g_pointerX = std::numeric_limits<double>::lowest();
@@ -1786,6 +1841,22 @@ namespace
 		// thing up, not while they are using one.
 		if (g_showHint && HintDevice() != g_hintDevice) {
 			ShowGrid();
+			return;
+		}
+
+		// The pointer sleeps while the keys are being used. While it does,
+		// it is neither drawn nor asked -- the mark belongs to the keys
+		// until the mouse or the right stick says otherwise.
+		const auto awake = input::PointerAwake();
+		if (awake != g_pointerShown) {
+			g_pointerShown = awake;
+			SetPointerVisible(awake);
+		} else if (!awake) {
+			// Every frame, the way the crosshair is kept down: the engine
+			// puts its own cursor back whenever it feels like it.
+			SetPointerVisible(false);
+		}
+		if (!awake) {
 			return;
 		}
 
@@ -2275,6 +2346,7 @@ namespace
 					input::Listen(false);
 					icons::Release();
 					ShowCrosshair();
+					ReleasePointerHiding();
 					g_marked.reset();
 					g_held.reset();
 					ForgetPointer();

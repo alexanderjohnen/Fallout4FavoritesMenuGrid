@@ -2484,3 +2484,74 @@ dem Steuerkreuz, steht **ein** Kreuzsymbol da, so wie das Spiel es auch macht.
   Grund ist das die richtige.
 - Die Größe: 145 % ist geschätzt nach dem, was die Vanilla-Felder tun (16 bis
   20 gegen 18). `GamepadGlyphSize` verstellt sie ohne Neubau.
+
+## 40. Drei Nachbesserungen aus dem ersten Spielen (2026-09-07)
+
+Die Steuerung und die Symbole standen; drei Dinge fielen beim Spielen auf.
+
+### Die Schließen-Taste stand als Text da
+
+`B) CLOSE` kam aus `KeyHintExtraGamepad` — reiner Text, weil beim Bau der
+Zeile für die Tastatur galt: welche Taste das Menü schließt, gehört dem Spiel
+und wir erfahren es nie.
+
+Für den Controller stimmte das nicht mehr. `Install` **muss** diesen Knopf
+kennen, sonst könnte es ihn nicht in Ruhe lassen (Abschnitt 38) — er lag also
+längst da und wurde nur nicht weitergegeben. `input::PadCloseButton` gibt jetzt
+die Bindung von `Cancel` heraus, und die Zeile zeichnet sie wie jeden anderen
+Knopf. `KeyHintExtraGamepad` bleibt als Auffanglösung für den Fall, dass die
+Bindungen nicht zu lesen waren.
+
+Merksatz für den Rest der Mod: was eine Vorsichtsmaßnahme herausfinden musste,
+ist danach eine bekannte Tatsache.
+
+### Zeiger und Tasten haben um dieselbe Zelle gestritten
+
+Die Marke lief mit `w`/`a`/`s`/`d`, und im nächsten Bild nahm der ruhende
+Mauszeiger sie wieder an sich. `ForgetPointer` sollte das verhindern, tut es
+aber nicht: es setzt die gemerkte Position auf den kleinsten Wert, und im
+nächsten Bild ist die Zeigerposition davon verschieden — also gilt sie als
+Bewegung. Aufgefallen ist es nur deshalb selten, weil `grid::At` außerhalb des
+Panels nichts zurückgibt: lag der Zeiger daneben, passierte nichts. Lag er über
+einer Zelle, war die Tastatur wirkungslos.
+
+Die Antwort ist kein besseres Vergessen, sondern ein Zustand: **der Zeiger
+schläft.** Er schläft ein, sobald eine Taste oder ein Knopf benutzt wird
+(Maustasten ausgenommen — das ist der Zeiger, der für sich selbst spricht),
+und wacht auf, wenn sich die Maus bewegt oder der **rechte** Stick ausgelenkt
+wird. Der rechte Stick wird deshalb auch nicht beansprucht: er ist der, mit
+dem das Spiel seinen Cursor bewegt.
+
+Solange er schläft, wird er **weder gezeichnet noch gefragt** — `TrackPointer`
+steigt vorher aus.
+
+### Der Cursor ist ein eigenes Menü
+
+Zum Ausblenden: Fallout 4 zeichnet den Mauszeiger als `CursorMenu`, ein Menü
+wie jedes andere (`RE::CursorMenu`, `MENU_NAME` `"CursorMenu"`). Damit ist es
+derselbe Griff wie beim Crosshair — `menuObj.visible` auf falsch — und
+dieselbe Vorsicht: jedes Bild neu, weil die Engine ihren Cursor
+zurückstellt, wann es ihr passt, und beim Schließen des Menüs wieder auf
+sichtbar.
+
+**Nicht** über `MenuCursor::UnregisterCursor` gegangen. Das wäre der
+naheliegende Weg und der gefährliche: `registeredCursors` ist ein Zähler, den
+sich alle Menüs teilen, und wer ihn einmal zu oft senkt, nimmt dem ganzen
+Spiel den Zeiger.
+
+### Deckkraft
+
+Die zweite Zeile über dem Gitter stand auf 0.75 und die Symbole erbten,
+was ihre Bibliothek mitbrachte. Beides jetzt voll deckend: über der Wüste ist
+eine gedimmte Zeile eine Zeile, die man suchen muss. Was die zweite Zeile zur
+zweiten macht, ist ihre Größe, nicht ihre Blässe. Alle übrigen Transparenzen —
+die Zellplatten, die Marke, die Hinweiszeile — bleiben, wie sie waren.
+
+### Was zu prüfen bleibt
+
+- Ob `CursorMenu.menuObj` wirklich das Anzeigeobjekt ist. Ist es das nicht,
+  steht `pointer: no CursorMenu to hide` im Log und der Zeiger bleibt sichtbar
+  — der Rest (schlafen, nicht gefragt werden) wirkt trotzdem.
+- Ob der rechte Stick den Cursor tatsächlich bewegt. Falls das Spiel dafür den
+  linken nimmt, weckt der rechte den Zeiger, ohne ihn zu bewegen — dann wäre
+  `GridGamepadStick=0` die Lösung, oder das Wecken müsste an den linken Stick.

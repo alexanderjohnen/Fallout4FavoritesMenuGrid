@@ -144,4 +144,20 @@ namespace input
 	// the game writes when a hint means "any direction" rather than one.
 	[[nodiscard]] std::string PadGlyphDPad(bool a_orbis);
 	[[nodiscard]] std::string PadGlyphStick(bool a_orbis);
+
+	// Which controller button leaves this menu, as the player has it bound.
+	// Install already had to find it in order to keep its hands off it, so
+	// the line under the panel can name it instead of guessing at a B.
+	// Zero when the bindings could not be read.
+	[[nodiscard]] int PadCloseButton();
+
+	// Whether the mouse pointer still has a say.
+	//
+	// Two ways of choosing a cell in one menu get in each other's way: the
+	// keys move the mark, and a pointer resting over some other cell takes
+	// it back on the next frame. So the pointer goes to sleep the moment a
+	// key or a button is used, and wakes when the thing that owns it moves
+	// -- the mouse, or the right stick, which is the one the game leaves for
+	// the cursor.
+	[[nodiscard]] bool PointerAwake();
 }

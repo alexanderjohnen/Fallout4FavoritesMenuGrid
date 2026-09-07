@@ -37,10 +37,12 @@ namespace
 	// to see what is actually there. A column is labelled at its head.
 	constexpr double kKeyTextSize = 0.36;
 
-	// The second line is the same colour, quieter. The game draws its own
-	// ammunition line in a smaller face rather than a dimmer one, but the
-	// game has a backdrop behind it and we have the wasteland.
-	constexpr double kDetailAlpha = 0.75;
+	// The second line is the same colour and just as solid. It was quieter
+	// for a while -- the game draws its own ammunition line in a smaller
+	// face rather than a dimmer one, and the smaller face was thought to
+	// need help -- but over the wasteland a dimmed line is a line that has
+	// to be looked for. The size is what makes it the second line.
+	constexpr double kDetailAlpha = 1.0;
 	// The key line is a reminder rather than a statement, and sits quieter
 	// still.
 	constexpr double kHintAlpha = 0.6;
@@ -390,6 +392,10 @@ namespace
 		icon.SetMember("scaleX", RE::Scaleform::GFx::Value(scale));
 		icon.SetMember("scaleY", RE::Scaleform::GFx::Value(scale));
 		icon.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+		// Solid, whatever the library thought. A symbol is the one thing in
+		// a cell that says what is in it, and one drawn at half strength
+		// over the wasteland is a smudge.
+		icon.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 		icon.SetMember(
 			"x", RE::Scaleform::GFx::Value(a_left + (a_m.cell - width * scale) / 2.0));
 		icon.SetMember(
