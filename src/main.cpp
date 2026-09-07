@@ -1694,8 +1694,41 @@ namespace
 		}
 	}
 
+	// Which menus are up, before anything is walked.
+	//
+	// The second survey found the Pip-Boy's inventory page with its modal
+	// dimmer *visible* -- so ASSIGN FAVORITE was open -- and still no cross
+	// anywhere in that tree. A thing that is on screen and not in the tree
+	// we are walking is in somebody else's tree, so the first question is
+	// whose. The engine keeps the answer in a map it also locks; the lock is
+	// taken, because this runs while the game is drawing that very map.
+	void SurveyMenus()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		std::string open;
+		{
+			const RE::BSAutoReadLock lock{ RE::UI::GetMenuMapRWLock() };
+			for (const auto& [name, entry] : ui->menuMap) {
+				if (!entry.menu) {
+					continue;
+				}
+				open += open.empty() ? "" : ", ";
+				open += name.c_str();
+				if (!entry.menu->uiMovie) {
+					open += " (no movie)";
+				}
+			}
+		}
+		logger::info("pipboy: the menus up are {}", open.empty() ? "none" : open);
+	}
+
 	void SurveyPipboy()
 	{
+		SurveyMenus();
+
 		auto* pipboy = GetMenu("PipboyMenu");
 		if (!pipboy) {
 			logger::info("pipboy: no PipboyMenu to survey");
