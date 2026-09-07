@@ -478,8 +478,6 @@ namespace
 			}
 		};
 
-		read(L"Pages", L"NextPageKey", g_nextPageKey);
-		read(L"Pages", L"PreviousPageKey", g_previousPageKey);
 
 		// ---- What a player turns ----------------------------------------
 		//
@@ -522,16 +520,6 @@ namespace
 				L"Grid", L"GridCellSize", 48, path.c_str())),
 			24,
 			96);
-		// GetPrivateProfileIntW answers with a UINT, so a -1 that means
-		// "centred" comes back as 4294967295 and puts the panel four billion
-		// units off screen. The cast is the whole fix, and it cost an
-		// evening's worth of wrong conclusions.
-		g_gridWhere.x = static_cast<int>(
-			GetPrivateProfileIntW(L"Grid", L"GridX", -1, path.c_str()));
-		g_gridWhere.y = static_cast<int>(
-			GetPrivateProfileIntW(L"Grid", L"GridY", -1, path.c_str()));
-		g_gridColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
-			L"Grid", L"GridColor", 0x1000000, path.c_str()));
 
 		g_gridWhere.showRowLabels = yes(L"Grid", L"ShowPageNumbers", true);
 		g_gridWhere.corners = yes(L"Grid", L"GridCorners", false);
@@ -1099,6 +1087,32 @@ namespace
 				continue;
 			}
 			WriteFavorite(object, *from, static_cast<std::uint8_t>(slot));
+		}
+
+		// And the engine's own copy of the twelve.
+		//
+		// This is the bug that made a page switch look like it had worked
+		// and then equipped something else entirely. Section 6 says it:
+		// `storedFavTypes` is not the truth, it is an image of the truth --
+		// and `UseQuickkeyItem` reads the image. The log made it plain in
+		// the end, because the cache line printed exactly one value for a
+		// whole session while the inventory underneath it changed twenty
+		// times: it was frozen at whatever page the character had when the
+		// save was loaded.
+		//
+		// So every page switch used the right index into the wrong page. Aid
+		// sometimes worked because using something up is forgiving; a weapon
+		// simply equipped whatever the stale image held at that key, which
+		// with DefaultPage on is page one.
+		//
+		// Rewriting it is legitimate precisely because it is an image: the
+		// inventory is what was changed, and this is brought back into
+		// agreement with it.
+		if (auto* manager = RE::FavoritesManager::GetSingleton()) {
+			const auto now = ReadFavorites();
+			for (std::size_t key = 0; key < now.size(); ++key) {
+				manager->storedFavTypes[key] = now[key].object;
+			}
 		}
 
 		RefreshCross();

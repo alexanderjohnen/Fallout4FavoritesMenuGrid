@@ -3316,3 +3316,55 @@ print(sorted(ini - code), sorted(code - ini))
 
 Eine tote Option in der INI ist ein Versprechen, das nichts hält; eine
 gelesene, die nirgends steht, ist eine Falltür.
+
+## 53. Der Cache war eingefroren (2026-09-07)
+
+Gemeldet: im Menü im Spiel wird immer das benutzt, was auf **Seite 1** an der
+Stelle liegt, egal welche Seite man anklickt. Hilfsmittel gingen manchmal nach
+mehrfachem Klicken, aber zusätzlich wurde etwas von Seite 1 an- oder abgelegt.
+
+Das Log beantwortet es in einer Zeile — und zwar durch das, was sich darin
+**nicht** ändert:
+
+```
+$ grep "cache " FavoritesMenuGrid.log | sort -u | wc -l
+1
+```
+
+**Ein einziger verschiedener Wert über die ganze Sitzung**, während das
+Inventar darunter zwanzigmal umgeschrieben wurde. Der Cache stand auf der
+Seite, die der Charakter beim Laden des Spielstands hatte.
+
+`FavoritesManager::storedFavTypes` ist, was Abschnitt 6 sagt: nicht die
+Wahrheit, sondern ihr Abbild. Und `UseQuickkeyItem` liest **das Abbild**. Also
+schaltete jeder Seitenwechsel korrekt um, schrieb die zwölf Tasten korrekt
+neu — und die Engine benutzte danach den richtigen Index in der falschen
+Seite.
+
+Warum „Seite 1": mit `DefaultPage` wird beim Schließen auf Seite 1
+zurückgelegt, und irgendwann danach hat die Engine ihr Abbild von genau dieser
+gefüllt. Warum Hilfsmittel manchmal trotzdem gingen: etwas aufzubrauchen ist
+nachsichtiger als es anzulegen — eine Waffe legte einfach an, was das
+eingefrorene Abbild an dieser Taste hielt.
+
+`ApplyPage` schreibt die zwölf Einträge jetzt selbst zurück, gleich nachdem
+das Inventar geschrieben wurde. Das ist erlaubt, **weil** es ein Abbild ist:
+geändert wurde die Wahrheit, und das Abbild wird mit ihr in Übereinstimmung
+gebracht.
+
+**Die Probe für den nächsten Lauf** ist dieselbe wie die Diagnose: die
+`cache`-Zeile muss der `favorites (after the page)`-Zeile darüber gleichen.
+Tut sie es nicht, ist an dieser Stelle wieder etwas offen.
+
+### Drei Optionen weniger
+
+Auf Zuruf gestrichen, und alle drei zu Recht:
+
+| | |
+| --- | --- |
+| `NextPageKey`, `PreviousPageKey` | waren dafür da, im Pip-Boy die Zielseite zu wählen. Seit Abschnitt 51 macht das dort das Gitter selbst mit hoch und runter |
+| `GridX`, `GridY` | seit Abschnitt 45 wird auf die Zellen zentriert, und das ist die Antwort. Absolute Bühnenkoordinaten sind eine Supportlast, keine Einstellung |
+| `GridColor` | die HUD-Farbe des Spielers ist der ganze Sinn der Sache — eine feste Farbe widerspricht dem, wofür die Mod sonst überall argumentiert |
+
+Damit sind es **26**. Die Gegenprobe aus Abschnitt 52 bleibt in beide
+Richtungen leer.
