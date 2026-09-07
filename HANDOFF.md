@@ -3548,3 +3548,45 @@ lief also weiter und stürzte weiter ab, ohne dass jemand etwas drückte.
 `PipboyAuto` ist jetzt ein eigener Schalter, Vorgabe 0. **Was aus sein soll,
 braucht einen eigenen Weg, aus zu sein**, nicht die Abwesenheit von etwas
 anderem.
+
+## 58. Der Beweis kam von einer fremden Mod (2026-09-07)
+
+Der Spieler hat *Visible Favorites* installiert, die die Favoriten am Körper
+zeigt — und **sieht dort, wie die Standardseite einige Augenblicke nach dem
+Schließen zurückspringt.** Damit ist Abschnitt 57 nicht mehr Hypothese: das
+Zurücklegen ist beobachtbar, es ist spät, und das Anlegen kommt noch später.
+
+Eine halbe Sekunde war geraten. Die Warteschlange des Spiels wartet
+offenbar auch auf das Menü selbst, nicht nur auf ein Bild.
+
+**Und damit ist Warten die falsche Antwort.** Jede Zahl, die wir hier
+einsetzen, ist eine Wette gegen etwas, das wir nicht beobachten können.
+
+### Was heute gilt
+
+`DefaultPage=0`. Dann schreibt nach dem Benutzen **niemand** mehr die zwölf
+Tasten um, die Warteschlange löst gegen die Seite auf, auf die geschaltet
+wurde, und es stimmt. Das ist genau der Zustand, den Abschnitt 37 im Spiel
+bestätigt hat, und der Grund, warum es damals lief.
+
+`DefaultPage` ist damit vorerst kaputt, nicht das Benutzen.
+
+### Wie es richtig ginge
+
+Nicht länger warten, sondern **gar nicht mehr umschreiben, solange etwas
+offen sein kann**:
+
+- Die Engine hält immer die Standardseite.
+- Etwas von einer anderen Seite zu benutzen heißt: den Gegenstand auf seine
+  Taste schreiben, benutzen — und **liegen lassen**.
+- Aufgeräumt wird beim nächsten Öffnen des Menüs, wo nichts mehr offen sein
+  kann.
+
+Das ist das Leihen aus Abschnitt 55, aber ohne das sofortige Zurücklegen —
+und genau dieses Zurücklegen war dort der Fehler. Das Fenster, in dem eine
+Taste „falsch" steht, ist dann das Fenster, in dem der Spieler eine Ziffer
+drücken könnte, und was er dann bekäme, ist das, was er gerade selbst benutzt
+hat.
+
+**Nicht gebaut.** Zweimal an einem Abend etwas an diesem Pfad umzubauen und
+zu hoffen, war der Fehler; das hier wird erst besprochen und dann gemacht.

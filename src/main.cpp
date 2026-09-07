@@ -2649,6 +2649,12 @@ namespace
 			logger::info("use: nothing is marked");
 			return;
 		}
+		// What the panel believed was chosen, before anything is touched.
+		// When a report and the log disagree about *which cell*, this is the
+		// line that settles it -- everything after it is about the item, not
+		// about the choosing.
+		logger::info(
+			"mark: page {} key {}", g_marked->page + 1, g_marked->slot + 1);
 		EnsurePages();
 
 		const auto spot = *g_marked;
@@ -3192,6 +3198,19 @@ namespace
 				logger::info(
 					"FavoritesMenu {}", a_event.opening ? "opened" : "closed");
 				g_favoritesMenuOpen = a_event.opening;
+				if (a_event.opening) {
+					// A restore still counting down from the last close
+					// would fire into an open menu, turn the page under the
+					// panel, and RememberCurrentPage would then write those
+					// twelve keys into whichever page it believed was
+					// current. That is how a stored page ends up holding
+					// another page's items.
+					//
+					// Waiting was right (section 57) and waiting has to be
+					// interruptible: the reason to wait is gone the moment
+					// the menu is back.
+					g_restoreIn = 0;
+				}
 				if (a_event.opening && g_logIcons) {
 					g_logIconsDue.store(true);
 				}
