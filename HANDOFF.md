@@ -3123,3 +3123,50 @@ einzigen zwei Wege, auf denen dieser Film darunter weggehen kann.
 - **Der Aufruf hängt an einer Taste.** Von selbst kommt das Gitter noch
   nicht; dafür müsste das Erscheinen des Dialogs bemerkt werden, und die
   einzige verlässliche Stelle dafür ist bislang die Tastaturschleife.
+
+## 49. Wie viele Seiten, und wie sie in den Dialog passen (2026-09-07)
+
+### Es gibt keine Acht
+
+Gefragt wurde, ob acht Seiten das Maximum von Fallout 4 seien. Nein — es gibt
+in Fallout 4 überhaupt keine Seiten. Das Spiel kennt **zwölf Schnelltasten**,
+sonst nichts; die Seiten sind eine Schicht dieser Mod, und sie liegen im
+Mitspeicher von F4SE. Die Engine hält immer genau eine davon, und ein
+Seitenwechsel schreibt die zwölf Tasten neu (Abschnitt 15).
+
+Die einzige Grenze ist deshalb unsere eigene: `PageCount` nimmt **1 bis 32**.
+Acht ist nichts Besonderes.
+
+### Was das für den Dialog heißt
+
+Die Zelle wurde bislang allein aus der Breite gerechnet — zwölf Spalten in
+die 418 Einheiten des Kreuzes, also rund 33. Das ging gut, solange vier Reihen
+davon 138 der verfügbaren 419 brauchten. Bei acht Seiten sind es 278, immer
+noch bequem; bei zwölf wäre es vorbei.
+
+Also fitten jetzt **beide Richtungen**, und die Zelle ist die kleinere der
+zwei Antworten. Gerechnet für das Rechteck des Kreuzes:
+
+| Seiten | Zelle | Zellen |
+| --- | --- | --- |
+| 4 | 33.0 | 418 x 138 |
+| 8 | 33.0 | 418 x 278 |
+| 12 | 31.5 | 400 x 400 |
+| 16 | 23.3 | 301 x 403 |
+| 32 | 12.0 | 166 x **446** |
+
+Bei 32 greift der Boden von 12 Einheiten und es läuft über. Das ist Absicht:
+unter zwölf Einheiten ist eine Zelle kein Bild mehr, sondern ein Punkt, und
+ein unlesbares Gitter, das hineinpasst, ist schlechter als ein lesbares, das
+ansteht. Wer zweiunddreißig Seiten fährt, sieht sie im Pip-Boy nicht alle.
+
+### Und eine Ausnahme von Abschnitt 45
+
+Auf dem Bildschirm werden die **Zellen** zentriert und alles andere hängt
+sich daran — dort ist über den Zellen immer Platz. Im Dialog ist er das
+nicht: das Rechteck ist alles, was es gibt, und eine mittig gesetzte Zeile
+kletterte über das, was der Dialog darüber schreibt. Dort wird deshalb der
+ganze Block zentriert, vom oberen Rand des Panels bis zur untersten Reihe.
+
+Dieselbe Regel wäre an beiden Stellen falsch gewesen, und der Grund steht in
+je einem Satz an beiden Stellen im Code.

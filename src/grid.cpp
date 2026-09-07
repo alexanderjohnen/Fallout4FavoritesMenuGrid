@@ -832,9 +832,16 @@ void grid::Draw(
 	const auto left = a_where.x < 0.0 || hosted
 		? roomX + (stageWidth - CellsWidth(m)) / 2.0 - CellsLeft(m)
 		: a_where.x;
-	const auto top = a_where.y < 0.0 || hosted
-		? roomY + (stageHeight - cellsHeight) / 2.0 - cellsTop
-		: a_where.y;
+	// On the screen there is always room above the cells for the writing
+	// and the key names, so the cells are centred and the rest hangs off
+	// them (section 45). Inside a host there is not: the rectangle is all
+	// there is, and a band centred out of it would climb over whatever the
+	// dialog puts above. So there the band is counted in, and what is
+	// centred is everything from the top of the panel to the bottom row.
+	const auto top = hosted
+		? roomY + (stageHeight - cellsTop - cellsHeight) / 2.0
+		: (a_where.y < 0.0 ? roomY + (stageHeight - cellsHeight) / 2.0 - cellsTop
+						   : a_where.y);
 	// Setting x and y is not always enough. On the HUD they read back as
 	// nonsense afterwards, so the older names are tried as well and the
 	// result is logged -- a panel of the right size in the wrong place looks

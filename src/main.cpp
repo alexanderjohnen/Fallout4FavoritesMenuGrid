@@ -1811,19 +1811,34 @@ namespace
 		g_pipboyCross = RE::Scaleform::GFx::Value();
 	}
 
-	// Twelve columns across a given width.
+	// Twelve columns across, and as many rows down as there are pages, into
+	// a rectangle that was not built for either.
 	//
-	// The gap is a fraction of the cell with a floor under it, so the two
-	// depend on each other; two rounds settle it, and the third would move
-	// nothing a screen could show.
-	[[nodiscard]] double CellSizeFor(double a_width)
+	// Both directions have to fit, so the cell is the smaller of the two
+	// answers. Width alone was enough while there were four pages -- twelve
+	// columns into the cross's 418 units give about 33, and four rows of
+	// that need 138 of the 419 available. At eight pages it is 278, still
+	// inside; at twelve it would not be, and the page count goes to
+	// thirty-two.
+	//
+	// The gap and the row of key numbers are both fractions of the cell, so
+	// the cell depends on what depends on it. Three rounds settle it well
+	// below anything a screen can show.
+	[[nodiscard]] double CellSizeFor(double a_width, double a_height, std::size_t a_rows)
 	{
-		auto cell = a_width / 12.0;
-		for (int round = 0; round < 2; ++round) {
+		const auto rows = static_cast<double>(std::max<std::size_t>(a_rows, 1));
+		auto cell = std::min(a_width / 12.0, a_height / rows);
+		for (int round = 0; round < 3; ++round) {
 			const auto gap = std::max(cell * 0.06, 2.0);
-			cell = (a_width + gap) / 12.0 - gap;
+			// What stands above the cells and must come out of the height
+			// first: the key numbers and the air under them.
+			const auto keyRow =
+				std::max(cell * 0.36, 8.0) + g_gridWhere.keyRowGap;
+			const auto byWidth = (a_width + gap) / 12.0 - gap;
+			const auto byHeight = (a_height - keyRow + gap) / rows - gap;
+			cell = std::min(byWidth, byHeight);
 		}
-		return std::clamp(cell, 16.0, 96.0);
+		return std::clamp(cell, 12.0, 96.0);
 	}
 
 	// What the dialog has chosen, shown on our grid.
@@ -1925,8 +1940,10 @@ namespace
 		// Twelve columns into 418 units is a cell of about 33, which is well
 		// inside what the INI allows -- there is more room in that dialog
 		// than the cross uses.
+		const auto pages = BuildGridPages();
+
 		auto where = g_gridWhere;
-		where.cellSize = CellSizeFor(host.width);
+		where.cellSize = CellSizeFor(host.width, host.height, pages.size());
 		where.hint.clear();
 		// The two lines the dialog already has of its own; ours would be a
 		// second pair saying the same thing.
@@ -1934,7 +1951,6 @@ namespace
 		where.detailSize = 1.0;
 		where.labelGap = 0.0;
 
-		const auto pages = BuildGridPages();
 		grid::Draw(
 			pipboy,
 			pipboy,
@@ -1954,13 +1970,14 @@ namespace
 
 		logger::info(
 			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f}; the grid went in at "
-			"cell {:.1f}, written in \"{}\"",
+			"cell {:.1f} for {} pages, written in \"{}\"",
 			path,
 			host.x,
 			host.y,
 			host.width,
 			host.height,
 			where.cellSize,
+			pages.size(),
 			font);
 	}
 
