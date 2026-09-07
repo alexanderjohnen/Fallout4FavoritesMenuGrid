@@ -631,6 +631,57 @@ namespace
 		return slots;
 	}
 
+	// Every object that carries a key, in the order the inventory is walked.
+	//
+	// The blind spot that hid tonight's bug for hours. ReadFavorites answers
+	// with one object per key and, where two carry the same one, quietly
+	// keeps whichever stack it saw last -- so the favorites line printed a
+	// clean twelve either way, and storedFavTypes, filled from it, agreed.
+	//
+	// The engine does not agree. Its lookup (ID 691965) walks a list and
+	// **stops at the first match**. First against last: both readings are
+	// honest and they name different items.
+	//
+	// So this says everything, in walk order, and a key with more than one
+	// name on it is the answer to "why did it use something else".
+	void LogEveryFavorite(std::string_view a_reason)
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList) {
+			return;
+		}
+		std::array<std::string, 12> found{};
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item,
+				RE::BGSInventoryItem::Stack& a_stack) {
+				const auto key = FavoriteOf(a_stack);
+				if (key < 12 && a_item.object) {
+					if (!found[key].empty()) {
+						found[key] += " + ";
+					}
+					found[key] +=
+						RE::TESFullName::GetFullName(*a_item.object);
+				}
+				return true;
+			});
+
+		std::string line;
+		auto twice = false;
+		for (std::size_t key = 0; key < found.size(); ++key) {
+			if (found[key].find(" + ") != std::string::npos) {
+				twice = true;
+			}
+			line += std::format(
+				"[{}]{} ", KeyLabel(key), found[key].empty() ? "-" : found[key]);
+		}
+		logger::info(
+			"walk ({}){}: {}",
+			a_reason,
+			twice ? " -- TWO ON ONE KEY" : "",
+			line);
+	}
+
 	void LogFavorites(std::string_view a_reason)
 	{
 		const auto slots = ReadFavorites();
@@ -2691,6 +2742,7 @@ namespace
 		// holds, and UseQuickkeyItem reads something else again. Different
 		// object: it was overwritten between the frames, and the sync below
 		// is the fix rather than another guess.
+		LogEveryFavorite("at the call");
 		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
 			const auto* held = manager->storedFavTypes[a_slot];
 			logger::info(
