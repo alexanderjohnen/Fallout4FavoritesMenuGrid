@@ -70,6 +70,11 @@ namespace
 	bool g_logIcons = false;
 	std::atomic_bool g_logIconsDue{ false };
 
+	// How many levels of the Pip-Boy's display tree to write out, once per
+	// opening. Zero is off. It is a lot of log for one run and exactly the
+	// right amount for the run that has to answer where a grid could go.
+	int g_surveyDepth = 0;
+
 	// Whether the mouse pointer goes out of sight while the keys have the
 	// mark. Its own switch, because it is the one part of this that reaches
 	// outside our own menu.
@@ -507,6 +512,11 @@ namespace
 		read(L"Debug", L"PeekKey", g_peekKey);
 		g_logIcons =
 			GetPrivateProfileIntW(L"Debug", L"LogIcons", 0, path.c_str()) != 0;
+		g_surveyDepth = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Debug", L"SurveyPipboy", 0, path.c_str())),
+			0,
+			12);
 
 		// What the cross shows.
 		g_gridKeys.useOnClick =
@@ -1608,6 +1618,97 @@ namespace
 		return rows;
 	}
 
+	// ---- Surveying the Pip-Boy -------------------------------------------
+	//
+	// The next place the grid could stand is the Pip-Boy's own assign-a-
+	// favorite cross, and getting there begins with knowing what is there --
+	// on *this* machine. Three things make that unlike the HUD menu, and all
+	// three argue for measuring rather than assuming:
+	//
+	//   * The Pip-Boy is not one movie. `PipboyMenu.swf` is the frame, and
+	//     the pages are loaded into it: `Pipboy_InvPage.swf` carries the
+	//     inventory, and it is that file which holds `Cross_mc` -- the same
+	//     twelve-slot cross class the favorites menu uses. The UI knows a
+	//     menu called "PipboyMenu"; the page is a child clip inside it, so
+	//     it has to be walked to, not asked for.
+	//   * The stage is not the screen. Out in the world the Pip-Boy draws
+	//     onto a texture on the model, so "the middle of the stage" means
+	//     the middle of that little screen, and the safe area is the one
+	//     the page defines rather than the one the game reports.
+	//   * The file on this machine is already a replacement. A layout read
+	//     out of the vanilla SWF would be a layout nobody here has.
+	//
+	// So: no assumptions, one survey. It writes the display tree of the
+	// Pip-Boy once per opening, marking anything that looks like the cross,
+	// and everything after this depends on what it finds.
+	void SurveyBranch(
+		RE::Scaleform::GFx::Value& a_where, const std::string& a_path, int a_depth)
+	{
+		if (a_depth < 0 || !a_where.IsObject()) {
+			return;
+		}
+		RE::Scaleform::GFx::Value count;
+		if (!a_where.GetMember("numChildren", &count)) {
+			return;
+		}
+		const auto total =
+			count.IsNumber() ? static_cast<int>(count.GetNumber()) : count.GetInt();
+		for (int index = 0; index < total; ++index) {
+			const RE::Scaleform::GFx::Value at{ index };
+			RE::Scaleform::GFx::Value child;
+			if (!a_where.Invoke("getChildAt", &child, &at, 1) ||
+				!child.IsDisplayObject()) {
+				continue;
+			}
+			RE::Scaleform::GFx::Value name;
+			const auto called = child.GetMember("name", &name) && name.IsString()
+				? std::string(name.GetString())
+				: std::format("[{}]", index);
+			const auto here = a_path + "." + called;
+
+			// Size and place, because that is what a grid would have to fit
+			// into, and visibility, because half of a Pip-Boy is built and
+			// hidden.
+			RE::Scaleform::GFx::Value shown;
+			const auto visible = !child.GetMember("visible", &shown) ||
+				!shown.IsBoolean() || shown.GetBoolean();
+			logger::info(
+				"pipboy: {} {:.0f},{:.0f} {:.0f}x{:.0f}{}",
+				here,
+				ReadNumber(child, "x", 0.0),
+				ReadNumber(child, "y", 0.0),
+				ReadNumber(child, "width", 0.0),
+				ReadNumber(child, "height", 0.0),
+				visible ? "" : " (hidden)");
+
+			SurveyBranch(child, here, a_depth - 1);
+		}
+	}
+
+	void SurveyPipboy()
+	{
+		auto* pipboy = GetMenu("PipboyMenu");
+		if (!pipboy) {
+			logger::info("pipboy: no PipboyMenu to survey");
+			return;
+		}
+		RE::Scaleform::GFx::Value root = pipboy->menuObj;
+		if (!root.IsObject()) {
+			if (!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject()) {
+				logger::info("pipboy: the menu has no object to walk");
+				return;
+			}
+		}
+		RE::Scaleform::GFx::Value stage;
+		if (root.GetMember("stage", &stage) && stage.IsDisplayObject()) {
+			logger::info(
+				"pipboy: the stage is {:.0f}x{:.0f}",
+				ReadNumber(stage, "stageWidth", 0.0),
+				ReadNumber(stage, "stageHeight", 0.0));
+		}
+		SurveyBranch(root, "PipboyMenu", g_surveyDepth);
+	}
+
 	void ShowGrid()
 	{
 		// Only into a menu that is open. This is not belt and braces -- it
@@ -2435,6 +2536,16 @@ namespace
 			const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 		{
+			static const RE::BSFixedString pipboyMenu("PipboyMenu");
+			if (a_event.menuName == pipboyMenu && a_event.opening &&
+				g_surveyDepth > 0) {
+				// From a UI task: walking a display tree is Scaleform work,
+				// and the event is not the thread for it.
+				if (const auto* tasks = F4SE::GetTaskInterface()) {
+					tasks->AddUITask([]() { SurveyPipboy(); });
+				}
+			}
+
 			static const RE::BSFixedString favoritesMenu("FavoritesMenu");
 			if (a_event.menuName == favoritesMenu) {
 				logger::info(
