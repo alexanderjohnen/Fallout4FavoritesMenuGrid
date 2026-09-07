@@ -864,15 +864,53 @@ namespace
 				});
 		}
 
+		// Where in the walk the player's own inventory stands.
+		//
+		// The entries carry no vtable and none of them is an item, an
+		// object, a stack or an extra list of ours, so they are none of the
+		// things we hold -- but they are 490 of something, and the game has
+		// roughly that many containers and bodies loaded around the player.
+		// If this is the list of every inventory in the world, then the
+		// engine walks them and takes the first that answers, and the only
+		// question that matters is whether the player's own comes first.
+		auto mine = -1;
+		if (player && player->inventoryList) {
+			for (std::uint32_t index = 0; index < count; ++index) {
+				if (data[index] == player->inventoryList) {
+					mine = static_cast<int>(index);
+					break;
+				}
+			}
+		}
+		logger::info(
+			"list ({}): the player's own inventory is {} of {}",
+			a_reason,
+			mine < 0 ? std::string("not in there at all") : std::format("entry {}", mine),
+			count);
+
 		std::string line;
 		const auto shown = std::min<std::uint32_t>(count, 8);
 		for (std::uint32_t index = 0; index < shown; ++index) {
 			const auto* entry = data[index];
 			const auto found = known.find(entry);
+			// The first words of the entry, because what it is has to be
+			// read off its own shape once its name is not on offer.
+			std::string head = "?";
+			if (Readable(entry, 0x20)) {
+				const auto* words =
+					reinterpret_cast<const std::uintptr_t*>(entry);
+				head = std::format(
+					"{:#x},{:#x},{:#x},{:#x}",
+					words[0],
+					words[1],
+					words[2],
+					words[3]);
+			}
 			line += std::format(
-				"{}:{} ",
+				"{}:{}<{}> ",
 				index,
-				found != known.end() ? found->second : TypeName(entry));
+				found != known.end() ? found->second : TypeName(entry),
+				head);
 		}
 
 		logger::info(
