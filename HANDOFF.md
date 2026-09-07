@@ -2639,7 +2639,8 @@ liegt es nicht am Zeiger.
 
 ### Die Symbole waren zu einfarbig
 
-Der Grund stand als Kommentar seit Monaten im Code:
+Der Grund stand die ganze Zeit als Kommentar im Code, seit die Symbole
+gebaut wurden (Abschnitt 31):
 
 > „A symbol built from several shapes names a colour for each, separated by
 > commas -- RadAway is brown and silver. We paint one flat colour, so the
