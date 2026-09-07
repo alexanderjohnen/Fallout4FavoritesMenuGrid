@@ -3048,3 +3048,78 @@ Das ist der eigentliche Gewinn, und es ist ein anderer Gewinn als der im HUD.
 Offen, und erst im Spiel zu beantworten: ob die Eingabe des Dialogs sich
 genauso abfangen lässt wie die des Favoritenmenüs, und was passiert, wenn man
 `Cross_mc` versteckt — der Dialog hört womöglich auf dessen Auswahl.
+
+## 48. Das Gitter steht im Pip-Boy (2026-09-07)
+
+In drei Schritten, jeder für sich prüfbar, jeder einzeln zurückzunehmen.
+
+### Schritt 1: das Kreuz verstecken, und sonst nichts
+
+Die eine Frage, auf der alles Weitere steht: **arbeitet der Dialog weiter,
+wenn sein eigenes Kreuz unsichtbar ist?** Wäre die Antwort nein gewesen,
+hätte das Gitter *neben* dem Kreuz stehen müssen und die Schritte 2 und 3
+sähen völlig anders aus.
+
+Die Antwort ist ja. Gefunden über `FindByName` vom Menü aus — die
+Zwischennamen taugen nichts, derselbe Clip hieß in drei Läufen `instance402`,
+`instance389` und die Seite einmal `instance8`, einmal `instance36`.
+
+### Schritt 2: zeichnen, ohne Eingabe
+
+`grid::Draw` kann das Panel jetzt woanders aufhängen als an der Bühne. Überall
+sonst ist die Bühne der Bildschirm und das Panel wird darauf zentriert; im
+Pip-Boy ist die Bühne der kleine Schirm am Modell, und der Dialog hat ein
+eigenes Koordinatensystem. Also übergibt der Aufrufer beides: den Clip zum
+Anhängen und das Rechteck zum Füllen. Die Zentrierrechnung aus Abschnitt 45
+merkt den Unterschied nicht — sie bekommt statt der Bühne eben ein Rechteck.
+
+Das Rechteck ist das des Kreuzes, **aus dem Kreuz gelesen**, in den
+Koordinaten dessen, was es hält. Zwölf Spalten in seine 418 Einheiten ergeben
+eine Zelle von rund 33.
+
+**Es kam an.** Der Pip-Boy zeichnet, was wir hinzufügen — das war die teuerste
+der offenen Fragen, weil er auf eine Textur am Modell rendert und nicht auf
+eine HUD-Bühne.
+
+Zwei Dinge sind dort aus: unsere zwei Textzeilen (der Dialog hat
+`SelectionName_tf` und `SelectionAmmo_tf` bereits) und die Tastenleiste.
+Symbole fehlen noch, weil die Bibliotheken in *unser* Menü geladen sind und
+nicht in den Pip-Boy.
+
+### Schritt 3: nichts bauen
+
+Der Trick ist, **nichts** zu bauen. Das Kreuz ist noch da, hört noch zu und
+weist noch zu — es ist bloß unsichtbar. Der Spieler bewegt seine Auswahl mit
+denselben Tasten wie immer und drückt dasselbe Accept, und das Spiel weist zu,
+wie es immer zugewiesen hat.
+
+Es fehlten nur zwei Dinge: **es zu sehen**, und **eine Seite, auf die es
+geht**.
+
+Das Sehen: `selectedIndex` vom Kreuz lesen und diese Taste markieren.
+Die Seite: die Seitentasten drehen im Pip-Boy längst die Seiten der Engine —
+das tun sie seit Abschnitt 22 und aus genau diesem Grund. Wer also blättert
+und dann zuweist, weist auf die Seite zu, die gerade steht.
+
+Damit kann man einen Gegenstand direkt auf Seite 3, Taste 7 legen. Das ging
+vorher überhaupt nicht, und es ist keine Zeile Zuweisungscode dafür
+geschrieben worden.
+
+Gelesen wird zehnmal in der Sekunde aus der Tastaturschleife heraus, als
+UI-Aufgabe. Das Kreuz wird dafür **festgehalten** — gegen die Regel aus
+Abschnitt 42, und mit Absicht: es zu suchen heißt, einen Baum mit tausend
+Knoten zu durchlaufen, und das tut man nicht zehnmal je Sekunde. Losgelassen
+wird es beim Herunternehmen des Gitters und beim Schließen des Pip-Boys — die
+einzigen zwei Wege, auf denen dieser Film darunter weggehen kann.
+
+### Was noch fehlt
+
+- **Symbole.** `icons::Want` lädt in das Menü, auf dem gezeichnet wird; im
+  Pip-Boy ist das ein anderer Film. Erst prüfen, ob die Anwendungsdomäne dort
+  überhaupt erreichbar ist (Abschnitt 29 war die Arbeit dafür im eigenen
+  Menü).
+- **Die Zellen sind leer.** Ohne Symbol steht dort im Moment nichts — im HUD
+  fällt das nicht auf, weil dort immer eines da ist.
+- **Der Aufruf hängt an einer Taste.** Von selbst kommt das Gitter noch
+  nicht; dafür müsste das Erscheinen des Dialogs bemerkt werden, und die
+  einzige verlässliche Stelle dafür ist bislang die Tastaturschleife.

@@ -1792,8 +1792,24 @@ namespace
 	// reopened dialog brings a fresh, visible cross whatever was done to the
 	// last one. A held reference into another movie's heap is what section
 	// 42 was about.
-	// Whether our panel is standing in the Pip-Boy right now.
+	// Whether our panel is standing in the Pip-Boy right now, and the cross
+	// it stands in front of.
+	//
+	// The cross is held on to while it is up, against the rule of section 42
+	// -- and deliberately: finding it means walking a thousand-node tree,
+	// which is not a thing to do ten times a second. The reference is let go
+	// the moment the grid comes down or the Pip-Boy closes, which are the
+	// only two ways that movie can go away underneath it.
 	bool g_pipboyGridUp = false;
+	RE::Scaleform::GFx::Value g_pipboyCross;
+	std::size_t g_pipboyPage = 0;
+	std::uint32_t g_pipboySlot = 0;
+
+	void ForgetPipboyGrid()
+	{
+		g_pipboyGridUp = false;
+		g_pipboyCross = RE::Scaleform::GFx::Value();
+	}
 
 	// Twelve columns across a given width.
 	//
@@ -1808,6 +1824,43 @@ namespace
 			cell = (a_width + gap) / 12.0 - gap;
 		}
 		return std::clamp(cell, 16.0, 96.0);
+	}
+
+	// What the dialog has chosen, shown on our grid.
+	//
+	// This is the whole trick of step three, and it is a trick of *not*
+	// building something. The cross is still there, still listening, still
+	// assigning -- it is only invisible. So the player moves its selection
+	// with the same keys as always and presses the same Accept, and the game
+	// does the assigning it has always done. All that was missing is being
+	// able to see it, and a page to do it on.
+	//
+	// The row is the page the engine is holding, which the page keys already
+	// turn while the Pip-Boy is open (they always have -- see the polling
+	// loop). So: read the cross's selectedIndex, mark that key on that row,
+	// and a favorite lands on whichever page is showing.
+	void RefreshPipboyGrid()
+	{
+		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
+			return;
+		}
+		RE::Scaleform::GFx::Value chosen;
+		if (!g_pipboyCross.GetMember("selectedIndex", &chosen)) {
+			return;
+		}
+		const auto slot = chosen.IsNumber()
+			? static_cast<std::uint32_t>(chosen.GetNumber())
+			: static_cast<std::uint32_t>(chosen.GetUInt());
+		EnsurePages();
+		if (slot >= 12 || g_currentPage >= g_pages.size()) {
+			return;
+		}
+		if (slot == g_pipboySlot && g_currentPage == g_pipboyPage) {
+			return;
+		}
+		g_pipboySlot = slot;
+		g_pipboyPage = g_currentPage;
+		grid::Mark(grid::Spot{ g_currentPage, slot });
 	}
 
 	void TogglePipboyCross()
@@ -1830,7 +1883,7 @@ namespace
 		if (g_pipboyGridUp) {
 			grid::Release();
 			cross.SetMember("visible", RE::Scaleform::GFx::Value(true));
-			g_pipboyGridUp = false;
+			ForgetPipboyGrid();
 			logger::info("pipboy: the grid is down, the cross is back");
 			return;
 		}
@@ -1892,6 +1945,12 @@ namespace
 			where,
 			&host);
 		g_pipboyGridUp = true;
+		g_pipboyCross = cross;
+		// A page and a key that cannot be the first answer, so the first
+		// refresh always draws a mark.
+		g_pipboyPage = std::numeric_limits<std::size_t>::max();
+		g_pipboySlot = 12;
+		RefreshPipboyGrid();
 
 		logger::info(
 			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f}; the grid went in at "
@@ -2714,6 +2773,7 @@ namespace
 		bool previousPeek = false;
 		bool previousSurvey = false;
 		bool previousCross = false;
+		unsigned ticks = 0;
 		bool previousNext = false;
 		bool previousBack = false;
 
@@ -2764,6 +2824,14 @@ namespace
 			}
 			previousCross = crossNow;
 
+			// While the grid stands in the Pip-Boy, the mark follows the
+			// dialog's own selection. Not every tick: a Scaleform read ten
+			// times a second is plenty for a thumb, and forty would be
+			// forty.
+			if (g_pipboyGridUp && tasks && ++ticks % 4 == 0) {
+				tasks->AddUITask([]() { RefreshPipboyGrid(); });
+			}
+
 			previousPeek = peekNow;
 			previousNext = nextPage;
 			previousBack = previousPage;
@@ -2790,7 +2858,7 @@ namespace
 				g_pipboyGridUp) {
 				// The movie is going away and our panel's objects belong to
 				// it. Forget them rather than reach into them -- section 42.
-				g_pipboyGridUp = false;
+				ForgetPipboyGrid();
 				grid::Forget();
 			}
 			if (a_event.menuName == pipboyMenu && a_event.opening &&
