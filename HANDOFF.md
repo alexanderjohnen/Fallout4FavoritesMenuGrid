@@ -3399,3 +3399,51 @@ beliebig oft vorkommen darf. Erst Nuka-Cola auf drei Stapeln (41), dann die
 zwölf Tasten gegen das Abbild der Engine (53), jetzt zwei Gegenstände auf
 einer Taste. Wer hier das nächste Mal etwas sucht, fragt zuerst: **kann es
 das mehrfach geben?** Die Antwort war bislang immer ja.
+
+## 55. Nicht mehr die Seite drehen, sondern eine Taste leihen (2026-09-07)
+
+Gefragt wurde, ob der Seitenwechsel im Hintergrund überhaupt sein muss. Er
+muss nicht, und er war die Wurzel von dreien der letzten vier Fehler.
+
+### Was er kostete
+
+Eine Zelle auf einer anderen Seite zu benutzen hieß bisher: `GoToPage`. Das
+schreibt **alle zwölf** Favoriten durch die Engine, verschiebt die Seite, die
+die Ziffern 1-0 draußen bedeuten, füllt den Cache neu, zeichnet das Kreuz neu
+— und muss beim Schließen rückgängig gemacht werden.
+
+In genau diesem Ablauf wohnten der eingefrorene Cache (53), der zweite
+Gegenstand auf derselben Taste (54) und der gespaltene Stapel (41). Alle drei
+brauchten vierundzwanzig Schreibvorgänge, um sichtbar zu werden.
+
+### Was es jetzt tut
+
+**Es leiht sich eine Taste.** Der gewünschte Gegenstand kommt auf die Taste,
+die er ohnehin auf seiner Seite hat, `UseQuickkeyItem` wird gerufen, und was
+vorher darauf lag, kommt zurück. Zwei Schreibvorgänge statt vierundzwanzig.
+
+Die Seite, die die Engine hält, ändert sich dabei **nicht**. Also gibt es
+nichts zurückzustellen, nichts blinkt draußen, und der `RestoreDefaultPage`
+beim Schließen hat nur noch mit dem zu tun, wofür er gedacht war.
+
+Zurückgelegt wird auch dann, wenn das Spiel die Benutzung verweigert hat —
+geliehen wurde ja so oder so.
+
+### Und der Anzeiger, der dadurch erst nötig wurde
+
+Zweite Frage derselben Sitzung: ob wir beim Ausräumen der visuellen
+Seitenanzeigen (36, 51) zu weit gegangen sind. **An einer Stelle ja.**
+
+Solange jedes Benutzen die Seite drehte, folgte die aktuelle Seite dem
+Spieler und musste nicht angesagt werden. Jetzt steht sie still — und das
+Panel zeigt alle Seiten absichtlich gleich. Damit gab es nichts mehr, was
+sagt, **welche Reihe die Ziffern 1-0 draußen bedeuten.**
+
+Das ist keine Kleinigkeit: es ist die einzige Frage, die das Panel durch seine
+eigene Gestaltung nicht beantworten kann.
+
+Also ein kurzer Balken links an dieser Reihe, so wie das Spiel die gewählte
+Zeile einer Liste markiert, und die Zahlen der übrigen Reihen etwas ruhiger.
+Nicht die alte Eckmeldung zurück — die stand an einer Stelle, an der ein HUD
+sie hinschieben konnte, wohin er wollte, und sagte etwas, das dorthin gehört,
+wo man es liest. Der Balken steht auch dann, wenn `ShowPageNumbers` aus ist.

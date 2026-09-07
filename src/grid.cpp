@@ -43,6 +43,14 @@ namespace
 	// need help -- but over the wasteland a dimmed line is a line that has
 	// to be looked for. The size is what makes it the second line.
 	constexpr double kDetailAlpha = 1.0;
+	// The rows that are not the one the digits mean. Not hidden -- every
+	// page is equally reachable and the panel says so -- only quieter, so
+	// the eye can find the live one without hunting.
+	constexpr double kOtherRowAlpha = 0.45;
+	// The bar beside that row, in stage units. The game's own line weight is
+	// one; this is a mark rather than a rule, so it is a little more.
+	constexpr double kLiveBarWidth = 3.0;
+
 	// The key line is a reminder rather than a statement, and sits quieter
 	// still.
 	constexpr double kHintAlpha = 0.6;
@@ -956,7 +964,22 @@ void grid::Draw(
 				m.rowLabelWidth,
 				m.rowLabelSize,
 				a_color,
-				1.0);
+				row == a_where.livePage ? 1.0 : kOtherRowAlpha);
+		}
+
+		// The row the digits mean, marked whether the numbers are on or
+		// off: a short bar at its left edge, the way the game marks the
+		// chosen line of a list. It is the one thing the panel cannot show
+		// by drawing every page alike.
+		if (row == a_where.livePage) {
+			Fill(
+				graphics,
+				CellsLeft(m) - m.gap * 2.0 - kLiveBarWidth,
+				rowTop,
+				kLiveBarWidth,
+				m.cell,
+				a_color,
+				kKeyAlpha);
 		}
 
 		// Every cell gets the same plate, whether a key holds something or

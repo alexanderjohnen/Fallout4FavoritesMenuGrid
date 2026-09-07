@@ -96,6 +96,17 @@ namespace grid
 		// grew into the key row when it had something to say.
 		double labelGap{ 16.0 };
 
+		// Which row the game's own twelve keys currently hold -- the page
+		// the digits 1-0 mean out in the world.
+		//
+		// It has to be said, and until now it was not. While every use
+		// turned the page, the answer followed you around and needed no
+		// telling; now that using borrows a key and leaves the page where it
+		// is, the answer stands still and nothing on screen gave it. The
+		// panel shows every page alike, which is the point -- so this is one
+		// short bar beside the row, not a second way of reading the grid.
+		std::size_t livePage{ 0 };
+
 		// Whether the page numbers stand down the left side. They are the one
 		// thing on the panel that says which row is which; a player who knows
 		// their own pages by what is on them does not need telling.

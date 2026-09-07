@@ -1061,6 +1061,47 @@ namespace
 	// key i. Items the target does not name keep their favorite and lose
 	// their key -- which is exactly what the items of the outgoing page are
 	// supposed to do.
+	// Takes one key off everything that carries it.
+	//
+	// Everything, not the one thing the twelve slots report: two different
+	// objects can hold the same key, and then which one is reported is
+	// whichever stack the walk saw last (section 54).
+	void ClearKey(std::uint8_t a_key)
+	{
+		std::vector<RE::TESBoundObject*> carried;
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player || !player->inventoryList) {
+			return;
+		}
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item,
+				RE::BGSInventoryItem::Stack& a_stack) {
+				if (FavoriteOf(a_stack) == a_key) {
+					carried.push_back(a_item.object);
+				}
+				return true;
+			});
+		for (auto* object : carried) {
+			MoveFavorite(object, a_key, -1);
+		}
+	}
+
+	// The engine keeps its own copy of the twelve, and UseQuickkeyItem reads
+	// that copy rather than the inventory (section 53). Whatever moves a key
+	// has to bring it back into agreement.
+	void SyncFavoritesCache()
+	{
+		auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!manager) {
+			return;
+		}
+		const auto now = ReadFavorites();
+		for (std::size_t key = 0; key < now.size(); ++key) {
+			manager->storedFavTypes[key] = now[key].object;
+		}
+	}
+
 	void ApplyPage(const Page& a_target)
 	{
 		// While the display still agrees with the inventory.
@@ -1135,13 +1176,7 @@ namespace
 		// Rewriting it is legitimate precisely because it is an image: the
 		// inventory is what was changed, and this is brought back into
 		// agreement with it.
-		if (auto* manager = RE::FavoritesManager::GetSingleton()) {
-			const auto now = ReadFavorites();
-			for (std::size_t key = 0; key < now.size(); ++key) {
-				manager->storedFavTypes[key] = now[key].object;
-			}
-		}
-
+		SyncFavoritesCache();
 		RefreshCross();
 		LogFavorites("after the page");
 	}
@@ -1934,6 +1969,7 @@ namespace
 		auto where = g_gridWhere;
 		where.cellSize = CellSizeFor(host.width, host.height, pages.size());
 		where.hint.clear();
+		where.livePage = g_currentPage;
 		// The two lines the dialog already has of its own; ours would be a
 		// second pair saying the same thing.
 		where.labelSize = 1.0;
@@ -2225,6 +2261,9 @@ namespace
 				font,
 				g_gridFont.empty() ? "the cross's own key labels" : "the INI");
 		}
+
+		// Which row the digits mean, so the panel can mark it.
+		g_gridWhere.livePage = g_currentPage;
 
 		// The keys, so the line under the panel can name them. A drawn
 		// button is set larger than the words, so the field is told what the
@@ -2625,8 +2664,32 @@ namespace
 			return;
 		}
 
-		if (spot.page != g_currentPage) {
-			GoToPage(spot.page);
+		// A cell on another page is used by **borrowing one key**, not by
+		// turning the page.
+		//
+		// Turning it wrote all twelve favorites through the engine, moved
+		// the page the digits 1-0 mean, and had to be undone on close. It
+		// was also where three separate bugs lived: the stale cache, the
+		// second object holding the same key, the split stack. Two writes
+		// instead of twenty-four leave far less room for any of that.
+		//
+		// What is on that key now is put back afterwards. The page the
+		// engine holds never changes, so nothing has to be restored later
+		// and nothing outside this menu notices.
+		const auto borrowed = spot.page != g_currentPage;
+		RE::TESBoundObject* displaced = nullptr;
+		if (borrowed) {
+			displaced = ReadFavorites()[spot.slot].object;
+			if (displaced == object) {
+				displaced = nullptr;
+			} else {
+				ClearKey(static_cast<std::uint8_t>(spot.slot));
+				if (const auto from = FindFree(object)) {
+					WriteFavorite(
+						object, *from, static_cast<std::uint8_t>(spot.slot));
+				}
+				SyncFavoritesCache();
+			}
 		}
 
 		// Whether this press may take something off again rather than put it
@@ -2649,6 +2712,18 @@ namespace
 			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
 		const auto used = use::Quickkey(
 			static_cast<std::uint32_t>(spot.slot), g_toggleEquip && worn);
+
+		// And the key goes back to whoever had it. Not conditional on the
+		// use having worked: the borrowing happened either way.
+		if (borrowed && displaced) {
+			ClearKey(static_cast<std::uint8_t>(spot.slot));
+			if (const auto from = FindFree(displaced)) {
+				WriteFavorite(
+					displaced, *from, static_cast<std::uint8_t>(spot.slot));
+			}
+			SyncFavoritesCache();
+			RefreshCross();
+		}
 		logger::info(
 			"use: [{}] \"{}\" on page {} -- the game {}",
 			KeyLabel(spot.slot),
