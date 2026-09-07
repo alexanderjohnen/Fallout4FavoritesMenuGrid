@@ -481,157 +481,79 @@ namespace
 		read(L"Pages", L"NextPageKey", g_nextPageKey);
 		read(L"Pages", L"PreviousPageKey", g_previousPageKey);
 
+		// ---- What a player turns ----------------------------------------
+		//
+		// Everything below is in the INI because somebody might reasonably
+		// want it different. What is *not* below used to be, and was taken
+		// out for the release: the size of every line of type, the length
+		// and weight of the corner marks, how much of a cell an icon fills,
+		// how fast a held key repeats, the name of the font the button
+		// symbols live in, and a button for each of the seven things a
+		// controller does. Those were the numbers this mod was built with,
+		// not questions a player has -- and an INI that asks fifty-nine
+		// questions is one nobody reads. They are constants now, at the
+		// values the measuring settled on.
+
 		read(L"Controls", L"GridPageUpKey", g_gridKeys.pageUp);
 		read(L"Controls", L"GridPageDownKey", g_gridKeys.pageDown);
 		read(L"Controls", L"GridLeftKey", g_gridKeys.slotLeft);
 		read(L"Controls", L"GridRightKey", g_gridKeys.slotRight);
 		read(L"Controls", L"GridUseKey", g_gridKeys.use);
-		read(L"Controls", L"GridUseAltKey", g_gridKeys.useAlt);
 		read(L"Controls", L"GridClearKey", g_clearKey);
 		read(L"Controls", L"GridMoveKey", g_moveKey);
 
-		g_gridPad.enabled =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridGamepad", 1, path.c_str()) != 0;
-		g_gridPad.stick =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridGamepadStick", 1, path.c_str()) != 0;
-		g_hidePointer =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridHidePointer", 1, path.c_str()) != 0;
-		readPad(L"GridPadUpButton", g_gridPad.pageUp);
-		readPad(L"GridPadDownButton", g_gridPad.pageDown);
-		readPad(L"GridPadLeftButton", g_gridPad.slotLeft);
-		readPad(L"GridPadRightButton", g_gridPad.slotRight);
-		readPad(L"GridPadUseButton", g_gridPad.use);
-		readPad(L"GridPadMoveButton", g_gridPad.move);
-		readPad(L"GridPadClearButton", g_gridPad.clear);
-		g_repeatDelay = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Controls", L"GridRepeatDelay", 400, path.c_str())),
-			50,
-			2000) / 1000.0;
-		g_repeatInterval = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Controls", L"GridRepeatRate", 90, path.c_str())),
-			20,
-			1000) / 1000.0;
-		g_toggleEquip =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridToggleEquip", 1, path.c_str()) != 0;
-		g_wrapNavigation =
-			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
+		const auto yes = [&](const wchar_t* a_section,
+							  const wchar_t* a_key,
+							  bool a_fallback) {
+			return GetPrivateProfileIntW(
+					   a_section, a_key, a_fallback ? 1 : 0, path.c_str()) != 0;
+		};
 
-		read(L"Debug", L"PeekKey", g_peekKey);
-		read(L"Debug", L"SurveyKey", g_surveyKey);
-		read(L"Debug", L"PipboyCrossKey", g_crossKey);
-		g_logIcons =
-			GetPrivateProfileIntW(L"Debug", L"LogIcons", 0, path.c_str()) != 0;
-		g_surveyDepth = std::clamp(
+		g_gridKeys.useOnClick = yes(L"Controls", L"GridUseOnClick", true);
+		g_closeAfterUse = yes(L"Controls", L"GridCloseAfterUse", true);
+		g_toggleEquip = yes(L"Controls", L"GridToggleEquip", true);
+		g_wrapNavigation = yes(L"Controls", L"GridWrap", true);
+		g_hidePointer = yes(L"Controls", L"GridHidePointer", true);
+		g_gridPad.enabled = yes(L"Controls", L"GridGamepad", true);
+		g_gridPad.stick = yes(L"Controls", L"GridGamepadStick", true);
+
+		g_gridWhere.cellSize = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
-				L"Debug", L"SurveyPipboy", 0, path.c_str())),
-			0,
-			12);
-
-		// What the cross shows.
-		g_gridKeys.useOnClick =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridUseOnClick", 1, path.c_str()) != 0;
-		g_closeAfterUse =
-			GetPrivateProfileIntW(
-				L"Controls", L"GridCloseAfterUse", 1, path.c_str()) != 0;
-
-		g_stripItemTags = GetPrivateProfileIntW(
-							  L"Display", L"StripItemTags", 1, path.c_str()) != 0;
+				L"Grid", L"GridCellSize", 48, path.c_str())),
+			24,
+			96);
 		// GetPrivateProfileIntW answers with a UINT, so a -1 that means
 		// "centred" comes back as 4294967295 and puts the panel four billion
 		// units off screen. The cast is the whole fix, and it cost an
 		// evening's worth of wrong conclusions.
 		g_gridWhere.x = static_cast<int>(
-			GetPrivateProfileIntW(L"Display", L"GridX", -1, path.c_str()));
+			GetPrivateProfileIntW(L"Grid", L"GridX", -1, path.c_str()));
 		g_gridWhere.y = static_cast<int>(
-			GetPrivateProfileIntW(L"Display", L"GridY", -1, path.c_str()));
-		g_useIcons =
-			GetPrivateProfileIntW(L"Display", L"UseIcons", 1, path.c_str()) != 0;
-		g_iconFallback =
-			GetPrivateProfileIntW(L"Display", L"IconFallback", 1, path.c_str()) != 0;
-		g_gridWhere.iconColors =
-			GetPrivateProfileIntW(L"Display", L"IconColors", 1, path.c_str()) != 0;
-		g_gridWhere.labelSize = std::clamp(
-			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"LabelSize", 28, path.c_str())),
-			8,
-			72);
-		g_gridWhere.detailSize = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"LabelDetailSize", 22, path.c_str())),
-			8,
-			72);
-		g_showHint =
-			GetPrivateProfileIntW(L"Display", L"ShowKeyHints", 1, path.c_str()) != 0;
-		g_hintExtra = ReadText(path, L"Display", L"KeyHintExtra", L"TAB) CLOSE");
-		g_hintExtraPad =
-			ReadText(path, L"Display", L"KeyHintExtraGamepad", L"B) CLOSE");
-		g_glyphFont = ReadText(
-			path, L"Display", L"GamepadGlyphFont", L"Controller  Buttons");
-		g_glyphScale = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GamepadGlyphSize", 145, path.c_str())),
-			50,
-			300);
-		g_gridFont = ReadText(path, L"Display", L"GridFont", L"");
-		g_gridWhere.hintSize = std::clamp(
-			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"KeyHintSize", 14, path.c_str())),
-			8,
-			48);
-		g_gridWhere.corners =
-			GetPrivateProfileIntW(L"Display", L"GridCorners", 0, path.c_str()) != 0;
-		g_gridWhere.cornerArm = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerLength", 12, path.c_str())),
-			5,
-			200) / 100.0;
-		g_gridWhere.cornerThickness = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerThickness", 2, path.c_str())),
-			1,
-			16);
-		g_gridWhere.cornerOutset = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCornerOutset", 5, path.c_str())),
-			0,
-			64);
-		g_gridWhere.labelGap = std::clamp(
-			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"LabelGap", 16, path.c_str())),
-			0,
-			96);
-		g_gridWhere.showRowLabels =
-			GetPrivateProfileIntW(
-				L"Display", L"ShowPageNumbers", 1, path.c_str()) != 0;
-		g_gridWhere.keyRowGap = std::clamp(
-			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"KeyRowGap", 8, path.c_str())),
-			0,
-			64);
-		g_gridWhere.iconFit = std::clamp(
-			static_cast<int>(
-				GetPrivateProfileIntW(L"Display", L"IconFit", 78, path.c_str())),
-			20,
-			100) / 100.0;
-		g_gridWhere.cellSize = std::clamp(
-			static_cast<int>(GetPrivateProfileIntW(
-				L"Display", L"GridCellSize", 48, path.c_str())),
-			24,
-			96);
-		g_gridWhere.backdrop =
-			GetPrivateProfileIntW(L"Display", L"GridBackdrop", 0, path.c_str()) != 0;
-		g_hideCrosshair =
-			GetPrivateProfileIntW(
-				L"Display", L"HideCrosshair", 1, path.c_str()) != 0;
+			GetPrivateProfileIntW(L"Grid", L"GridY", -1, path.c_str()));
 		g_gridColor = static_cast<std::uint32_t>(GetPrivateProfileIntW(
-			L"Display", L"GridColor", 0x1000000, path.c_str()));
+			L"Grid", L"GridColor", 0x1000000, path.c_str()));
+
+		g_gridWhere.showRowLabels = yes(L"Grid", L"ShowPageNumbers", true);
+		g_gridWhere.corners = yes(L"Grid", L"GridCorners", false);
+		g_useIcons = yes(L"Grid", L"UseIcons", true);
+		g_gridWhere.iconColors = yes(L"Grid", L"IconColors", true);
+		g_iconFallback = yes(L"Grid", L"IconFallback", true);
+		g_stripItemTags = yes(L"Grid", L"StripItemTags", true);
+		g_hideCrosshair = yes(L"Grid", L"HideCrosshair", true);
+		g_showHint = yes(L"Grid", L"ShowKeyHints", true);
+		g_hintExtra = ReadText(path, L"Grid", L"KeyHintExtra", L"TAB) CLOSE");
+
+		// Left in the code and out of the INI: for working on the mod, not
+		// for playing it. Written up in the handoff instead.
+		read(L"Debug", L"PeekKey", g_peekKey);
+		read(L"Debug", L"SurveyKey", g_surveyKey);
+		read(L"Debug", L"PipboyCrossKey", g_crossKey);
+		g_logIcons = yes(L"Debug", L"LogIcons", false);
+		g_surveyDepth = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Debug", L"SurveyPipboy", 0, path.c_str())),
+			0,
+			12);
 
 		// Off unless someone asks for it: the corner message lands wherever
 		// the player's HUD mods put it, which is why the page is written

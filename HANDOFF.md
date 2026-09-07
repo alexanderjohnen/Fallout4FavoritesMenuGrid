@@ -3253,3 +3253,66 @@ Umrechnung geht von Bildschirmpixeln über die Bühne (Abschnitt 22), und das
 Panel hängt hier in einem Clip mit eigener Transformation. Der Weg dahin ist
 `globalToLocal` auf dem haltenden Clip statt der Bühnenrechnung — ein anderer
 Mechanismus, kein Nachziehen von Zahlen, deshalb ein eigener Schritt.
+
+## 52. Die INI, releasefertig (2026-09-07)
+
+Vorlage war die INI, die die Starfield-Mod ausliefert. Ihr Aufbau in einem
+Satz, und der steht auch in ihrem Kopf: **erst die Option, dann die erlaubten
+Werte, dann was sie tut** — und ausschließlich Dinge, die ein Spieler
+verstellen will.
+
+Vorher **59 Optionen**, jetzt **31**. Abschnitte heißen `[Pages]`, `[Grid]`
+und `[Controls]`; `[Display]` ist zu `[Grid]` geworden.
+
+### Was verschwunden ist, und warum
+
+| | |
+| --- | --- |
+| `LabelSize`, `LabelDetailSize`, `LabelGap`, `KeyRowGap`, `KeyHintSize` | die Größen jeder Textzeile. Es sind die Zahlen des Spiels selbst (28 über 22), keine Frage |
+| `GridCornerLength`, `-Thickness`, `-Outset` | drei Stellschrauben an einem Schalter, der selbst schon Geschmackssache ist. `GridCorners` bleibt |
+| `IconFit` | wie viel einer Zelle ein Symbol füllt |
+| `GridFont` | leer heißt „die gemessene", und das ist immer die richtige |
+| `GridBackdrop` | Rest aus der Erkundungszeit |
+| `GamepadGlyphFont`, `GamepadGlyphSize` | der Schriftname ist eine interne Tatsache, keine Wahl |
+| `GridRepeatDelay`, `GridRepeatRate` | 400 und 90 ms, ermessen |
+| `GridUseAltKey` | Return benutzt immer, das braucht keinen Eintrag |
+| `GridPad*Button` (sieben Stück) | die Vorgabe *ist* die sinnvolle Belegung |
+| `KeyHintExtraGamepad` | der Schließknopf wird am Controller aus der Bindung gezeichnet |
+| `PageMessage` | die Eckmeldung ist ganz weg (Abschnitt 51) |
+| der ganze `[Debug]`-Abschnitt | siehe unten |
+
+Alles davon steht jetzt als Konstante im Code, auf dem Wert, den das Messen
+ergeben hat. **Die Einstellung ist verschwunden, nicht die Entscheidung.**
+
+### Der Debug-Abschnitt
+
+`PeekKey`, `LogIcons`, `SurveyPipboy`, `SurveyKey` und `PipboyCrossKey`
+werden weiterhin **gelesen**, stehen aber in keiner ausgelieferten INI mehr.
+Wer daran arbeitet, hängt sich einen `[Debug]`-Abschnitt von Hand an:
+
+```
+[Debug]
+LogIcons=1          ; je Zelle: Schlüsselwort, Symbol, aufgelöste Farbe
+SurveyPipboy=0      ; Anzeigebaum des Pip-Boys beim Öffnen, so viele Ebenen
+SurveyKey=F11       ; derselbe Baum auf Tastendruck, mit offenem Dialog
+PipboyCrossKey=F12  ; das Vanilla-Kreuz kurz zurückholen
+PeekKey=NONE        ; Engine-Code neben das Log schreiben (peek.h)
+```
+
+Das ist der Kompromiss: eine INI, die nur fragt, was einen Spieler angeht,
+und Werkzeug, das nicht ausgebaut werden musste, um sie zu bekommen.
+
+### Eine Probe, die sich lohnt
+
+Der Abgleich „welche Schlüssel liest der Code, welche stehen in der INI" ist
+ein Dreizeiler und fand auf Anhieb beide Richtungen leer. Vor jedem Release
+noch einmal laufen lassen:
+
+```python
+ini  = set(re.findall(r'^([A-Za-z]+)=', open('FavoritesMenuGrid.ini').read(), re.M))
+code = set(re.findall(r'L"(?:Grid|Controls|Pages)", L"([A-Za-z]+)"', open('src/main.cpp').read()))
+print(sorted(ini - code), sorted(code - ini))
+```
+
+Eine tote Option in der INI ist ein Versprechen, das nichts hält; eine
+gelesene, die nirgends steht, ist eine Falltür.
