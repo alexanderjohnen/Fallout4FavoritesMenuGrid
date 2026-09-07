@@ -3627,3 +3627,56 @@ das folgende Bild.
 Cache (53), dann die Warteschlange gegen das Zurücklegen (57), jetzt der
 Seitenwechsel gegen die Benutzung. Alle drei sind eine Frage: *wann* gilt,
 was wir geschrieben haben — und die Antwort war nie „sofort".
+
+## 60. Die ganze Nacht die falsche Kopie gepflegt (2026-09-07)
+
+Die Messung an der Aufrufstelle beantwortet es, und die Antwort ist
+unangenehm:
+
+```
+mark: page 2 key 3
+use: at the call, the engine holds "Laser" on [3], and we mean "Laser"
+use: [3] "Laser" on page 2 -- the game used it
+```
+
+**Alles stimmt in dem Bild, in dem gerufen wird** — Marke, Inventar, die
+eigene Kopie der Engine — und es kommt trotzdem das Falsche heraus.
+
+Damit ist `storedFavTypes` als Quelle erledigt. Die vier Änderungen dieses
+Abends — Cache nachziehen, Taste von allen Gegenständen räumen, Zurücklegen
+verzögern, ein Bild warten — zielten allesamt daran vorbei. Zwei davon sind
+für sich richtig und bleiben; keine davon war die Ursache.
+
+### Was der Maschinencode sagt
+
+Aus `FavoritesMenuGrid.found.txt`, also aus dem laufenden Spiel:
+
+```asm
+0x0126fcd5  mov  edx, r14d      ; der Index
+0x0126fcd8  mov  rcx, rbx       ; der Manager
+0x0126fcdb  call 0x1271670      ; [ID 691965]
+0x0126fce3  mov  rbp, rax       ; das Ding auf der Taste
+0x0126fce6  test rax, rax
+0x0126fce9  je   0x126fe95      ; nichts drauf -> raus
+```
+
+Der gesamte Rest von `UseQuickkeyItem` arbeitet nur noch mit `rbp`. **Die
+Zuordnung Taste → Gegenstand steckt in ID 691965**, und das ist kein Zugriff
+auf `storedFavTypes`: der wäre ein `mov rax, [rbx+0x90+idx*8]` und stünde
+direkt hier.
+
+Was 691965 liest, ist die einzige Frage, die noch zählt. `PeekIDs=691965:0x200`
+steht in der INI, `PeekKey=F10`; ein Start, ein Tastendruck, dann
+`py -3 tools/f4dis.py peek …`.
+
+### Die Lehre des Abends
+
+Vier Vermutungen, drei zurückgenommen, und die Messung, die es entschied,
+kostete acht Zeilen. Abschnitt 37 hat dasselbe schon einmal notiert — *nicht
+die nächste Vermutung bauen, sondern messen* —, und heute habe ich vier
+Stunden gebraucht, um es wieder anzuwenden.
+
+Der Unterschied zwischen den beiden Sorten Log-Zeile ist dabei der Kern:
+**„was wir geschrieben haben" ist wertlos, „was die Engine in diesem Moment
+liest" ist die Antwort.** Alles, was wir bis Mitternacht protokolliert haben,
+war von der ersten Sorte.
