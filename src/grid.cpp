@@ -1130,15 +1130,70 @@ void grid::Mark(const std::optional<Spot>& a_spot)
 
 void grid::Say(std::string_view a_name, std::string_view a_what)
 {
+	// The two lines shrink to fit rather than run off the panel.
+	//
+	// A weapon's name is not a name any more once the instance rules have
+	// had it: "Assault Rifle | Hardened | Automatic | Muzzled | 5mm |
+	// Incendiary" is one line the game itself will happily hand over, and at
+	// the size the panel writes in it is half again as wide as the cells.
+	//
+	// Fallout 4 solves this for its own item name with Scaleform's
+	// TEXTAUTOSZ_SHRINK -- FavoritesMenu.as sets it on ItemName_tf in its
+	// constructor. That extension is reachable only as a static method of an
+	// ActionScript class, which is an awkward thing to call from here, and
+	// the arithmetic behind it is one line: a text field will say how wide
+	// its text came out, and width scales with the size it is set in.
+	//
+	// So: put the full size back, write the text, ask how wide it got, and
+	// if it is too wide, set it again at the size that would have fitted.
+	// Full size first every time, because the line before it may have been
+	// a long one and a size left small would quietly shrink everything after
+	// it.
 	const auto write = [](RE::Scaleform::GFx::Value& a_field,
 						   std::string_view a_text,
-						   double a_y) {
+						   double a_y,
+						   double a_size) {
 		if (!a_field.IsDisplayObject()) {
 			return;
 		}
+		a_field.SetMember("y", RE::Scaleform::GFx::Value(a_y));
+
+		RE::Scaleform::GFx::Value format;
+		const auto styled =
+			a_field.GetMember("defaultTextFormat", &format) && format.IsObject();
+		if (styled) {
+			format.SetMember("size", RE::Scaleform::GFx::Value(a_size));
+			a_field.SetMember("defaultTextFormat", format);
+		}
 		a_field.SetMember(
 			"text", RE::Scaleform::GFx::Value(std::string(a_text).c_str()));
-		a_field.SetMember("y", RE::Scaleform::GFx::Value(a_y));
+		if (!styled) {
+			return;
+		}
+		// defaultTextFormat only reaches what is typed after it, so the
+		// format is applied over the text as well.
+		a_field.Invoke("setTextFormat", nullptr, &format, 1);
+		if (a_text.empty()) {
+			return;
+		}
+
+		// Two units of gutter on each side, which Scaleform adds and does
+		// not count.
+		const auto room = ReadNumber(a_field, "width", 0.0) - 4.0;
+		const auto wide = ReadNumber(a_field, "textWidth", 0.0);
+		if (room <= 0.0 || wide <= 0.0 || wide <= room) {
+			return;
+		}
+
+		// A hair under what would exactly fit, and never smaller than the
+		// point where shrinking stops being reading.
+		constexpr double kSmallest = 9.0;
+		const auto fitted = std::max(kSmallest, a_size * room / wide * 0.98);
+		if (fitted >= a_size) {
+			return;
+		}
+		format.SetMember("size", RE::Scaleform::GFx::Value(fitted));
+		a_field.Invoke("setTextFormat", nullptr, &format, 1);
 	};
 
 	// Hung from the bottom of the band: the name sits over the keys, and a
@@ -1149,14 +1204,14 @@ void grid::Say(std::string_view a_name, std::string_view a_what)
 	const auto detailHeight = m.detailSize + m.gap;
 
 	if (a_what.empty()) {
-		write(g_note, a_name, g_labelBottom - nameHeight);
-		write(g_detail, {}, g_labelBottom);
+		write(g_note, a_name, g_labelBottom - nameHeight, m.titleSize);
+		write(g_detail, {}, g_labelBottom, m.detailSize);
 		return;
 	}
 
 	const auto detailTop = g_labelBottom - detailHeight;
-	write(g_note, a_name, detailTop - nameHeight);
-	write(g_detail, a_what, detailTop);
+	write(g_note, a_name, detailTop - nameHeight, m.titleSize);
+	write(g_detail, a_what, detailTop, m.detailSize);
 }
 
 void grid::Hold(const std::optional<Spot>& a_spot)

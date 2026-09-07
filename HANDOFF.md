@@ -2988,3 +2988,63 @@ angezeigte Name gemeint und nicht der aus dem Plugin. Wer eine neue Stelle
 baut, die etwas aus einem Namen ableitet — Symbol, Farbe, Sortierung —, nimmt
 `detail::DisplayName`. `TESFullName::GetFullName` auf einem Basisobjekt ist
 in dieser Mod nur noch der Notnagel innerhalb dieser einen Funktion.
+
+## 47. Das Kreuz im Pip-Boy, vermessen (2026-09-07)
+
+Gefunden, und zwar an einer Stelle, die niemand geraten hätte:
+
+```
+PipboyMenu.instance36.ModalFadeRect_mc.instance402.Cross_mc   216,114  418x420
+```
+
+**Ein Kind des Dimmers.** `ModalFadeRect_mc` ist nicht bloß der graue Schleier
+hinter dem Dialog — der ganze Dialog hängt darin. Deshalb war die erste
+Vermessung, die den Dimmer *sichtbar* meldete und trotzdem kein Kreuz fand,
+kein Widerspruch: da war ein Modal offen, aber nicht dieses.
+
+Der Aufbau, wie er auf dieser Installation wirklich aussieht:
+
+```
+PipboyMenu.instance36                          (die Inventarseite)
+  ModalFadeRect_mc                 0,0   885x707   der Dimmer, seitengroß
+    ModalFadeInputCatcher          0,0   885x707
+    instance402                    0,0   454x587   der Dialog selbst
+      Background_mc              200,97  454x553
+      Header_tf                  225,60  400x51    "ASSIGN FAVORITE"
+      Cross_mc                   216,114 418x420   die zwölf Felder
+        EntryHolder_mc             0,0   418x419
+        Selection_mc             180,360  59x59
+      SelectionName_tf           208,546 435x41
+      SelectionAmmo_tf           275,599 300x36
+      FallUI_textEnhanced80/81                     Zutaten von FallUI
+```
+
+Bühne: **876x757**. Der frühere Lauf mit 1244x700 war der in der Power Armor —
+Abschnitt 42 hatte die beiden vertauscht, hier steht es richtig herum.
+
+### Was das für ein Gitter heißt
+
+- **Erreichbar ist es.** `FindByName` aus `main.cpp` — dasselbe Werkzeug, das
+  das Crosshair im HUD sucht — findet `Cross_mc` bei Tiefe 5. Über Namen der
+  Zwischenstufen darf nichts laufen: `instance36` hieß in einem anderen Lauf
+  `instance8`, und `instance402` ist genauso vergänglich. Vom Menü aus suchen,
+  nicht durchhangeln.
+- **Der Platz ist knapp, aber er reicht.** Der Dialog ist 454 breit, das Kreuz
+  418x420. Zwölf Spalten in 418 Einheiten heißen rund **33 pro Zelle** — die
+  INI lässt 24 bis 96 zu, das passt. Vier Seiten zu 35 sind 140 in der Höhe,
+  bei 420 verfügbar. Es ist also eher zu viel Platz als zu wenig.
+- **Der Rahmen ist schon da.** `Header_tf`, `SelectionName_tf` und
+  `SelectionAmmo_tf` sind genau die Zeilen, die unser Panel sich selbst
+  zeichnet. Im Pip-Boy müssten wir sie nicht bauen, sondern füllen.
+
+### Und was dort etwas anderes ist
+
+Im HUD **benutzt** man eine Zelle. Im Pip-Boy **belegt** man sie: das Kreuz
+ist ein Zuweisungsdialog. Ein Gitter an dieser Stelle bedeutet also nicht
+"dasselbe nochmal", sondern das, was heute gar nicht geht — einen Gegenstand
+direkt auf Seite 3, Taste 7 legen, ohne vorher durch die Seiten zu blättern.
+Das ist der eigentliche Gewinn, und es ist ein anderer Gewinn als der im HUD.
+
+Offen, und erst im Spiel zu beantworten: ob die Eingabe des Dialogs sich
+genauso abfangen lässt wie die des Favoritenmenüs, und was passiert, wenn man
+`Cross_mc` versteckt — der Dialog hört womöglich auf dessen Auswahl.
