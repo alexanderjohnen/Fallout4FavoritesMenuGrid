@@ -63,6 +63,13 @@ namespace
 	// Whether cells carry icons at all.
 	bool g_useIcons = true;
 
+	// Writes, once per opening, what every cell resolved to: the keyword its
+	// name gave, the symbol that keyword names, and the colours that came
+	// out of the palette. A tool, not a feature -- but the one that turns
+	// "this looks wrong" into a line somebody can check against the XML.
+	bool g_logIcons = false;
+	std::atomic_bool g_logIconsDue{ false };
+
 	// Whether the mouse pointer goes out of sight while the keys have the
 	// mark. Its own switch, because it is the one part of this that reaches
 	// outside our own menu.
@@ -498,6 +505,8 @@ namespace
 			GetPrivateProfileIntW(L"Controls", L"GridWrap", 1, path.c_str()) != 0;
 
 		read(L"Debug", L"PeekKey", g_peekKey);
+		g_logIcons =
+			GetPrivateProfileIntW(L"Debug", L"LogIcons", 0, path.c_str()) != 0;
 
 		// What the cross shows.
 		g_gridKeys.useOnClick =
@@ -1560,7 +1569,28 @@ namespace
 				if (keyword.empty() && g_iconFallback) {
 					keyword = FallbackKeyword(object);
 				}
-				if (const auto* icon = tags::Find(keyword)) {
+				const auto* icon = tags::Find(keyword);
+				if (g_logIconsDue.load()) {
+					std::string colors;
+					if (icon) {
+						for (const auto value : icon->colors) {
+							colors += colors.empty() ? "" : ",";
+							colors += value <= 0xFFFFFF
+								? std::format("#{:06x}", value)
+								: "-";
+						}
+					}
+					logger::info(
+						"icon: \"{}\" -> [{}] {}{} {}",
+						cell.name,
+						keyword,
+						icon ? icon->symbol : std::string("(none)"),
+						icon && !icon->subsymbol.empty()
+							? " +" + icon->subsymbol
+							: std::string(),
+						colors.empty() ? "(no colour)" : colors);
+				}
+				if (icon) {
 					// The "m_" is the only translation between what the
 					// configuration writes and what the library exports.
 					cell.symbol = "m_" + icon->symbol;
@@ -1574,6 +1604,7 @@ namespace
 				}
 			}
 		}
+		g_logIconsDue.store(false);
 		return rows;
 	}
 
@@ -2409,6 +2440,9 @@ namespace
 				logger::info(
 					"FavoritesMenu {}", a_event.opening ? "opened" : "closed");
 				g_favoritesMenuOpen = a_event.opening;
+				if (a_event.opening && g_logIcons) {
+					g_logIconsDue.store(true);
+				}
 
 				// The field belongs to the movie that is going away, so it
 				// is dropped on close and built again on the next open.

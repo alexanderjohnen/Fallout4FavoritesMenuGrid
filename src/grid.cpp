@@ -468,18 +468,23 @@ namespace
 		return icon;
 	}
 
-	// A cell's symbol, which is one drawing or two.
+	// A cell's symbol.
 	//
 	// The sorter writes its colours as a list, and the list means one of two
-	// things. With a `subicon` it is two drawings laid over each other --
-	// pills in silver with their coloured half on top, a med kit with tools
-	// over it -- and then the first colour is the first drawing and the
-	// second the second. Without one it is a single clip of several parts,
-	// and the list runs along those.
+	// things. Without a `subicon` it is a single clip of several parts and
+	// the list runs along them. With one, the second colour belongs to a
+	// second drawing -- and that drawing is **not** ours to make.
 	//
-	// Reading the list as parts in both cases is what left this grid a
-	// colour short: the subicon was never drawn at all, so its colour had
-	// nothing to go on.
+	// It was, for one build. In the Pip-Boy a subicon is a small badge in
+	// the corner of the icon; drawn here at the same size and the same
+	// centre it covered the thing it was meant to annotate. A badge needs a
+	// size and a corner of its own, and until those are measured out of the
+	// game rather than guessed, no badge is better than a wrong one.
+	//
+	// So the subicon is read (tags.cpp keeps it) and not drawn, and its
+	// presence still means something here: it says the colour list belongs
+	// to two drawings rather than to the parts of one, so the icon takes the
+	// first colour flat instead of having the list spread across it.
 	void Symbol(
 		RE::IMenu* a_canvas,
 		const grid::Cell& a_cell,
@@ -489,19 +494,13 @@ namespace
 		const grid::Placement& a_where)
 	{
 		auto icon = Place(a_canvas, a_cell.symbol, a_left, a_top, a_m, a_where);
-		if (!icon.IsDisplayObject()) {
-			return;
-		}
-		auto sub =
-			Place(a_canvas, a_cell.subsymbol, a_left, a_top, a_m, a_where);
-
-		if (!a_where.iconColors || a_cell.colors.empty()) {
+		if (!icon.IsDisplayObject() || !a_where.iconColors ||
+			a_cell.colors.empty()) {
 			return;
 		}
 
-		if (sub.IsDisplayObject()) {
+		if (!a_cell.subsymbol.empty()) {
 			PaintOne(a_canvas, icon, a_cell.colors.front());
-			PaintOne(a_canvas, sub, a_cell.colors.back());
 			return;
 		}
 		PaintParts(a_canvas, icon, a_cell.colors);

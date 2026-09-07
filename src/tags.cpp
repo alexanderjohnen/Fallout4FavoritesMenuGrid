@@ -148,10 +148,24 @@ namespace
 		std::size_t block = 0;
 		ForEachElement(a_text, "tag", [&](std::string_view a_element) {
 			const auto keyword = Attribute(a_element, "keyword");
-			const auto icon = Attribute(a_element, "icon");
-			if (keyword.empty() || icon.empty()) {
+			if (keyword.empty()) {
 				return;
 			}
+			// A tag without an icon is not a broken tag. The format's own
+			// demo file spells it out:
+			//
+			//   <!-- Change color of the existing icon "PowerArmor" -->
+			//   <tag keyword="PowerArmor" colorname="myPowerArmor" />
+			//
+			// An entry carries only what it wants to change, and the rest
+			// stands. We were throwing every such entry away, which meant
+			// every refinement of a colour, a subicon or a sort order went
+			// unread -- and a keyword refined in one file and drawn in
+			// another came out in the colour nobody had chosen.
+			//
+			// So: what an entry names, it sets; what it leaves out, it
+			// leaves alone.
+			const auto icon = Attribute(a_element, "icon");
 
 			// Which block this tag sits in: the last one that begins before
 			// it. Elements come in document order, so this only walks
@@ -163,16 +177,22 @@ namespace
 			}
 
 			const auto key = Lowered(keyword);
-			tags::Icon entry;
-			entry.symbol = icon;
-			entry.subsymbol = Attribute(a_element, "subicon");
-			entry.library = blocks[block].library;
-			g_icons.insert_or_assign(key, std::move(entry));
+			auto& entry = g_icons[key];
+			if (!icon.empty()) {
+				entry.symbol = icon;
+				// The library belongs to the drawing. An entry that only
+				// recolours an icon says nothing about where that icon
+				// lives, and its own block's library would be the wrong
+				// answer.
+				entry.library = blocks[block].library;
+			}
+			if (const auto sub = Attribute(a_element, "subicon"); !sub.empty()) {
+				entry.subsymbol = sub;
+			}
 
 			// A symbol built from several shapes names a colour for each,
 			// separated by commas -- RadAway is a brown bag with a silver
-			// cap. All of them are kept, in order: the parts of the icon are
-			// painted one by one.
+			// cap. All of them are kept, in order.
 			const auto color = Attribute(a_element, "colorname");
 			if (!color.empty()) {
 				std::vector<std::string> wanted;
@@ -596,6 +616,10 @@ namespace
 			}
 			logger::info("tags: the palette is \"{}\"", name);
 			ReadColors(text);
+			// Two of the sets shipped with FallUI carry <tag> elements as
+			// well as <color> ones -- a palette is allowed to say that a
+			// shotgun is a different colour, not only what that colour is.
+			ReadTags(text);
 			return;
 		}
 		logger::info(
@@ -650,6 +674,13 @@ void tags::Load(const std::filesystem::path& a_interface)
 	// this one is the one the player picked.
 	ReadChosenColorSet(a_interface);
 	ReadChosenVariations(a_interface);
+
+	// A keyword that was only ever refined and never drawn is not an icon.
+	// It stays in the map while files are read -- the next file may be the
+	// one that gives it a drawing -- and goes now.
+	std::erase_if(g_icons, [](const auto& a_pair) {
+		return a_pair.second.symbol.empty();
+	});
 
 	for (auto& [keyword, icon] : g_icons) {
 		const auto wanted = g_wanted.find(keyword);
