@@ -132,9 +132,27 @@ namespace grid
 
 	};
 
+	// Somewhere other than the stage.
+	//
+	// Everywhere but the Pip-Boy the panel hangs on the canvas's own stage
+	// and is centred on the screen. In the Pip-Boy it has to hang inside the
+	// ASSIGN FAVORITE dialog and sit exactly where that dialog's own cross
+	// sits -- a rectangle in the coordinates of whatever clip holds it,
+	// which is the only frame of reference there that means anything.
+	struct Host
+	{
+		// The clip the panel becomes a child of. Its coordinate space is
+		// what the rectangle below is measured in.
+		RE::Scaleform::GFx::Value* parent{ nullptr };
+		double x{ 0.0 };
+		double y{ 0.0 };
+		double width{ 0.0 };
+		double height{ 0.0 };
+	};
+
 	// `a_canvas` is drawn on, `a_favorites` is the menu the cross lives in;
 	// they are only the same menu when the canvas is the favorites menu
-	// itself.
+	// itself. `a_host` is null everywhere except the Pip-Boy.
 	void Draw(
 		RE::IMenu* a_canvas,
 		RE::IMenu* a_favorites,
@@ -142,7 +160,8 @@ namespace grid
 		const std::vector<Page>& a_pages,
 		const std::optional<Spot>& a_marked,
 		std::uint32_t a_color,
-		const Placement& a_where);
+		const Placement& a_where,
+		const Host* a_host = nullptr);
 
 	// Where the game's own pointer sits, in the stage units the panel is
 	// laid out in. The menu carries a cursor because it asked for one, so
@@ -174,4 +193,13 @@ namespace grid
 	// Forgets the panel. The display objects belong to the movie that is
 	// going away, so this runs when the menu closes.
 	void Release();
+
+	// Lets go without touching anything.
+	//
+	// Release takes the panel off its parent, which means reaching into the
+	// movie that holds it. When that movie is the one being destroyed there
+	// is nothing to reach into and every reason not to try (section 42), so
+	// the references are simply dropped and the movie takes its own children
+	// with it.
+	void Forget();
 }

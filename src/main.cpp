@@ -1736,6 +1736,11 @@ namespace
 		logger::info("pipboy: the menus up are {}", open.empty() ? "none" : open);
 	}
 
+	// All defined further down, with the things they were written for.
+	[[nodiscard]] std::string CrossFont(RE::Scaleform::GFx::Value& a_cross);
+	[[nodiscard]] std::vector<grid::Page> BuildGridPages();
+	[[nodiscard]] std::uint32_t HUDColor();
+
 	// Walks a display tree looking for a named child. Defined further down,
 	// with the crosshair it was written for.
 	[[nodiscard]] bool FindByName(
@@ -1787,6 +1792,24 @@ namespace
 	// reopened dialog brings a fresh, visible cross whatever was done to the
 	// last one. A held reference into another movie's heap is what section
 	// 42 was about.
+	// Whether our panel is standing in the Pip-Boy right now.
+	bool g_pipboyGridUp = false;
+
+	// Twelve columns across a given width.
+	//
+	// The gap is a fraction of the cell with a floor under it, so the two
+	// depend on each other; two rounds settle it, and the third would move
+	// nothing a screen could show.
+	[[nodiscard]] double CellSizeFor(double a_width)
+	{
+		auto cell = a_width / 12.0;
+		for (int round = 0; round < 2; ++round) {
+			const auto gap = std::max(cell * 0.06, 2.0);
+			cell = (a_width + gap) / 12.0 - gap;
+		}
+		return std::clamp(cell, 16.0, 96.0);
+	}
+
 	void TogglePipboyCross()
 	{
 		RE::Scaleform::GFx::Value root;
@@ -1803,19 +1826,83 @@ namespace
 			return;
 		}
 
-		RE::Scaleform::GFx::Value shown;
-		const auto visible = !cross.GetMember("visible", &shown) ||
-			!shown.IsBoolean() || shown.GetBoolean();
-		cross.SetMember("visible", RE::Scaleform::GFx::Value(!visible));
+		// Standing there already: take it down and give the cross back.
+		if (g_pipboyGridUp) {
+			grid::Release();
+			cross.SetMember("visible", RE::Scaleform::GFx::Value(true));
+			g_pipboyGridUp = false;
+			logger::info("pipboy: the grid is down, the cross is back");
+			return;
+		}
+
+		// The rectangle to fill, in the coordinates of whatever holds the
+		// cross -- which is the one frame of reference in there that means
+		// anything. The clip between the dimmer and the cross was called
+		// instance402 in one run and instance389 in the next.
+		RE::Scaleform::GFx::Value parent;
+		if (!cross.GetMember("parent", &parent) || !parent.IsDisplayObject()) {
+			logger::info("pipboy: the cross has no parent to draw on");
+			return;
+		}
+		grid::Host host;
+		host.parent = &parent;
+		host.x = ReadNumber(cross, "x", 0.0);
+		host.y = ReadNumber(cross, "y", 0.0);
+		host.width = ReadNumber(cross, "width", 0.0);
+		host.height = ReadNumber(cross, "height", 0.0);
+		if (host.width <= 0.0 || host.height <= 0.0) {
+			logger::info("pipboy: the cross has no size to fill");
+			return;
+		}
+
+		auto* pipboy = GetMenu("PipboyMenu");
+		if (!pipboy) {
+			return;
+		}
+
+		// The same class as the favorites menu's cross -- EntryHolder_mc,
+		// Quickkey_tf and all -- so the font is measured the same way.
+		auto font = CrossFont(cross);
+		if (!g_gridFont.empty()) {
+			font = g_gridFont;
+		}
+
+		cross.SetMember("visible", RE::Scaleform::GFx::Value(false));
+
+		// Twelve columns into 418 units is a cell of about 33, which is well
+		// inside what the INI allows -- there is more room in that dialog
+		// than the cross uses.
+		auto where = g_gridWhere;
+		where.cellSize = CellSizeFor(host.width);
+		where.hint.clear();
+		// The two lines the dialog already has of its own; ours would be a
+		// second pair saying the same thing.
+		where.labelSize = 1.0;
+		where.detailSize = 1.0;
+		where.labelGap = 0.0;
+
+		const auto pages = BuildGridPages();
+		grid::Draw(
+			pipboy,
+			pipboy,
+			font,
+			pages,
+			std::nullopt,
+			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
+			where,
+			&host);
+		g_pipboyGridUp = true;
 
 		logger::info(
-			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f} -- now {}",
+			"pipboy: {} is {:.0f},{:.0f} {:.0f}x{:.0f}; the grid went in at "
+			"cell {:.1f}, written in \"{}\"",
 			path,
-			ReadNumber(cross, "x", 0.0),
-			ReadNumber(cross, "y", 0.0),
-			ReadNumber(cross, "width", 0.0),
-			ReadNumber(cross, "height", 0.0),
-			visible ? "hidden" : "shown again");
+			host.x,
+			host.y,
+			host.width,
+			host.height,
+			where.cellSize,
+			font);
 	}
 
 	void SurveyPipboy()
@@ -2699,6 +2786,13 @@ namespace
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 		{
 			static const RE::BSFixedString pipboyMenu("PipboyMenu");
+			if (a_event.menuName == pipboyMenu && !a_event.opening &&
+				g_pipboyGridUp) {
+				// The movie is going away and our panel's objects belong to
+				// it. Forget them rather than reach into them -- section 42.
+				g_pipboyGridUp = false;
+				grid::Forget();
+			}
 			if (a_event.menuName == pipboyMenu && a_event.opening &&
 				g_surveyDepth > 0) {
 				// From a UI task: walking a display tree is Scaleform work,

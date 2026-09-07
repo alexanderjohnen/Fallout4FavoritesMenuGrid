@@ -599,6 +599,17 @@ namespace
 	}
 }
 
+void grid::Forget()
+{
+	g_hidden.clear();
+	g_panel = RE::Scaleform::GFx::Value();
+	g_marker = RE::Scaleform::GFx::Value();
+	g_holder = RE::Scaleform::GFx::Value();
+	g_note = RE::Scaleform::GFx::Value();
+	g_detail = RE::Scaleform::GFx::Value();
+	g_rows = 0;
+}
+
 void grid::Release()
 {
 	for (auto& shown : g_hidden) {
@@ -630,7 +641,8 @@ void grid::Draw(
 	const std::vector<Page>& a_pages,
 	const std::optional<Spot>& a_marked,
 	std::uint32_t a_color,
-	const Placement& a_where)
+	const Placement& a_where,
+	const Host* a_host)
 {
 	if (!a_canvas || !a_canvas->uiMovie || !a_favorites || a_pages.empty()) {
 		return;
@@ -652,6 +664,14 @@ void grid::Draw(
 		return;
 	}
 
+	// The panel hangs on the stage, unless somebody named a clip to hang it
+	// on instead. In the Pip-Boy the stage is the little screen on the
+	// model and the dialog sits in a coordinate space of its own, so there
+	// the caller hands over both the clip and the rectangle to fill.
+	const auto hosted =
+		a_host && a_host->parent && a_host->parent->IsDisplayObject();
+	auto& ground = hosted ? *a_host->parent : stage;
+
 	// Everything is drawn from scratch, children and all. A page switch
 	// changes most cells anyway, and rebuilding is one code path instead of
 	// two that have to agree.
@@ -665,7 +685,7 @@ void grid::Draw(
 	g_panel.SetMember("name", RE::Scaleform::GFx::Value("FavoritesMenuGrid"));
 	g_panel.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
 
-	if (!stage.Invoke("addChild", nullptr, &g_panel, 1)) {
+	if (!ground.Invoke("addChild", nullptr, &g_panel, 1)) {
 		logger::warn("grid: the panel was not taken in");
 		g_panel = RE::Scaleform::GFx::Value();
 		return;
@@ -797,17 +817,23 @@ void grid::Draw(
 	// of on the cells, here the panel is placed by the cells instead of by
 	// itself. Everything else keeps its place relative to them and simply
 	// follows.
-	const auto stageWidth = ReadNumber(stage, "stageWidth", 1280.0);
-	const auto stageHeight = ReadNumber(stage, "stageHeight", 720.0);
+	// What there is to be centred in: the screen, or the rectangle a host
+	// gave. The arithmetic below does not care which.
+	const auto roomX = hosted ? a_host->x : 0.0;
+	const auto roomY = hosted ? a_host->y : 0.0;
+	const auto stageWidth =
+		hosted ? a_host->width : ReadNumber(stage, "stageWidth", 1280.0);
+	const auto stageHeight =
+		hosted ? a_host->height : ReadNumber(stage, "stageHeight", 720.0);
 	// Where the block of cells sits inside the panel, and how big it is.
 	const auto cellsTop = RowTop(m, 0);
 	const auto cellsHeight =
 		RowHeight(m) * static_cast<double>(a_pages.size()) - m.gap;
-	const auto left = a_where.x < 0.0
-		? (stageWidth - CellsWidth(m)) / 2.0 - CellsLeft(m)
+	const auto left = a_where.x < 0.0 || hosted
+		? roomX + (stageWidth - CellsWidth(m)) / 2.0 - CellsLeft(m)
 		: a_where.x;
-	const auto top = a_where.y < 0.0
-		? (stageHeight - cellsHeight) / 2.0 - cellsTop
+	const auto top = a_where.y < 0.0 || hosted
+		? roomY + (stageHeight - cellsHeight) / 2.0 - cellsTop
 		: a_where.y;
 	// Setting x and y is not always enough. On the HUD they read back as
 	// nonsense afterwards, so the older names are tried as well and the
