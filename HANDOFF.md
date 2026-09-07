@@ -3368,3 +3368,34 @@ Auf Zuruf gestrichen, und alle drei zu Recht:
 
 Damit sind es **26**. Die Gegenprobe aus Abschnitt 52 bleibt in beide
 Richtungen leer.
+
+## 54. Zwei Gegenstände auf derselben Taste (2026-09-07)
+
+Abschnitt 53 war richtig und reichte nicht. Der Cache folgte danach sauber —
+im Augenblick der Benutzung stand dort `[3] Laser`, das Log sagt
+`use: [3] "Laser" on page 2 -- the game used it` — und angelegt wurde trotzdem
+die **Sten Mk II von Seite 1**.
+
+Drei Stellen sagten dasselbe, das Spiel tat etwas anderes. Dann kann die
+Wahrheit nur an einer vierten stehen, und das ist das Inventar selbst.
+
+**`ReadFavorites` antwortet mit einem Gegenstand je Taste**, weil eine Taste
+das bedeutet. Das Inventar sieht das anders: zwei *verschiedene* Gegenstände
+können beide Taste 3 tragen, und welchen die zwölf Slots dann melden, ist der
+Stapel, den der Durchlauf zufällig zuletzt gesehen hat.
+
+`ApplyPage` räumte je Taste **einen** Gegenstand. Der andere behielt sie —
+jedes Mal. Die Sten hielt Taste 3 durch jeden Seitenwechsel hindurch fest, und
+die Engine fand beim Anlegen sie zuerst.
+
+Jetzt wird zuerst das **ganze Inventar** nach Tasten durchsucht, und jedes
+gefundene Paar wird geräumt. `WriteFavorite` nimmt jedes davon zusätzlich von
+allen eigenen Stapeln (Abschnitt 41 — ein favorisierter Stapel kann gespalten
+sein).
+
+**Das Muster, und es ist jetzt dreimal aufgetreten:** wo diese Mod eine Taste
+für etwas Eindeutiges hält, hält das Inventar sie für eine Eigenschaft, die
+beliebig oft vorkommen darf. Erst Nuka-Cola auf drei Stapeln (41), dann die
+zwölf Tasten gegen das Abbild der Engine (53), jetzt zwei Gegenstände auf
+einer Taste. Wer hier das nächste Mal etwas sucht, fragt zuerst: **kann es
+das mehrfach geben?** Die Antwort war bislang immer ja.

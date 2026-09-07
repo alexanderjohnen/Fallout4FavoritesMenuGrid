@@ -1066,11 +1066,38 @@ namespace
 		// While the display still agrees with the inventory.
 		LearnIcons();
 
-		const auto current = ReadFavorites();
-		for (std::size_t key = 0; key < current.size(); ++key) {
-			if (current[key].object) {
-				MoveFavorite(current[key].object, static_cast<int>(key), -1);
-			}
+		// Everything that carries a key, not one thing per key.
+		//
+		// ReadFavorites answers with **one** object per key, because that is
+		// what a key means. The inventory does not agree: two different
+		// objects can both carry key 3, and then which one the twelve slots
+		// report is whichever stack the walk happened to see last.
+		//
+		// That is what made a page switch look right and act wrong. The grid
+		// said Righteous Authority on page 2, the engine's own copy said
+		// Righteous Authority -- and the Sten Mk II from page 1 still had
+		// key 3 on its stack, so the game equipped the Sten. Clearing one
+		// object per key left the other one holding it, every time.
+		//
+		// So the whole inventory is swept for keys first, and every pair it
+		// finds is cleared. WriteFavorite then takes each one off all of its
+		// own stacks as well (a favorited stack can be split, section 41).
+		std::vector<std::pair<RE::TESBoundObject*, std::uint8_t>> carried;
+		if (auto* player = RE::PlayerCharacter::GetSingleton();
+			player && player->inventoryList) {
+			player->inventoryList->ForEachStack(
+				[](RE::BGSInventoryItem&) { return true; },
+				[&](RE::BGSInventoryItem& a_item,
+					RE::BGSInventoryItem::Stack& a_stack) {
+					const auto key = FavoriteOf(a_stack);
+					if (key < 12) {
+						carried.emplace_back(a_item.object, key);
+					}
+					return true;
+				});
+		}
+		for (const auto& [object, key] : carried) {
+			MoveFavorite(object, static_cast<int>(key), -1);
 		}
 
 		for (std::size_t slot = 0; slot < a_target.size(); ++slot) {
