@@ -37,6 +37,16 @@ namespace tags
 		std::string symbol;   // the class name, without the "m_" the SWF adds
 		std::string library;  // the movie it lives in, as a Scaleform path
 
+		// A second symbol laid over the first, when the tag names one.
+		//
+		// This is the other half of the multi-colour story. Some tags carry
+		// two colours for one drawing -- a clip of two parts. Others carry
+		// `subicon`, and then it is two drawings: pills in silver with their
+		// coloured half on top, a med kit with tools over it. Both end up as
+		// two colours in the list, and only the presence of a subicon says
+		// which of the two arrangements is meant.
+		std::string subsymbol;
+
 		// One colour per part, in the order the configuration names them.
 		//
 		// A sorter's icon is not one shape: RadAway is a brown bag with a

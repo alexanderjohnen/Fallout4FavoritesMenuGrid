@@ -165,6 +165,7 @@ namespace
 			const auto key = Lowered(keyword);
 			tags::Icon entry;
 			entry.symbol = icon;
+			entry.subsymbol = Attribute(a_element, "subicon");
 			entry.library = blocks[block].library;
 			g_icons.insert_or_assign(key, std::move(entry));
 

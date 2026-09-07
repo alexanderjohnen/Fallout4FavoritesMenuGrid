@@ -22,6 +22,9 @@ namespace grid
 		std::string label;   // the key: 1..9, 0, -, =
 		std::string name;    // what lies on it, empty for a free key
 		std::string symbol;  // the icon's class name, empty when there is none
+		// A second drawing laid over the first, when the tag names one. It
+		// takes the second colour; the first drawing takes the first.
+		std::string subsymbol;
 		// One colour per part of the symbol, painted in the order the parts
 		// are stacked. Empty leaves the artwork alone; a single entry above
 		// white does the same for that part.

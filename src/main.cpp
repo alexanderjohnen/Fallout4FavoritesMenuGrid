@@ -1564,6 +1564,9 @@ namespace
 					// The "m_" is the only translation between what the
 					// configuration writes and what the library exports.
 					cell.symbol = "m_" + icon->symbol;
+					if (!icon->subsymbol.empty()) {
+						cell.subsymbol = "m_" + icon->subsymbol;
+					}
 					cell.colors = icon->colors;
 					if (!icon->library.empty()) {
 						g_wantedLibraries.insert(icon->library);

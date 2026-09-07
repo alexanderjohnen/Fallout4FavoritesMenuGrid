@@ -168,8 +168,9 @@ namespace
 	// only moves.
 	RE::Scaleform::GFx::Value g_note;
 	RE::Scaleform::GFx::Value g_detail;
-	// Kept so the cross can be put back the way it was found.
-	RE::Scaleform::GFx::Value g_hiddenCross;
+	// Kept so the vanilla menu can be put back the way it was found. Three
+	// things: the cross, and the two lines it writes beside it.
+	std::vector<RE::Scaleform::GFx::Value> g_hidden;
 
 	// The layout of the panel as it was last drawn, so a point on the stage
 	// can be turned back into a cell without asking the movie anything.
@@ -363,6 +364,18 @@ namespace
 	// One cell's icon, if its tag named one and its library is in. The
 	// symbol is scaled to fit rather than stretched: an icon squeezed into a
 	// square is worse than none, because it still looks deliberate.
+	// White is "leave it as it was drawn", and that is a real answer: a
+	// colour the palette does not know should not turn the artwork black.
+	void PaintOne(
+		RE::IMenu* a_canvas,
+		RE::Scaleform::GFx::Value& a_what,
+		std::uint32_t a_color)
+	{
+		if (a_color <= 0xFFFFFF) {
+			Paint(a_canvas, a_what, a_color);
+		}
+	}
+
 	// The parts of a symbol, painted one by one.
 	//
 	// A sorter's icon is a stack of shapes and the configuration names a
@@ -381,17 +394,10 @@ namespace
 		RE::Scaleform::GFx::Value& a_icon,
 		const std::vector<std::uint32_t>& a_colors)
 	{
-		const auto paintOne = [&](RE::Scaleform::GFx::Value& a_what,
-								   std::uint32_t a_color) {
-			if (a_color <= 0xFFFFFF) {
-				Paint(a_canvas, a_what, a_color);
-			}
-		};
-
 		const auto parts =
 			static_cast<int>(ReadNumber(a_icon, "numChildren", 0.0));
 		if (a_colors.size() < 2 || parts < 2) {
-			paintOne(a_icon, a_colors.front());
+			PaintOne(a_canvas, a_icon, a_colors.front());
 			return;
 		}
 
@@ -414,32 +420,33 @@ namespace
 				continue;
 			}
 			const auto at = static_cast<std::size_t>(part);
-			paintOne(child, a_colors[std::min(at, a_colors.size() - 1)]);
+			PaintOne(a_canvas, child, a_colors[std::min(at, a_colors.size() - 1)]);
 		}
 	}
 
-	void Symbol(
+	// One drawing, fitted into a cell. Returns it so the caller can colour
+	// it; empty when the library has no such class.
+	[[nodiscard]] RE::Scaleform::GFx::Value Place(
 		RE::IMenu* a_canvas,
-		const grid::Cell& a_cell,
+		const std::string& a_class,
 		double a_left,
 		double a_top,
 		const Metrics& a_m,
 		const grid::Placement& a_where)
 	{
-		if (a_cell.symbol.empty()) {
-			return;
-		}
-
 		RE::Scaleform::GFx::Value icon;
-		a_canvas->uiMovie->CreateObject(&icon, a_cell.symbol.c_str());
+		if (a_class.empty()) {
+			return icon;
+		}
+		a_canvas->uiMovie->CreateObject(&icon, a_class.c_str());
 		if (!icon.IsDisplayObject()) {
-			return;
+			return {};
 		}
 
 		const auto width = ReadNumber(icon, "width", 0.0);
 		const auto height = ReadNumber(icon, "height", 0.0);
 		if (width <= 0.0 || height <= 0.0) {
-			return;
+			return {};
 		}
 
 		const auto room = a_m.cell * a_where.iconFit;
@@ -452,15 +459,52 @@ namespace
 		// over the wasteland is a smudge.
 		icon.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 		icon.SetMember(
-			"x", RE::Scaleform::GFx::Value(a_left + (a_m.cell - width * scale) / 2.0));
+			"x",
+			RE::Scaleform::GFx::Value(a_left + (a_m.cell - width * scale) / 2.0));
 		icon.SetMember(
-			"y", RE::Scaleform::GFx::Value(a_top + (a_m.cell - height * scale) / 2.0));
+			"y",
+			RE::Scaleform::GFx::Value(a_top + (a_m.cell - height * scale) / 2.0));
+		g_panel.Invoke("addChild", nullptr, &icon, 1);
+		return icon;
+	}
 
-		if (a_where.iconColors && !a_cell.colors.empty()) {
-			PaintParts(a_canvas, icon, a_cell.colors);
+	// A cell's symbol, which is one drawing or two.
+	//
+	// The sorter writes its colours as a list, and the list means one of two
+	// things. With a `subicon` it is two drawings laid over each other --
+	// pills in silver with their coloured half on top, a med kit with tools
+	// over it -- and then the first colour is the first drawing and the
+	// second the second. Without one it is a single clip of several parts,
+	// and the list runs along those.
+	//
+	// Reading the list as parts in both cases is what left this grid a
+	// colour short: the subicon was never drawn at all, so its colour had
+	// nothing to go on.
+	void Symbol(
+		RE::IMenu* a_canvas,
+		const grid::Cell& a_cell,
+		double a_left,
+		double a_top,
+		const Metrics& a_m,
+		const grid::Placement& a_where)
+	{
+		auto icon = Place(a_canvas, a_cell.symbol, a_left, a_top, a_m, a_where);
+		if (!icon.IsDisplayObject()) {
+			return;
+		}
+		auto sub =
+			Place(a_canvas, a_cell.subsymbol, a_left, a_top, a_m, a_where);
+
+		if (!a_where.iconColors || a_cell.colors.empty()) {
+			return;
 		}
 
-		g_panel.Invoke("addChild", nullptr, &icon, 1);
+		if (sub.IsDisplayObject()) {
+			PaintOne(a_canvas, icon, a_cell.colors.front());
+			PaintOne(a_canvas, sub, a_cell.colors.back());
+			return;
+		}
+		PaintParts(a_canvas, icon, a_cell.colors);
 	}
 
 	// ---- Text ------------------------------------------------------------
@@ -558,10 +602,12 @@ namespace
 
 void grid::Release()
 {
-	if (g_hiddenCross.IsDisplayObject()) {
-		g_hiddenCross.SetMember("visible", RE::Scaleform::GFx::Value(true));
-		g_hiddenCross = RE::Scaleform::GFx::Value();
+	for (auto& shown : g_hidden) {
+		if (shown.IsDisplayObject()) {
+			shown.SetMember("visible", RE::Scaleform::GFx::Value(true));
+		}
 	}
+	g_hidden.clear();
 	if (g_panel.IsDisplayObject()) {
 		RE::Scaleform::GFx::Value parent;
 		if (g_panel.GetMember("parent", &parent) && parent.IsDisplayObject()) {
@@ -690,50 +736,26 @@ void grid::Draw(
 		}
 	}
 
-	// The name and the ammo count are the menu's own fields, and they stay
-	// the menu's: the game keeps writing them, we only say where. They sit
-	// where the cross used to be, which with the grid in the middle is
-	// nowhere useful, so they move under the panel.
+
+	// The vanilla menu steps aside -- all three parts of it. Fallout 4 puts
+	// the cross in the bottom right corner, and beside it two text fields it
+	// writes its own selection into.
 	//
-	// Their coordinates are the menu's, not the stage's -- its children run
-	// from around -400,-560 -- so the menu is asked where its own origin
-	// lands and the difference is subtracted.
-	const auto moveLabel = [&](const char* a_name, double a_stageX, double a_stageY) {
-		RE::Scaleform::GFx::Value field;
-		if (!a_favorites->menuObj.GetMember(a_name, &field) ||
-			!field.IsDisplayObject()) {
-			return;
+	// Those two were moved under our panel for a while, back when the panel
+	// had no writing of its own. It has had its own two lines since, and the
+	// vanilla pair kept following the *cross's* selection rather than our
+	// mark -- so a page switch, which rewrites all twelve keys, left a stray
+	// "[Grenade] Fragmentation Grenade" standing under the grid with nothing
+	// to do with what was marked.
+	//
+	// Hidden rather than moved, and put back in Release.
+	for (const auto* part : { "Cross_mc", "ItemName_tf", "ItemAmmo_tf" }) {
+		RE::Scaleform::GFx::Value found;
+		if (a_favorites->menuObj.GetMember(part, &found) &&
+			found.IsDisplayObject()) {
+			found.SetMember("visible", RE::Scaleform::GFx::Value(false));
+			g_hidden.push_back(found);
 		}
-
-		const std::array<RE::Scaleform::GFx::Value, 2> zero{
-			RE::Scaleform::GFx::Value(0.0), RE::Scaleform::GFx::Value(0.0)
-		};
-		RE::Scaleform::GFx::Value point;
-		a_favorites->uiMovie->CreateObject(
-			&point, "flash.geom.Point", zero.data(), 2);
-		RE::Scaleform::GFx::Value origin;
-		if (!point.IsObject() ||
-			!a_favorites->menuObj.Invoke("localToGlobal", &origin, &point, 1) ||
-			!origin.IsObject()) {
-			return;
-		}
-
-		field.SetMember(
-			"x",
-			RE::Scaleform::GFx::Value(a_stageX - ReadNumber(origin, "x", 0.0)));
-		field.SetMember(
-			"y",
-			RE::Scaleform::GFx::Value(a_stageY - ReadNumber(origin, "y", 0.0)));
-	};
-
-	// The cross steps aside. Fallout 4 puts it in the bottom right corner,
-	// and a panel in the middle plus a cross in the corner would be two
-	// readings of the same twelve keys.
-	if (a_favorites->menuObj.GetMember("Cross_mc", &g_hiddenCross) &&
-		g_hiddenCross.IsDisplayObject()) {
-		g_hiddenCross.SetMember("visible", RE::Scaleform::GFx::Value(false));
-	} else {
-		g_hiddenCross = RE::Scaleform::GFx::Value();
 	}
 
 	RE::Scaleform::GFx::Value graphics;
@@ -950,12 +972,6 @@ void grid::Draw(
 
 	// What was asked for, and what the movie made of it. The two drifting
 	// apart is the only way to tell a layout mistake from a drawing one.
-	// Centred under the panel, the name above the ammo line. The fields are
-	// 400 and 300 wide, so half of each comes off the middle.
-	moveLabel("ItemName_tf", left + width / 2.0 - 200.0, top + height + m.gap);
-	moveLabel(
-		"ItemAmmo_tf", left + width / 2.0 - 150.0, top + height + m.gap + 26.0);
-
 	logger::info(
 		"grid: {} pages; stage {:.0f}x{:.0f}, panel asked for "
 		"{:.0f}x{:.0f} at {:.0f},{:.0f}, reports {:.0f}x{:.0f} at {:.0f},{:.0f} "

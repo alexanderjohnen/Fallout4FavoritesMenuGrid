@@ -2822,3 +2822,83 @@ Form `<Wort> <n> / <m>` — nie einen Gegenstandsnamen. Im Spiel liegt
 führt. Ein Seitenwechsel schreibt alle zwölf Tasten neu; dass eine Mod, die
 auf Favoriten hört, darauf etwas sagt, ist die naheliegende Erklärung. Zu
 prüfen mit `bEnableOverlay=0` in deren INI.
+
+## 44. Die Zeile unten war unsere, und die Farbe fehlte an einer zweiten Zeichnung (2026-09-07)
+
+### „[Grenade] Fragmentation Grenade" unter dem Gitter
+
+Der Verdacht des Spielers stimmte: das sah aus wie das alte Favoritenmenü,
+**weil es das alte Favoritenmenü war.**
+
+Die Log-Zeile, die es seit Tagen sagt:
+
+```
+grid: the menu holds Cross_mc (-417,-480 418x419)  ItemName_tf (-408,-561 400x41)  ItemAmmo_tf (-358,-523 300x36)
+```
+
+Drei Objekte, nicht eines. Wir haben nur `Cross_mc` versteckt; `ItemName_tf`
+und `ItemAmmo_tf` wurden **verschoben** — unter unser Panel. Das stammt aus
+der Zeit, als das Panel noch keine eigene Beschriftung hatte (Abschnitt 21),
+und ist seit Abschnitt 32 überflüssig: das Panel schreibt seine zwei Zeilen
+selbst.
+
+Übrig blieb ein Paar Textfelder, die weiterhin der Auswahl des **Kreuzes**
+folgen, nicht unserer Marke. Ein Seitenwechsel schreibt alle zwölf Tasten neu,
+das Kreuz aktualisiert seine Auswahl, und unter dem Gitter stand plötzlich der
+Name irgendeines Gegenstands.
+
+Jetzt werden alle drei versteckt und in `Release` zurückgegeben. `moveLabel`
+ist weg.
+
+### Der Nachbearbeitungsschritt: nichts zu tun
+
+Nachgesehen, wie versprochen. `Data\MCM\Config\FallUIIconLibrary\config.json`
+beschreibt die Einstellungen selbst:
+
+```json
+{"type":"dropdown","text":"$Preset",
+ "options":["$Custom","$Normal","$Pastel","$Intense","$Grayscale","$Classic"],
+ "id":"iIconsColorPostEffect:MainSettings"}
+```
+
+Dasselbe Feld ist an zwei Stellen im Menü: oben als **Voreinstellung**, und
+im Zweig „Custom" als eigentlicher Nacheffekt (`$None`, `$Grayscale`,
+`$Pastel`, `$Intense`). Der Spieler steht auf **1**, und oben heißt 1
+`$Normal` — keine Voreinstellung mit Effekt. Helligkeit und Sättigung stehen
+beide auf 100, also neutral.
+
+**Es gibt also nichts nachzubauen.** Wer hier eine Farbmatrix eingebaut
+hätte, hätte einen Effekt nachgeahmt, den das Spiel gar nicht anwendet. Der
+Rest an Abweichung musste woandersher kommen — und kam.
+
+### `subicon`
+
+Die Konfiguration kennt zwei Muster, und wir kannten nur eines:
+
+```xml
+<tag keyword="MedPills"        icon="M8r.Repo.MedPills"  colorname="MedicSilver,MedicOrange" />
+<tag keyword="DrugPillsPurple" icon="M8r.Repo.MedPills" subicon="M8r.Repo.MedPills2" colorname="DrugSilver,MedicPurple" />
+```
+
+Beide tragen zwei Farben, und sie meinen **Verschiedenes**:
+
+- ohne `subicon`: **eine** Zeichnung aus mehreren Teilen, die Liste läuft an
+  den Teilen entlang (das ist, was Abschnitt 41 gebaut hat, und es war
+  richtig — die Log-Zeile `a symbol of 2 parts against 2 colours` betraf
+  genau diesen Fall);
+- mit `subicon`: **zwei** Zeichnungen übereinander — Pillen in Silber mit
+  ihrer farbigen Hälfte darauf, ein Medikoffer mit Werkzeug darüber. Erste
+  Farbe für die erste, zweite für die zweite.
+
+`subicon` haben wir schlicht nie gelesen. Die zweite Zeichnung wurde nie
+erzeugt, also hatte ihre Farbe nichts, worauf sie hätte gehen können — und
+die Zelle blieb einfarbig, egal wie viele Farben in der Liste standen. Zwölf
+Tags im Hauptbestand haben eines.
+
+`Place` erzeugt jetzt eine Zeichnung und gibt sie zurück, `Symbol` benutzt es
+zweimal und färbt nach dem Muster, das die Anwesenheit eines `subicon`
+vorgibt.
+
+**Die Lehre:** zwei Farben in der Liste waren nie ein einzelner Fall. Wer
+sich künftig fragt, warum eine Zelle blasser aussieht als im Pip-Boy, sieht
+zuerst im Tag nach, ob dort ein zweites Attribut steht, das wir nicht lesen.
