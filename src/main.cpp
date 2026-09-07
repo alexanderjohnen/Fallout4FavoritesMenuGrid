@@ -37,6 +37,13 @@ namespace
 	int g_previousPageKey = VK_PRIOR;
 
 	// How many pages the twelve keys are shared between.
+	// Eight pages is ninety-six keys, and that is already more than anyone
+	// will remember the shape of. The cap is not a technical one -- the
+	// engine holds twelve keys and knows nothing of pages, and the co-save
+	// would carry any number -- it is a judgement: past this the grid stops
+	// being a thing you read at a glance and becomes a thing you search,
+	// and searching is what the Pip-Boy is for.
+	constexpr int kMostPages = 8;
 	int g_pageCount = 3;
 
 	// Whether the "[Tag]" that FIS puts in front of an item name is dropped
@@ -640,7 +647,7 @@ namespace
 		// Not a key, so it is read on its own.
 		g_pageCount = static_cast<int>(GetPrivateProfileIntW(
 			L"Pages", L"PageCount", g_pageCount, path.c_str()));
-		g_pageCount = std::clamp(g_pageCount, 1, 32);
+		g_pageCount = std::clamp(g_pageCount, 1, kMostPages);
 		g_defaultPage = std::clamp(
 			static_cast<int>(
 				GetPrivateProfileIntW(L"Pages", L"DefaultPage", 0, path.c_str())),
@@ -2707,9 +2714,22 @@ namespace
 			std::uint32_t current = 0;
 			a_intfc->ReadRecordData(&count, sizeof(count));
 			a_intfc->ReadRecordData(&current, sizeof(current));
+			// A save from before the cap may carry more. They are read --
+			// throwing away what a player put there is not ours to do
+			// silently -- and EnsurePages trims to the setting afterwards,
+			// so the log says it once rather than letting pages vanish
+			// without a word.
 			if (count == 0 || count > 32) {
 				logger::warn("load: {} pages is not a number to trust", count);
 				return;
+			}
+			if (count > static_cast<std::uint32_t>(kMostPages)) {
+				logger::warn(
+					"load: this save carries {} pages and the mod now offers "
+					"{} -- the ones past that are still in the save, but "
+					"nothing will show them",
+					count,
+					kMostPages);
 			}
 
 			g_pages.assign(count, Page{});

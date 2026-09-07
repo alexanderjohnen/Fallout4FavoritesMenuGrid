@@ -3151,14 +3151,12 @@ zwei Antworten. Gerechnet für das Rechteck des Kreuzes:
 | --- | --- | --- |
 | 4 | 33.0 | 418 x 138 |
 | 8 | 33.0 | 418 x 278 |
-| 12 | 31.5 | 400 x 400 |
-| 16 | 23.3 | 301 x 403 |
-| 32 | 12.0 | 166 x **446** |
 
-Bei 32 greift der Boden von 12 Einheiten und es läuft über. Das ist Absicht:
-unter zwölf Einheiten ist eine Zelle kein Bild mehr, sondern ein Punkt, und
-ein unlesbares Gitter, das hineinpasst, ist schlechter als ein lesbares, das
-ansteht. Wer zweiunddreißig Seiten fährt, sieht sie im Pip-Boy nicht alle.
+Mehr gibt es seit Abschnitt 50 nicht, und damit greift die Breite immer und
+die Höhe nie. Die Rechnung bleibt trotzdem zweiseitig: sie kostet drei Runden
+Arithmetik und macht die Annahme überflüssig, dass das Rechteck des Kreuzes
+immer so hoch bleibt, wie es heute ist. Eine andere Pip-Boy-Mod, ein anderer
+Dialog.
 
 ### Und eine Ausnahme von Abschnitt 45
 
@@ -3170,3 +3168,26 @@ ganze Block zentriert, vom oberen Rand des Panels bis zur untersten Reihe.
 
 Dieselbe Regel wäre an beiden Stellen falsch gewesen, und der Grund steht in
 je einem Satz an beiden Stellen im Code.
+
+## 50. Acht Seiten, und Schluss (2026-09-07)
+
+`PageCount` nahm 1 bis 32. Jetzt 1 bis 8.
+
+Keine technische Grenze: die Engine hält zwölf Tasten und weiß von Seiten
+nichts, der Mitspeicher trüge jede Zahl. Es ist eine Entscheidung darüber, was
+die Mod sein soll. Acht Seiten sind **sechsundneunzig Tasten** — mehr, als
+irgendwer sich als Form merkt. Darüber hinaus hört das Gitter auf, etwas zu
+sein, das man auf einen Blick liest, und wird etwas, das man durchsucht. Zum
+Durchsuchen gibt es den Pip-Boy.
+
+Der Nebeneffekt im Dialog ist angenehm: bei acht Seiten passen 278 der 419
+verfügbaren Einheiten, die Zelle bleibt bei 33, und die Höhenbeschränkung aus
+Abschnitt 49 greift nie mehr. Sie bleibt trotzdem stehen — sie kostet drei
+Runden Arithmetik und nimmt die Annahme heraus, dass jenes Rechteck immer so
+hoch ist wie heute.
+
+**Ein alter Spielstand mit mehr Seiten wird weiterhin ganz gelesen.** Was
+darüber liegt, bleibt im Spielstand stehen und wird nur nicht mehr gezeigt;
+`EnsurePages` schneidet die Liste auf die Einstellung zurück. Das Log sagt es
+einmal deutlich, statt Seiten wortlos verschwinden zu lassen — wer von zwölf
+auf acht geht, soll erfahren, wo seine vier geblieben sind.
