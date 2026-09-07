@@ -2676,6 +2676,36 @@ namespace
 		// on what the player is carrying at the time.
 		const auto worn = object->GetFormType() == RE::ENUM_FORM_ID::kWEAP ||
 			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
+		// What the engine holds on this key **in this frame**, before
+		// anything is touched.
+		//
+		// This is the one place that was never measured. Everything so far
+		// looked at the cache right after a page was applied, and that is a
+		// different frame from the one the call happens in. If the engine
+		// rebuilds its own copy in between -- on its own schedule, from its
+		// own idea of the truth -- then everything we write is overwritten
+		// before it is read, and every fix tonight was aimed past the
+		// target.
+		//
+		// The answer is in the log either way. Same object: our writing
+		// holds, and UseQuickkeyItem reads something else again. Different
+		// object: it was overwritten between the frames, and the sync below
+		// is the fix rather than another guess.
+		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
+			const auto* held = manager->storedFavTypes[a_slot];
+			logger::info(
+				"use: at the call, the engine holds \"{}\" on [{}], and we "
+				"mean \"{}\"",
+				held ? RE::TESFullName::GetFullName(*held) : "nothing",
+				KeyLabel(a_slot),
+				RE::TESFullName::GetFullName(*object));
+		}
+
+		// And brought into agreement in this frame rather than an earlier
+		// one. It costs a walk of the inventory and closes the window
+		// whatever happens in it.
+		SyncFavoritesCache();
+
 		const auto used = use::Quickkey(
 			static_cast<std::uint32_t>(a_slot), g_toggleEquip && worn);
 
