@@ -821,6 +821,39 @@ namespace
 		// believe. Named through the cache, which is an image of our own
 		// writing -- so a name that does not appear there is itself the
 		// finding.
+		// Everything we can put a name to, so that what the engine hands
+		// back can be recognised instead of only pointed at.
+		std::unordered_map<const void*, std::string> known;
+		if (auto* player = RE::PlayerCharacter::GetSingleton();
+			player && player->inventoryList) {
+			known.emplace(player->inventoryList, "the inventory itself");
+			player->inventoryList->ForEachStack(
+				[](RE::BGSInventoryItem&) { return true; },
+				[&](RE::BGSInventoryItem& a_item,
+					RE::BGSInventoryItem::Stack& a_stack) {
+					const auto name = a_item.object
+						? RE::TESFullName::GetFullName(*a_item.object)
+						: "?";
+					const auto key = FavoriteOf(a_stack);
+					const auto where = key < 12 ? KeyLabel(key)
+						: key == kNoKey        ? std::string("parked")
+											   : std::string("-");
+					known.insert_or_assign(
+						&a_item, std::format("item {} ({})", name, where));
+					if (a_item.object) {
+						known.emplace(a_item.object, std::format("object {}", name));
+					}
+					known.insert_or_assign(
+						&a_stack, std::format("stack {} ({})", name, where));
+					if (a_stack.extra) {
+						known.insert_or_assign(
+							a_stack.extra.get(),
+							std::format("extra {} ({})", name, where));
+					}
+					return true;
+				});
+		}
+
 		std::string line;
 		auto disagrees = false;
 		for (std::size_t key = 0; key < 12; ++key) {
@@ -833,11 +866,26 @@ namespace
 				continue;
 			}
 			const auto claimed = keyOf(found);
+
+			// What it is made of. The thing itself matched nothing we hold,
+			// so the name has to come out of one of its own fields -- and
+			// which field it comes out of says what kind of thing this is.
+			std::string parts;
+			if (Readable(found, 0x40)) {
+				const auto* words = reinterpret_cast<const void* const*>(found);
+				for (std::size_t word = 0; word < 8; ++word) {
+					const auto named = known.find(words[word]);
+					if (named != known.end()) {
+						parts += std::format("+{}:{} ", word, named->second);
+					}
+				}
+			}
 			line += std::format(
-				"[{}]{}{} ",
+				"[{}]{}{}{{{}}} ",
 				KeyLabel(key),
 				static_cast<const void*>(found),
-				claimed == key ? "" : std::format("(claims {})", claimed));
+				claimed == key ? "" : std::format("(claims {})", claimed),
+				parts.empty() ? "nothing of ours" : parts);
 		}
 		logger::info(
 			"engine ({}){}: {}",
