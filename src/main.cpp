@@ -781,154 +781,108 @@ namespace
 	constexpr std::ptrdiff_t kQuickkeyListData = 0x4A8;
 	constexpr std::ptrdiff_t kQuickkeyListCount = 0x4B8;
 
-	void LogEngineList(std::string_view a_reason)
+	// The twelve keys as the engine itself resolves them.
+	//
+	// UseQuickkeyItem, read from its own bytes at last, does this and
+	// nothing else:
+	//
+	//     call 691965(manager, key)   -> the thing on that key, or nothing
+	//     call 833850(thing)          -> which key it claims
+	//     call 1430389(thing, ...)    -> [+0x18] is a handle, stashed
+	//     ...
+	//     lea  r8, [rsp+0x40]         -> that handle, made into an argument
+	//     call EquipObject
+	//
+	// So the item it equips is decided entirely by what 691965 hands back,
+	// and 691965 walks a list of 496 entries -- one per stack the player
+	// carries -- asking each what key it claims and stopping at the first
+	// that says the right one. That list is the third book, the one neither
+	// the inventory nor storedFavTypes is, and it is the only reading that
+	// has never been compared with the other two.
+	//
+	// This asks the engine its own question twelve times, through its own
+	// two functions. If it answers the whiskey where our books say the
+	// noodle cup, the disagreement is finally in one line, and the walk of
+	// the whole list underneath says whether the whiskey is simply first or
+	// whether the noodle cup is not in there at all.
+	using EngineLookup_t = void* (*)(RE::FavoritesManager*, std::uint32_t);
+	using EngineKeyOf_t = std::uint32_t (*)(void*);
+
+	void LogEngineKeys(std::string_view a_reason)
 	{
+		auto* manager = RE::FavoritesManager::GetSingleton();
+		if (!manager) {
+			return;
+		}
+		static REL::Relocation<EngineLookup_t> lookup{ REL::ID(691965) };
+		static REL::Relocation<EngineKeyOf_t> keyOf{ REL::ID(833850) };
+
+		// What the engine answers for each of the twelve, beside what we
+		// believe. Named through the cache, which is an image of our own
+		// writing -- so a name that does not appear there is itself the
+		// finding.
+		std::string line;
+		auto disagrees = false;
+		for (std::size_t key = 0; key < 12; ++key) {
+			auto* found = lookup(manager, static_cast<std::uint32_t>(key));
+			if (!found) {
+				line += std::format("[{}]- ", KeyLabel(key));
+				if (manager->storedFavTypes[key]) {
+					disagrees = true;
+				}
+				continue;
+			}
+			const auto claimed = keyOf(found);
+			line += std::format(
+				"[{}]{}{} ",
+				KeyLabel(key),
+				static_cast<const void*>(found),
+				claimed == key ? "" : std::format("(claims {})", claimed));
+		}
+		logger::info(
+			"engine ({}){}: {}",
+			a_reason,
+			disagrees ? " -- IT HAS ONE WHERE WE HAVE NONE" : "",
+			line);
+
+		// And the whole list underneath, so that "the first one wins" can be
+		// seen rather than assumed: every entry that claims a key at all, in
+		// the order the engine walks them.
 		const auto base = REL::Module::get().base();
 		const auto* holder =
 			*reinterpret_cast<void* const*>(base + kQuickkeyListOwner);
 		if (!holder) {
-			logger::info("list ({}): the singleton is not there", a_reason);
 			return;
 		}
-
 		const auto* bytes = reinterpret_cast<const std::byte*>(holder);
-		const auto* const* data =
+		auto* const* data =
 			*reinterpret_cast<void* const* const*>(bytes + kQuickkeyListData);
 		const auto count =
 			*reinterpret_cast<const std::uint32_t*>(bytes + kQuickkeyListCount);
-
-		// Who the singleton is, said by name rather than by address: the
-		// disassembly gives an offset and nothing else, and knowing whose
-		// list this is decides where the fix belongs.
-		std::string whose = TypeName(holder);
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (holder == RE::FavoritesManager::GetSingleton()) {
-			whose = "the favorites manager";
-		} else if (player && holder == player) {
-			whose = "the player";
-		} else if (player && holder == player->inventoryList) {
-			whose = "the player's inventory list";
-		}
-
 		if (!data || count > 4096) {
-			logger::info(
-				"list ({}): {} at {}, {} entries -- not read",
-				a_reason,
-				whose,
-				static_cast<const void*>(holder),
-				count);
 			return;
 		}
 
-		// Everything we can put a name to, without touching memory whose
-		// shape we are guessing at.
-		std::unordered_map<const void*, std::string> known;
-		if (auto* manager = RE::FavoritesManager::GetSingleton()) {
-			for (std::size_t key = 0; key < 12; ++key) {
-				if (auto* held = manager->storedFavTypes[key]) {
-					known.emplace(
-						held,
-						std::format(
-							"cache[{}] {}",
-							KeyLabel(key),
-							RE::TESFullName::GetFullName(*held)));
-				}
+		std::string claims;
+		for (std::uint32_t index = 0; index < count; ++index) {
+			auto* entry = data[index];
+			if (!Readable(entry, 0x20)) {
+				continue;
 			}
-		}
-		if (player && player->inventoryList) {
-			player->inventoryList->ForEachStack(
-				[](RE::BGSInventoryItem&) { return true; },
-				[&](RE::BGSInventoryItem& a_item,
-					RE::BGSInventoryItem::Stack& a_stack) {
-					const auto name = a_item.object
-						? RE::TESFullName::GetFullName(*a_item.object)
-						: "?";
-					const auto key = FavoriteOf(a_stack);
-					const auto where = key < 12 ? KeyLabel(key)
-						: key == kNoKey        ? std::string("parked")
-											   : std::string("-");
-					known.insert_or_assign(
-						&a_item, std::format("item {} ({})", name, where));
-					if (a_item.object) {
-						known.emplace(
-							a_item.object, std::format("object {}", name));
-					}
-					known.insert_or_assign(
-						&a_stack, std::format("stack {} ({})", name, where));
-					if (a_stack.extra) {
-						known.insert_or_assign(
-							a_stack.extra.get(),
-							std::format("extra {} ({})", name, where));
-					}
-					return true;
-				});
-		}
-
-		// Where in the walk the player's own inventory stands.
-		//
-		// The entries carry no vtable and none of them is an item, an
-		// object, a stack or an extra list of ours, so they are none of the
-		// things we hold -- but they are 490 of something, and the game has
-		// roughly that many containers and bodies loaded around the player.
-		// If this is the list of every inventory in the world, then the
-		// engine walks them and takes the first that answers, and the only
-		// question that matters is whether the player's own comes first.
-		auto mine = -1;
-		if (player && player->inventoryList) {
-			for (std::uint32_t index = 0; index < count; ++index) {
-				if (data[index] == player->inventoryList) {
-					mine = static_cast<int>(index);
-					break;
-				}
+			const auto key = keyOf(entry);
+			if (key < 12) {
+				claims += std::format(
+					"#{}={} ({}) ",
+					index,
+					KeyLabel(key),
+					static_cast<const void*>(entry));
 			}
 		}
 		logger::info(
-			"list ({}): the player's own inventory is {} of {}",
+			"engine ({}): of {} entries, these claim a key, in walk order: {}",
 			a_reason,
-			mine < 0 ? std::string("not in there at all") : std::format("entry {}", mine),
-			count);
-
-		std::string line;
-		const auto shown = std::min<std::uint32_t>(count, 8);
-		for (std::uint32_t index = 0; index < shown; ++index) {
-			const auto* entry = data[index];
-			const auto found = known.find(entry);
-			// The first words of the entry, because what it is has to be
-			// read off its own shape once its name is not on offer.
-			std::string head = "?";
-			if (Readable(entry, 0x20)) {
-				const auto* words =
-					reinterpret_cast<const std::uintptr_t*>(entry);
-				head = std::format(
-					"{:#x},{:#x},{:#x},{:#x}",
-					words[0],
-					words[1],
-					words[2],
-					words[3]);
-			}
-			line += std::format(
-				"{}:{}<{}> ",
-				index,
-				found != known.end() ? found->second : TypeName(entry),
-				head);
-		}
-
-		logger::info(
-			"list ({}): the singleton is {} at {} (module +{:#x}); the player "
-			"carries {} named things",
-			a_reason,
-			whose,
-			static_cast<const void*>(holder),
-			reinterpret_cast<std::uintptr_t>(holder) - base,
-			known.size());
-
-		logger::info(
-			"list ({}): {}, {} entries{}: {}",
-			a_reason,
-			whose,
 			count,
-			count > shown ? std::format(" (first {})", shown) : std::string{},
-			line);
+			claims.empty() ? "none at all" : claims);
 	}
 
 	void LogFavorites(std::string_view a_reason)
@@ -1661,7 +1615,6 @@ namespace
 
 		logger::info("page: switching to {} of {}", a_page + 1, g_pages.size());
 		ApplyPage(target);
-		WatchTheKeys(12);
 		ShowGrid();
 	}
 
@@ -3078,6 +3031,7 @@ namespace
 		// object: it was overwritten between the frames, and the sync below
 		// is the fix rather than another guess.
 		LogEveryFavorite("at the call");
+		LogEngineKeys("at the call");
 		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
 			const auto* held = manager->storedFavTypes[a_slot];
 			logger::info(
