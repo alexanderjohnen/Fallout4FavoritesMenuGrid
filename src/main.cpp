@@ -2921,9 +2921,33 @@ namespace
 		return detail::Describe(object, g_stripItemTags);
 	}
 
+	// Marking a cell is what turns to its page.
+	//
+	// Until now the page was turned at the moment of use, and the use
+	// followed in the same breath -- one frame later at most. Everything we
+	// can read says the twelve keys are right by then, and the engine still
+	// equips what was there before, so something on its side is not finished
+	// when we ask. What we do know is that a second press is right: time
+	// between the switch and the use is what has ever helped.
+	//
+	// So the switch moves to where the time is. A player marks a cell and
+	// then decides; between the two lie hundreds of frames, not one. And it
+	// is the better rule anyway: what is marked is what the twelve keys
+	// hold, always, so the grid stops being a picture of four pages and
+	// becomes the one page you are pointing at.
+	//
+	// Only on a change of row, so walking along a row costs nothing.
 	void SetMark(const std::optional<grid::Spot>& a_spot)
 	{
 		g_marked = a_spot;
+
+		if (a_spot && a_spot->page != g_currentPage &&
+			a_spot->page < g_pages.size()) {
+			// GoToPage draws the panel again, which is what puts the row
+			// that is now live under the mark.
+			GoToPage(a_spot->page);
+		}
+
 		grid::Mark(g_marked);
 		const auto lines = Describe(g_marked);
 		grid::Say(lines.name, lines.what);
