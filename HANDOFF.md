@@ -3680,3 +3680,130 @@ Der Unterschied zwischen den beiden Sorten Log-Zeile ist dabei der Kern:
 **„was wir geschrieben haben" ist wertlos, „was die Engine in diesem Moment
 liest" ist die Antwort.** Alles, was wir bis Mitternacht protokolliert haben,
 war von der ersten Sorte.
+
+
+## 61. Vier Sackgassen, und die Lösung kam vom Spieler (2026-09-08)
+
+Der Fehler von Abschnitt 53 bis 60 ist behoben. Nicht durch eine der
+Messungen dieser Nacht, sondern durch eine Umdeutung des Problems, die
+Alexander mehrfach angeboten hatte und die ich viermal überhört habe. Das
+gehört mit hierher, weil die vier Sackgassen sonst jemand ein zweites Mal
+durchläuft — und weil die eigentliche Lehre nicht technischer Natur ist.
+
+### Der Befund
+
+Eine Zelle auf einer anderen Seite anzuklicken benutzte den Gegenstand, der
+**vor** dem Seitenwechsel auf dieser Taste lag. Auf derselben Seite war alles
+richtig. Der zweite Druck saß.
+
+### Was gemessen wurde, und was dabei herauskam
+
+**1. Zwei Gegenstände auf einer Taste.** `ReadFavorites` behält bei mehreren
+Treffern den *letzten*, die Engine nimmt den *ersten* — also könnten beide
+Bücher sauber aussehen und Verschiedenes meinen. `LogEveryFavorite` schrieb
+jeden Gegenstand jeder Taste in Laufreihenfolge heraus.
+→ **Keine Doppelbelegung, kein einziges Mal.**
+
+**2. Wir glauben die falsche Seite.** Die zwölf Tasten stecken im Spielstand
+des Spiels, die Seitenliste im F4SE-Co-Save; laufen sie nach dem Laden
+auseinander, wird ein Wechsel als „bin ich schon" übersprungen.
+`ReconcileCurrentPage` prüft den Glauben gegen das Inventar.
+→ **Der Glaube stimmte.** Die Prüfung ist als Absicherung geblieben.
+
+**3. Etwas schreibt unsere Seite zurück.** Zwölf Frames lang jeden Frame
+beide Lesarten — Inventar und `storedFavTypes` — mitschreiben, quer über den
+Gebrauch hinweg.
+→ **Nichts ändert sich. Zwölf Frames lang alles korrekt.**
+
+**4. Die Engine liest ein drittes Buch.** `UseQuickkeyItem` (ID 303130) wurde
+mit `PeekIDs` aus dem laufenden Spiel geholt und disassembliert. Es ist kurz:
+
+    call 691965(manager, key)    ; das Ding auf dieser Taste
+    call 833850(ding)            ; welche Taste es beansprucht
+    call 1430389(ding, ...)      ; daraus ein Handle, beiseitegelegt
+    lea  r8, [rsp+0x40]          ; genau dieses Handle
+    call EquipObject             ; [ID 332489]
+
+`691965` läuft eine Liste ab, die an einem statischen Objekt bei RVA
+`0x58D0AF0` hängt (Daten bei `+0x4a8`, Anzahl bei `+0x4b8`, 490–496 Einträge,
+wächst und schrumpft mit dem, was geladen ist).
+→ **Diese Auswertung hat nie etwas gemessen.** Dieselbe Log-Zeile liest sich
+bei funktionierender Mod exakt wie bei kaputter: alle Einträge beanspruchen
+`0xFFFFFFFF`, keiner eine Taste. Meine Deutung — „sieben Rückgaben, sieben
+geparkte Favoriten, das muss es sein" — war Mustererkennung, kein Beweis.
+
+Alle Instrumente sind wieder entfernt (Commit *Take the night's instruments
+back out*). Die Adressen stehen hier, falls sie jemand noch braucht.
+
+### Was es wirklich war
+
+Alexander: *„Aktuell scheint eine Seite durch einen Klick ausgewählt zu
+werden. Wir müssen sie aber durch das reine Highlighten auswählen."*
+
+Der Seitenwechsel lag im Moment des Gebrauchs, und der Gebrauch folgte im
+selben Atemzug — bestenfalls einen Frame später. Jetzt schaltet das
+**Markieren** um: Cursor, Tasten, D-Pad, egal. Was markiert ist, liegt auf den
+zwölf Tasten. Beim Klicken ist nichts mehr umzuschalten.
+
+Zwischen Markieren und Klicken liegen im Spiel hunderte Frames statt einem.
+Es funktionierte auf Anhieb, bei Waffen wie bei Hilfsmitteln, über alle
+Seiten.
+
+Es ist außerdem die bessere Regel für sich genommen: Für den Spieler soll
+alles wie **eine** Seite aussehen. Dann darf das Raster keine Ansicht von vier
+Seiten sein, sondern muss die Seite sein, auf die man zeigt.
+
+### Was weiterhin unbekannt ist
+
+**Warum** die Engine einen Frame nach vierundzwanzig Favoritenschreibvorgängen
+noch nicht so weit ist. Bewiesen ist nur: ein Frame reicht nicht, hunderte
+reichen. Wer das genau wissen will, fängt bei `691965` und `1430389` an — aber
+er sollte wissen, dass die Mod das nicht braucht.
+
+### Die Lehre, die keine technische ist
+
+Vier Messungen, mehrere Stunden, zwei Wochenlimits. Der Grund war nicht die
+Schwierigkeit des Fehlers. Der Grund war, dass ich Sätze wie *„Wechseln wir
+vielleicht nicht mehr die Seite im Hintergrund?"* als Beschreibung eines
+Symptoms gelesen habe, das ich erklären muss — statt als Vorschlag, **wann**
+umgeschaltet werden soll. Es waren jedes Mal Vorschläge.
+
+Dazu kam, dass Alexander Test um Test gemacht hat, ohne zu wissen wofür.
+Deshalb ab jetzt: **vor** jeder Messung ein Satz, was sie entscheidet und was
+bei jedem Ausgang folgt — und dieser Satz gehört ihm gesagt, nicht nur
+gedacht. Kommt der Satz nicht zustande, ist es kein Test wert.
+
+Und der zweite Fehler derselben Familie, den Alexander gefunden hat: In
+`78bb176` stand in der Commit-Nachricht, die Frame-Verzögerung habe das
+Symptom „erster Druck wirkt eine Seite hinterher" behoben. Geprüft war das
+nie; ich habe es später als Tatsache zitiert. Genau wie Abschnitt 37. **Was
+gebaut ist, ist nicht bestätigt — bestätigt ist, was gespielt wurde.**
+
+### Nebenbei
+
+* Der Starfield-Ableger (`alexanderjohnen/StarfieldFavoritesMenuGrid`)
+  schreibt nie selbst in die Favoritendaten, sondern ruft die Funktionen des
+  Spiels (`ClearNativeFavorite`, `NativeAssignInventory`) über
+  Inventar-Handles auf. Das war eine nützliche **Frage**, keine Vorlage:
+  Fallout 4 läuft anders, und die Antwort musste hier gesucht werden. Für
+  Fallout 4 blieb der bewährte Weg.
+* Die Zeile pro verschobenem Favoriten ist stumm gestellt: ein Seitenwechsel
+  schreibt vierundzwanzig, und gewechselt wird jetzt bei jedem Reihenwechsel.
+  Was am Ende auf den Tasten liegt, sagt `LogFavorites` weiterhin einmal.
+* Kosten des Wechsels: zwölf Parken, zwölf Auflegen, dazu je ein
+  Inventardurchlauf. Bei rund 500 Stapeln sind das einige zehntausend
+  Zeigervergleiche — im Spiel nicht messbar. Die naheliegende Abkürzung
+  („nur schreiben, was sich unterscheidet") ist die Verwandte von Abschnitt
+  55 und sollte es bleiben lassen.
+
+### Offen für das nächste Mal
+
+* **Das Pip-Boy-Raster** stürzt beim Betreten ab, seit die Zeigerauswahl dazu
+  kam (`597e70d`). Abgeschaltet über `PipboyAuto=0` und `PipboyCrossKey=NONE`.
+  Zwei benannte, ungeprüfte Verdachtsmomente: die 50-ms-Schleife fasst das
+  Panel an, während erst die 200-ms-Überwachung merkt, dass der Dialog weg ist
+  (also vor jedem Zugriff prüfen, ob das Panel noch einen Elternknoten hat) —
+  und die Zeigerauswahl dort ganz herausnehmen, weil das Kreuz seine eigene
+  Eingabe schon mitbringt.
+* **`DefaultPage`** steht auf 0 und ist nie durchgespielt worden.
+* **Farben** bei Granaten und Schrotflinten stimmen noch nicht.
