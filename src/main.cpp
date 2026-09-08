@@ -633,306 +633,6 @@ namespace
 
 	// Every object that carries a key, in the order the inventory is walked.
 	//
-	// The blind spot that hid tonight's bug for hours. ReadFavorites answers
-	// with one object per key and, where two carry the same one, quietly
-	// keeps whichever stack it saw last -- so the favorites line printed a
-	// clean twelve either way, and storedFavTypes, filled from it, agreed.
-	//
-	// The engine does not agree. Its lookup (ID 691965) walks a list and
-	// **stops at the first match**. First against last: both readings are
-	// honest and they name different items.
-	//
-	// So this says everything, in walk order, and a key with more than one
-	// name on it is the answer to "why did it use something else".
-	void LogEveryFavorite(std::string_view a_reason)
-	{
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (!player || !player->inventoryList) {
-			return;
-		}
-		std::array<std::string, 12> found{};
-		player->inventoryList->ForEachStack(
-			[](RE::BGSInventoryItem&) { return true; },
-			[&](RE::BGSInventoryItem& a_item,
-				RE::BGSInventoryItem::Stack& a_stack) {
-				const auto key = FavoriteOf(a_stack);
-				if (key < 12 && a_item.object) {
-					if (!found[key].empty()) {
-						found[key] += " + ";
-					}
-					found[key] +=
-						RE::TESFullName::GetFullName(*a_item.object);
-				}
-				return true;
-			});
-
-		std::string line;
-		auto twice = false;
-		for (std::size_t key = 0; key < found.size(); ++key) {
-			if (found[key].find(" + ") != std::string::npos) {
-				twice = true;
-			}
-			line += std::format(
-				"[{}]{} ", KeyLabel(key), found[key].empty() ? "-" : found[key]);
-		}
-		logger::info(
-			"walk ({}){}: {}",
-			a_reason,
-			twice ? " -- TWO ON ONE KEY" : "",
-			line);
-	}
-
-	// The list the engine's own lookup actually walks.
-	//
-	// UseQuickkeyItem does not read storedFavTypes to find what sits on a
-	// key. It calls ID 691965, and that function walks an array hanging off
-	// a singleton -- data pointer at +0x4a8, count at +0x4b8, eight bytes an
-	// entry -- handing each entry to a visitor and stopping at the first one
-	// the visitor accepts.
-	//
-	// That array is the last place nobody has looked, and by elimination it
-	// is where the answer is. On the run that finally showed the fault
-	// cleanly, page 3 was live, the player picked a cell on page 2, the
-	// switch ran, and afterwards the inventory said Noodle Cup on key 1, the
-	// engine's own copy said Noodle Cup on key 1, our own reading in the
-	// very frame of the call said Noodle Cup -- and the game drank the
-	// whiskey that had been on key 1 before the switch. Both things we write
-	// were right. So the thing that decides is a third one, and this is it.
-	//
-	// Nothing unknown is dereferenced. The entries are read as plain
-	// pointers and only compared against pointers we already hold, so a
-	// wrong guess about what they are costs a row of question marks rather
-	// than the game.
-	// Is this much memory there to be read at all?
-	//
-	// Everything below walks pointers whose shape is a guess, and a guess
-	// that is wrong must cost a line in the log rather than the game.
-	[[nodiscard]] bool Readable(const void* a_address, std::size_t a_size)
-	{
-		if (!a_address) {
-			return false;
-		}
-		MEMORY_BASIC_INFORMATION info{};
-		if (VirtualQuery(a_address, &info, sizeof(info)) != sizeof(info)) {
-			return false;
-		}
-		if (info.State != MEM_COMMIT) {
-			return false;
-		}
-		constexpr DWORD readable = PAGE_READONLY | PAGE_READWRITE |
-			PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
-			PAGE_EXECUTE_WRITECOPY;
-		if ((info.Protect & readable) == 0 ||
-			(info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
-			return false;
-		}
-		// One region is enough only while the read stays inside it.
-		const auto* start = reinterpret_cast<const std::byte*>(info.BaseAddress);
-		const auto* here = reinterpret_cast<const std::byte*>(a_address);
-		return static_cast<std::size_t>(
-				   (start + info.RegionSize) - here) >= a_size;
-	}
-
-	// What a thing calls itself.
-	//
-	// The disassembly gives offsets and nothing else, and an offset does not
-	// say whose object it is. A C++ object with virtual functions does say
-	// so: its vtable is preceded by a locator, and the locator points at the
-	// name the compiler wrote down. That turns "somebody else" into a class
-	// name, which is the difference between reading the code and guessing at
-	// it.
-	[[nodiscard]] std::string TypeName(const void* a_object)
-	{
-		if (!Readable(a_object, sizeof(void*))) {
-			return "unreadable";
-		}
-		const auto table = *reinterpret_cast<const std::byte* const*>(a_object);
-		if (!Readable(table - sizeof(void*), sizeof(void*))) {
-			return "no vtable";
-		}
-		const auto* locator = *reinterpret_cast<const std::byte* const* const*>(
-			table - sizeof(void*));
-		if (!Readable(locator, 0x18)) {
-			return "no locator";
-		}
-		// Only the 64-bit form, where everything in the locator is an offset
-		// from the module and the module itself is named in it.
-		if (*reinterpret_cast<const std::uint32_t*>(locator) != 1) {
-			return "not rtti";
-		}
-		const auto base = REL::Module::get().base();
-		const auto* descriptor = reinterpret_cast<const std::byte*>(
-			base + *reinterpret_cast<const std::uint32_t*>(locator + 0x0C));
-		if (!Readable(descriptor, 0x20)) {
-			return "no descriptor";
-		}
-		const auto* name = reinterpret_cast<const char*>(descriptor + 0x10);
-		std::string decorated;
-		for (std::size_t index = 0; index < 128; ++index) {
-			if (!Readable(name + index, 1) || name[index] == '\0') {
-				break;
-			}
-			decorated += name[index];
-		}
-		return decorated.empty() ? "nameless" : decorated;
-	}
-
-	constexpr std::uintptr_t kQuickkeyListOwner = 0x58D0AF0;  // where the pointer lives
-	constexpr std::ptrdiff_t kQuickkeyListData = 0x4A8;
-	constexpr std::ptrdiff_t kQuickkeyListCount = 0x4B8;
-
-	// The twelve keys as the engine itself resolves them.
-	//
-	// UseQuickkeyItem, read from its own bytes at last, does this and
-	// nothing else:
-	//
-	//     call 691965(manager, key)   -> the thing on that key, or nothing
-	//     call 833850(thing)          -> which key it claims
-	//     call 1430389(thing, ...)    -> [+0x18] is a handle, stashed
-	//     ...
-	//     lea  r8, [rsp+0x40]         -> that handle, made into an argument
-	//     call EquipObject
-	//
-	// So the item it equips is decided entirely by what 691965 hands back,
-	// and 691965 walks a list of 496 entries -- one per stack the player
-	// carries -- asking each what key it claims and stopping at the first
-	// that says the right one. That list is the third book, the one neither
-	// the inventory nor storedFavTypes is, and it is the only reading that
-	// has never been compared with the other two.
-	//
-	// This asks the engine its own question twelve times, through its own
-	// two functions. If it answers the whiskey where our books say the
-	// noodle cup, the disagreement is finally in one line, and the walk of
-	// the whole list underneath says whether the whiskey is simply first or
-	// whether the noodle cup is not in there at all.
-	using EngineLookup_t = void* (*)(RE::FavoritesManager*, std::uint32_t);
-	using EngineKeyOf_t = std::uint32_t (*)(void*);
-
-	void LogEngineKeys(std::string_view a_reason)
-	{
-		auto* manager = RE::FavoritesManager::GetSingleton();
-		if (!manager) {
-			return;
-		}
-		static REL::Relocation<EngineLookup_t> lookup{ REL::ID(691965) };
-		static REL::Relocation<EngineKeyOf_t> keyOf{ REL::ID(833850) };
-
-		// What the engine answers for each of the twelve, beside what we
-		// believe. Named through the cache, which is an image of our own
-		// writing -- so a name that does not appear there is itself the
-		// finding.
-		// Everything we can put a name to, so that what the engine hands
-		// back can be recognised instead of only pointed at.
-		std::unordered_map<const void*, std::string> known;
-		if (auto* player = RE::PlayerCharacter::GetSingleton();
-			player && player->inventoryList) {
-			known.emplace(player->inventoryList, "the inventory itself");
-			player->inventoryList->ForEachStack(
-				[](RE::BGSInventoryItem&) { return true; },
-				[&](RE::BGSInventoryItem& a_item,
-					RE::BGSInventoryItem::Stack& a_stack) {
-					const auto name = a_item.object
-						? RE::TESFullName::GetFullName(*a_item.object)
-						: "?";
-					const auto key = FavoriteOf(a_stack);
-					const auto where = key < 12 ? KeyLabel(key)
-						: key == kNoKey        ? std::string("parked")
-											   : std::string("-");
-					known.insert_or_assign(
-						&a_item, std::format("item {} ({})", name, where));
-					if (a_item.object) {
-						known.emplace(a_item.object, std::format("object {}", name));
-					}
-					known.insert_or_assign(
-						&a_stack, std::format("stack {} ({})", name, where));
-					if (a_stack.extra) {
-						known.insert_or_assign(
-							a_stack.extra.get(),
-							std::format("extra {} ({})", name, where));
-					}
-					return true;
-				});
-		}
-
-		std::string line;
-		auto disagrees = false;
-		for (std::size_t key = 0; key < 12; ++key) {
-			auto* found = lookup(manager, static_cast<std::uint32_t>(key));
-			if (!found) {
-				line += std::format("[{}]- ", KeyLabel(key));
-				if (manager->storedFavTypes[key]) {
-					disagrees = true;
-				}
-				continue;
-			}
-			const auto claimed = keyOf(found);
-
-			// What it is made of. The thing itself matched nothing we hold,
-			// so the name has to come out of one of its own fields -- and
-			// which field it comes out of says what kind of thing this is.
-			std::string parts;
-			if (Readable(found, 0x40)) {
-				const auto* words = reinterpret_cast<const void* const*>(found);
-				for (std::size_t word = 0; word < 8; ++word) {
-					const auto named = known.find(words[word]);
-					if (named != known.end()) {
-						parts += std::format("+{}:{} ", word, named->second);
-					}
-				}
-			}
-			line += std::format(
-				"[{}]{}{}{{{}}} ",
-				KeyLabel(key),
-				static_cast<const void*>(found),
-				claimed == key ? "" : std::format("(claims {})", claimed),
-				parts.empty() ? "nothing of ours" : parts);
-		}
-		logger::info(
-			"engine ({}){}: {}",
-			a_reason,
-			disagrees ? " -- IT HAS ONE WHERE WE HAVE NONE" : "",
-			line);
-
-		// And the whole list underneath, so that "the first one wins" can be
-		// seen rather than assumed: every entry that claims a key at all, in
-		// the order the engine walks them.
-		const auto base = REL::Module::get().base();
-		const auto* holder =
-			*reinterpret_cast<void* const*>(base + kQuickkeyListOwner);
-		if (!holder) {
-			return;
-		}
-		const auto* bytes = reinterpret_cast<const std::byte*>(holder);
-		auto* const* data =
-			*reinterpret_cast<void* const* const*>(bytes + kQuickkeyListData);
-		const auto count =
-			*reinterpret_cast<const std::uint32_t*>(bytes + kQuickkeyListCount);
-		if (!data || count > 4096) {
-			return;
-		}
-
-		std::string claims;
-		for (std::uint32_t index = 0; index < count; ++index) {
-			auto* entry = data[index];
-			if (!Readable(entry, 0x20)) {
-				continue;
-			}
-			const auto key = keyOf(entry);
-			if (key < 12) {
-				claims += std::format(
-					"#{}={} ({}) ",
-					index,
-					KeyLabel(key),
-					static_cast<const void*>(entry));
-			}
-		}
-		logger::info(
-			"engine ({}): of {} entries, these claim a key, in walk order: {}",
-			a_reason,
-			count,
-			claims.empty() ? "none at all" : claims);
-	}
-
 	void LogFavorites(std::string_view a_reason)
 	{
 		const auto slots = ReadFavorites();
@@ -1310,11 +1010,11 @@ namespace
 			return false;
 		}
 
-		logger::info(
-			"move: \"{}\" {} -> {}",
-			RE::TESFullName::GetFullName(*a_object),
-			KeyLabel(static_cast<std::size_t>(a_from)),
-			KeyName(to));
+		// Deliberately silent. Turning a page writes twenty-four of these,
+		// and a page is turned every time the mark crosses a row now, so a
+		// line each would bury everything else in the log. What the twelve
+		// keys ended up holding is said once, by LogFavorites, after the
+		// whole page has been written.
 		return true;
 	}
 
@@ -3087,36 +2787,9 @@ namespace
 		// on what the player is carrying at the time.
 		const auto worn = object->GetFormType() == RE::ENUM_FORM_ID::kWEAP ||
 			object->GetFormType() == RE::ENUM_FORM_ID::kARMO;
-		// What the engine holds on this key **in this frame**, before
-		// anything is touched.
-		//
-		// This is the one place that was never measured. Everything so far
-		// looked at the cache right after a page was applied, and that is a
-		// different frame from the one the call happens in. If the engine
-		// rebuilds its own copy in between -- on its own schedule, from its
-		// own idea of the truth -- then everything we write is overwritten
-		// before it is read, and every fix tonight was aimed past the
-		// target.
-		//
-		// The answer is in the log either way. Same object: our writing
-		// holds, and UseQuickkeyItem reads something else again. Different
-		// object: it was overwritten between the frames, and the sync below
-		// is the fix rather than another guess.
-		LogEveryFavorite("at the call");
-		LogEngineKeys("at the call");
-		if (const auto* manager = RE::FavoritesManager::GetSingleton()) {
-			const auto* held = manager->storedFavTypes[a_slot];
-			logger::info(
-				"use: at the call, the engine holds \"{}\" on [{}], and we "
-				"mean \"{}\"",
-				held ? RE::TESFullName::GetFullName(*held) : "nothing",
-				KeyLabel(a_slot),
-				RE::TESFullName::GetFullName(*object));
-		}
-
-		// And brought into agreement in this frame rather than an earlier
-		// one. It costs a walk of the inventory and closes the window
-		// whatever happens in it.
+		// The engine's own copy of the twelve, brought into agreement in
+		// this frame rather than an earlier one. It costs a walk of the
+		// inventory; it is what the cross and the HUD read.
 		SyncFavoritesCache();
 
 		const auto used = use::Quickkey(
@@ -3180,39 +2853,22 @@ namespace
 			return;
 		}
 
-		// A cell on another page is used by going there first. The engine
-		// hands out the twelve keys one page at a time, and this is the way
-		// that has been played and confirmed.
+		// The page should already be this one: marking a cell is what turns
+		// to its page, and nothing can be used that was not marked first.
 		//
-		// Borrowing a single key instead was tried and taken out again the
-		// same evening. It is the better idea -- two writes rather than
-		// twenty-four -- and it left the twelve keys in a half-applied state
-		// that the page bookkeeping then wrote back into a stored page. Fewer
-		// moving parts is only an improvement once the parts that stay are
-		// known to be right, and the page switch is the part that is.
+		// This is the way back if that ever stops being true. It turns the
+		// page and uses a frame later, which is what the mod did before --
+		// and what did not work: the engine equipped the item that had been
+		// on the key before the switch, every first press, however clean
+		// every reading was in between. So this is a fallback that is known
+		// to be poor, kept because doing nothing at all would be worse, and
+		// it says so in the log if it is ever reached.
 		if (spot.page != g_currentPage) {
+			logger::warn(
+				"use: page {} is not the one being played -- turning to it "
+				"now, which is the timing that used to fail",
+				spot.page + 1);
 			GoToPage(spot.page);
-
-			// And then wait a frame before using it.
-			//
-			// The engine does not take the new twelve keys as its own until
-			// the frame after they were written. Using in the same breath
-			// resolved against the page that was there **before** the
-			// switch, which is exactly what the player saw: pick the Sten on
-			// page 1 and it is drawn; pick the laser rifle on page 2 and the
-			// Sten is put away again; pick the laser rifle a second time and
-			// it is drawn. Every first press after a switch acted one page
-			// behind, and every second press was right, because by then the
-			// frame had passed.
-			//
-			// The unequipping was the same thing wearing a different coat:
-			// the toggle asked "and off again if it is already on", the
-			// engine looked at the old page's key, found the Sten, and the
-			// Sten was on.
-			//
-			// So the use is posted as its own task. Nothing is delayed by a
-			// measured amount here -- a task is simply the next frame, which
-			// is the thing that had to happen.
 			if (auto* tasks = F4SE::GetTaskInterface()) {
 				const auto page = spot.page;
 				const auto slot = spot.slot;
