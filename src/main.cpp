@@ -1113,6 +1113,59 @@ namespace
 		}
 	}
 
+	// Tells everyone else that the twelve keys changed.
+	//
+	// The page switch writes through the inventory list, and the list sends
+	// its own event afterwards -- which is what keeps the engine's display
+	// and FavoritesManager in step (see WriteFavorite). It is not the event
+	// the Pip-Boy sends when a favorite is assigned there: that one is
+	// InventoryInterface::FavoriteChangedEvent, out of BGSInventoryInterface,
+	// and it is what other plugins listen for. VisibleFavorites is one: it
+	// draws the favorites on the player's body, and after a page switch it
+	// kept drawing the old page until the next equip event gave it a reason
+	// to look again. Holstering, as it turned out.
+	//
+	// So the same event is sent here, once per item that holds a key, with
+	// the inventory item the Pip-Boy would name. Only after the menu has
+	// closed and the page has settled, not on every row the mark crosses:
+	// FavoritesManager listens to this event too and keeps twelve buffered
+	// geometries beside its twelve keys, and nobody needs those reloaded
+	// ten times while a page is being chosen.
+	void AnnounceFavorites()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		auto* inventory = RE::BGSInventoryInterface::GetSingleton();
+		if (!player || !player->inventoryList || !inventory) {
+			return;
+		}
+
+		// The event source is a private base of the interface, at 0x60 --
+		// the header says so, and there is no accessor.
+		auto* source = reinterpret_cast<
+			RE::BSTEventSource<RE::InventoryInterface::FavoriteChangedEvent>*>(
+			reinterpret_cast<std::uintptr_t>(inventory) + 0x60);
+
+		std::vector<RE::BGSInventoryItem*> keyed;
+		player->inventoryList->ForEachStack(
+			[](RE::BGSInventoryItem&) { return true; },
+			[&](RE::BGSInventoryItem& a_item,
+				RE::BGSInventoryItem::Stack& a_stack) {
+				// Once per item, however many of its stacks carry a key;
+				// returning false here would end the whole walk.
+				if (FavoriteOf(a_stack) < 12 &&
+					(keyed.empty() || keyed.back() != &a_item)) {
+					keyed.push_back(&a_item);
+				}
+				return true;
+			});
+
+		for (auto* item : keyed) {
+			RE::InventoryInterface::FavoriteChangedEvent event{ item };
+			source->Notify(event);
+		}
+		logger::info("favorites: {} keyed items announced", keyed.size());
+	}
+
 	void ApplyPage(const Page& a_target)
 	{
 		// While the display still agrees with the inventory.
@@ -3260,8 +3313,13 @@ namespace
 
 			// The default page, once whatever the menu was doing has
 			// settled. See the close event.
+			// And then, whichever page that leaves live, the word to
+			// everyone who draws the favorites somewhere else.
 			if (tasks && g_restoreIn > 0 && --g_restoreIn == 0) {
-				tasks->AddUITask([]() { RestoreDefaultPage(); });
+				tasks->AddUITask([]() {
+					RestoreDefaultPage();
+					AnnounceFavorites();
+				});
 			}
 
 			// While the grid stands in the Pip-Boy, the mark follows the
