@@ -1728,6 +1728,11 @@ namespace
 	[[nodiscard]] std::vector<grid::Page> BuildGridPages()
 	{
 		EnsurePages();
+		// The book first, so what is drawn is what is true: the live keys
+		// go into the page being played and strike the same items off the
+		// other pages. Otherwise an item just assigned in the Pip-Boy kept
+		// showing on its old row until the next page switch remembered.
+		RememberCurrentPage();
 		const auto live = ReadFavorites();
 		g_wantedLibraries.clear();
 
