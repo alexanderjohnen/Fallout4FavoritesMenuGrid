@@ -558,6 +558,15 @@ namespace
 		if (a_depth < 0 || !std::filesystem::is_directory(a_directory, error)) {
 			return;
 		}
+		// The files of a folder first, its subfolders after. Order is what
+		// decides a keyword named twice -- the later entry wins -- and
+		// FallUI reads a configuration before the addons in the folder
+		// beside it. Walking in directory order read the folder "FIS" and
+		// everything in it before the file "FIS (FallUI Item Sorter).xml"
+		// next to it, so the main file overrode every addon: grenades in
+		// Explosives pink where 4estIconLib had said MilitaryGreen,
+		// shotguns in WeaponRifles where it had said lightyellow.
+		std::vector<std::filesystem::path> folders;
 		for (const auto& entry :
 			std::filesystem::directory_iterator(a_directory, error)) {
 			if (entry.is_directory(error)) {
@@ -567,7 +576,7 @@ namespace
 				// player has chosen one of each in MCM.
 				const auto folder = Lowered(entry.path().filename().string());
 				if (folder != "variations" && folder != "colorsets") {
-					ReadEvery(entry.path(), a_interface, a_depth - 1);
+					folders.push_back(entry.path());
 				}
 				continue;
 			}
@@ -582,6 +591,9 @@ namespace
 			ReadTags(text);
 			ReadVariations(text);
 			ReadAutoTagger(text, a_interface);
+		}
+		for (const auto& folder : folders) {
+			ReadEvery(folder, a_interface, a_depth - 1);
 		}
 	}
 

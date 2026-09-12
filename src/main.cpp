@@ -1992,6 +1992,25 @@ namespace
 				"mouseChildren", RE::Scaleform::GFx::Value(!a_on));
 			g_pipboyList.SetMember(
 				"mouseEnabled", RE::Scaleform::GFx::Value(!a_on));
+			// Not enough on its own. After every data update the list runs
+			// its own hit test with mouseX/mouseY -- SetFocusUnderMouse in
+			// BSScrollingList.InvalidateData -- and no mouse setting stops
+			// that. It runs only while bMouseDrivenNav is set, and the one
+			// public way to clear that is SetPlatform: 1 is a controller,
+			// and the list does nothing else with the number. The real
+			// platform goes back when the panel comes down; a rollover
+			// would set the flag again, which is what the shield above
+			// is for.
+			const std::array platform{
+				RE::Scaleform::GFx::Value(
+					a_on || HintDevice() == input::Device::kGamepad ? 1.0 : 0.0),
+				RE::Scaleform::GFx::Value(false)
+			};
+			g_pipboyList.Invoke(
+				"SetPlatform",
+				nullptr,
+				platform.data(),
+				static_cast<std::uint32_t>(platform.size()));
 		}
 		if (!a_on) {
 			g_pipboyList = RE::Scaleform::GFx::Value();
