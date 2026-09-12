@@ -3556,6 +3556,12 @@ namespace
 				g_pipboyOpen = a_event.opening;
 			}
 			if (a_event.menuName == pipboyMenu && !a_event.opening) {
+				// The Pip-Boy turns pages too -- every row change in the
+				// assign dialog is one -- so leaving it is a close like the
+				// favorites menu's: the default page goes back in a moment,
+				// and whoever draws the favorites elsewhere is told.
+				g_restoreIn = kRestoreDelayTicks;
+
 				// The movie is going away, and with it every class the icon
 				// libraries put into it -- whether or not the panel is
 				// standing at this moment. Forgetting them only while it
