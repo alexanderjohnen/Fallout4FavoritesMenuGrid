@@ -719,14 +719,15 @@ void grid::Draw(
 	const auto hosted =
 		a_host && a_host->parent && a_host->parent->IsDisplayObject();
 	auto& ground = hosted ? *a_host->parent : stage;
-	g_iconMaker = hosted && a_host->iconMaker && a_host->iconMaker->IsObject()
-		? *a_host->iconMaker
-		: RE::Scaleform::GFx::Value();
 
 	// Everything is drawn from scratch, children and all. A page switch
 	// changes most cells anyway, and rebuilding is one code path instead of
 	// two that have to agree.
 	Release();
+	// After Release, which forgets the maker with everything else.
+	g_iconMaker = hosted && a_host->iconMaker && a_host->iconMaker->IsObject()
+		? *a_host->iconMaker
+		: RE::Scaleform::GFx::Value();
 
 	a_canvas->uiMovie->CreateObject(&g_panel, "flash.display.Sprite");
 	if (!g_panel.IsDisplayObject()) {

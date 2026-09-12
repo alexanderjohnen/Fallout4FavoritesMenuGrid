@@ -2037,36 +2037,11 @@ namespace
 		grid::Mark(grid::Spot{ g_currentPage, slot });
 	}
 
-	// The cross's own arrow keys, off while the panel stands and on again
-	// after.
-	//
-	// The cross keeps the focus (alpha, not visible -- see DrawPipboyGrid),
-	// and a focused cross gets every key as a KeyboardEvent, its onKeyUp
-	// walking _UpDirectory and writing selectedIndex on UP -- in the same
-	// frame our handler has already turned the page for that press and
-	// taken the panel down. Both crash logs of 2026-09-12 end inside a
-	// dispatched event handler in the Pip-Boy's movie, reading a property
-	// of something with no class left; with visible=false, when the focus
-	// sat on the disabled list, the same row changes held seven times.
-	//
-	// onKeyUp is a public method, so its listener can be taken off and put
-	// back from here. Accept is untouched: ENTER bubbles on to the page's
-	// own onKeyUp, which calls Cross_mc.SelectItem() -- the path that
-	// assigned today.
-	void CrossListensToKeys(RE::Scaleform::GFx::Value& a_cross, bool a_on)
-	{
-		RE::Scaleform::GFx::Value handler;
-		if (!a_cross.IsObject() || !a_cross.GetMember("onKeyUp", &handler) ||
-			!handler.IsObject()) {
-			return;
-		}
-		const std::array args{ RE::Scaleform::GFx::Value("keyUp"), handler };
-		a_cross.Invoke(
-			a_on ? "addEventListener" : "removeEventListener",
-			nullptr,
-			args.data(),
-			static_cast<std::uint32_t>(args.size()));
-	}
+	// The cross keeps its own keyUp listener. It was taken off for a day
+	// (ce1d359) on the guess that its UP handler was what crashed; the
+	// guess was wrong, and without the listener Accept stopped working:
+	// its ENTER branch is what calls stopPropagation(), and an ENTER that
+	// goes on past the page reaches the menu, where it means "use".
 
 	// Takes the panel out of the Pip-Boy and gives the dialog its cross
 	// back. Safe while the Pip-Boy is open: the clip our panel hangs on is
@@ -2089,7 +2064,6 @@ namespace
 			g_pipboyCross.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 			g_pipboyCross.SetMember(
 				"mouseChildren", RE::Scaleform::GFx::Value(true));
-			CrossListensToKeys(g_pipboyCross, true);
 		}
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
@@ -2212,8 +2186,8 @@ namespace
 			if (!said) {
 				said = true;
 				logger::info(
-					"pipboy: the cross has no selectedIndex to write -- the "
-					"grid stays out of it");
+					"pipboy: the cross has no selectedIndex to write yet -- "
+					"the watch asks again");
 			}
 			return;
 		}
@@ -2229,9 +2203,6 @@ namespace
 		// themselves when the pointer crosses them.
 		a_cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 		a_cross.SetMember("mouseChildren", RE::Scaleform::GFx::Value(false));
-		if (!g_pipboyGridUp) {
-			CrossListensToKeys(a_cross, false);
-		}
 
 		const auto pages = BuildGridPages();
 
@@ -2340,16 +2311,14 @@ namespace
 			});
 			return;
 		}
-		// Not on the first sighting. The dialog is found the moment it is
-		// created, and a clip that exists is not yet a clip that is built:
-		// one tick later its entries are there, its font can be measured,
-		// and its selection can be written.
-		if (++g_pipboySeen < 2) {
-			// But out of sight already, so the player never sees the
-			// game's cross give way to ours a tick later.
-			cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
-			return;
-		}
+		// On sight. The dialog is found the moment it is created, and a
+		// clip that exists is not yet a clip that is built -- so
+		// DrawPipboyGrid asks the cross whether it answers yet and leaves
+		// it alone when it does not, and this asks again on the next tick.
+		// Waiting for a second sighting on principle was up to 400 ms of
+		// the game's own cross before ours, and the player saw it.
+		++g_pipboySeen;
+		cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 		DrawPipboyGrid(cross, path);
 
 		// A row change chose a key before it took the panel down; now that
@@ -2450,19 +2419,19 @@ namespace
 			g_pipboyPage < g_pages.size() ? g_pipboyPage : g_currentPage);
 		auto slot = static_cast<int>(g_pipboySlot < 12 ? g_pipboySlot : 0);
 
-		if (a_slots != 0) {
-			slot += a_slots;
-			if (slot >= 12) {
-				slot = 0;
-				page = (page + 1) % rows;
-			} else if (slot < 0) {
-				slot = 11;
-				page = (page + rows - 1) % rows;
+		// The same rule as the favorites menu: a row's ends are doors back
+		// into the same row, or walls, as GridWrap says. Running on into
+		// the next row was how section 51 built it, and it read as a
+		// mistake at the keyboard.
+		const auto step = [](int a_from, int a_by, int a_count) {
+			const auto to = a_from + a_by;
+			if (g_wrapNavigation) {
+				return (to % a_count + a_count) % a_count;
 			}
-		}
-		if (a_pages != 0) {
-			page = ((page + a_pages) % rows + rows) % rows;
-		}
+			return std::clamp(to, 0, a_count - 1);
+		};
+		slot = step(slot, a_slots, 12);
+		page = step(page, a_pages, rows);
 
 		SelectPipboySpot(
 			static_cast<std::size_t>(page), static_cast<std::uint32_t>(slot));
@@ -3496,7 +3465,11 @@ namespace
 			// of the two -- taking over unasked, or taking over that early
 			// -- is the one that kills it, and shipping a crash to find out
 			// is not a plan.
-			if (g_pipboyOpen && g_pipboyAuto && tasks && ticks % 8 == 0) {
+			// Quick while nothing stands, so the dialog is taken the tick it
+			// appears; slow while the panel is up, when the only question is
+			// whether the dialog has gone.
+			if (g_pipboyOpen && g_pipboyAuto && tasks &&
+				ticks % (g_pipboyGridUp ? 8 : 2) == 0) {
 				tasks->AddUITask([]() { WatchPipboyDialog(); });
 			}
 
