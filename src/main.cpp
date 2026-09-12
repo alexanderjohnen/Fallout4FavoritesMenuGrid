@@ -2450,6 +2450,14 @@ namespace
 				// The dialog is gone and our panel with it; the movie is
 				// still alive, so this is an ordinary tidy-up.
 				TakePipboyGridDown();
+			} else if (g_pipboyList.IsDisplayObject()) {
+				// The panel was already down -- a row change took it, and
+				// the dialog closed before the watch drew again (a click
+				// assigns, the mouse wanders on, the game closes the dialog
+				// half a second later). The list is still shielded, and a
+				// shielded list takes no mouse: that was "no item could be
+				// reached until the Pip-Boy was opened again".
+				ShieldPipboyList(g_pipboyCross, false);
 			}
 			return;
 		}
@@ -3700,14 +3708,17 @@ namespace
 				// stood left g_asked believing the next Pip-Boy, a new
 				// movie, already had them.
 				icons::Release();
-				if (g_pipboyGridUp) {
-					// And our panel's objects belong to that movie. Forget
-					// them rather than reach into them -- section 42.
-					input::Listen(false);
-					input::ClaimDirectionsOnly(false);
-					ForgetPipboyGrid();
-					grid::Forget();
-				}
+				// And everything of ours that belongs to that movie -- the
+				// panel's objects, the cross, the list -- is forgotten rather
+				// than reached into (section 42). Whether or not the panel
+				// stands: a row change takes it down and keeps the list, and
+				// forgetting only while it stood kept that list into the
+				// next Pip-Boy, a new movie, where the first SetMember on it
+				// was the crash of 2026-09-13 00:12.
+				input::Listen(false);
+				input::ClaimDirectionsOnly(false);
+				ForgetPipboyGrid();
+				grid::Forget();
 			}
 			if (a_event.menuName == pipboyMenu && a_event.opening &&
 				g_surveyDepth > 0) {
