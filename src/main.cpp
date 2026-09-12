@@ -1947,6 +1947,11 @@ namespace
 	// The inventory list behind the dialog, held while the panel stands so
 	// its mouse can be given back. See ShieldPipboyList.
 	RE::Scaleform::GFx::Value g_pipboyList;
+	// Where the pointer last was, in the dialog's coordinates -- so that a
+	// pointer merely resting over a cell when the dialog opens chooses
+	// nothing, the same rule the favorites menu keeps.
+	double g_pipboyPointerX = std::numeric_limits<double>::lowest();
+	double g_pipboyPointerY = std::numeric_limits<double>::lowest();
 	std::size_t g_pipboyPage = 0;
 	std::uint32_t g_pipboySlot = 0;
 	// How many times in a row the dialog has been seen. See the watch.
@@ -1962,6 +1967,8 @@ namespace
 		g_pipboyPending = 12;
 		g_pipboyCross = RE::Scaleform::GFx::Value();
 		g_pipboyList = RE::Scaleform::GFx::Value();
+		g_pipboyPointerX = std::numeric_limits<double>::lowest();
+		g_pipboyPointerY = std::numeric_limits<double>::lowest();
 	}
 
 	// The list behind the dialog takes no mouse while the panel stands.
@@ -2116,12 +2123,38 @@ namespace
 		SayPipboyFocus("after we set it");
 	}
 
+	// The cell under the pointer, if it has moved onto one.
+	[[nodiscard]] std::optional<grid::Spot> PipboyPointerSpot()
+	{
+		auto* pipboy = GetMenu("PipboyMenu");
+		double x = 0.0;
+		double y = 0.0;
+		if (!pipboy || !grid::Pointer(pipboy, x, y) ||
+			(x == g_pipboyPointerX && y == g_pipboyPointerY)) {
+			return std::nullopt;
+		}
+		g_pipboyPointerX = x;
+		g_pipboyPointerY = y;
+		return grid::At(x, y);
+	}
+
 	void RefreshPipboyGrid()
 	{
 		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
 			return;
 		}
 		SayPipboyFocus("refresh");
+
+		// The pointer first, because it is what a hand is on. Only when it
+		// has moved, and only onto a cell; a row change goes the same way
+		// the keys take, panel down and the watch drawing again.
+		if (const auto over = PipboyPointerSpot()) {
+			if (over->page != g_pipboyPage || over->slot != g_pipboySlot) {
+				SelectPipboySpot(
+					over->page, static_cast<std::uint32_t>(over->slot));
+			}
+			return;
+		}
 
 		// No pointer here, on purpose. It was let in once (597e70d), and
 		// that is when the takeover began to crash on entry: whatever row
@@ -2553,6 +2586,42 @@ namespace
 
 		SelectPipboySpot(
 			static_cast<std::size_t>(page), static_cast<std::uint32_t>(slot));
+	}
+
+	// A click on the marked cell assigns, through the dialog's own
+	// SelectItem -- what its ENTER calls. Only on the cell the pointer is
+	// over and only when that cell is on the page being played: a click
+	// on another row is a row change still on its way, and assigning
+	// into the old page's keys is exactly the bug of section 61.
+	void ClickPipboyCell()
+	{
+		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
+			return;
+		}
+		auto* pipboy = GetMenu("PipboyMenu");
+		double x = 0.0;
+		double y = 0.0;
+		if (!pipboy || !grid::Pointer(pipboy, x, y)) {
+			return;
+		}
+		const auto over = grid::At(x, y);
+		if (!over) {
+			return;
+		}
+		if (over->page != g_currentPage) {
+			logger::info(
+				"pipboy: click on page {} while page {} is being played -- "
+				"not assigned",
+				over->page + 1,
+				g_currentPage + 1);
+			return;
+		}
+		SelectPipboySpot(over->page, static_cast<std::uint32_t>(over->slot));
+		logger::info(
+			"pipboy: click on page {} key {} -- the dialog assigns",
+			over->page + 1,
+			KeyLabel(over->slot));
+		g_pipboyCross.Invoke("SelectItem");
 	}
 
 	void TogglePipboyCross()
@@ -3328,7 +3397,9 @@ namespace
 			});
 			break;
 		case input::Action::kUse:
-			tasks->AddUITask([]() { UseMarked(); });
+			tasks->AddUITask([pipboy]() {
+				pipboy ? ClickPipboyCell() : UseMarked();
+			});
 			break;
 		case input::Action::kClear:
 			tasks->AddUITask([]() { ClearMarked(); });

@@ -119,13 +119,11 @@ namespace
 	[[nodiscard]] std::optional<input::Action> Claimed(const RE::ButtonEvent& a_event)
 	{
 		const auto code = static_cast<std::int32_t>(a_event.idCode);
-		const auto onlyDirections = g_directionsOnly.load();
 
 		switch (a_event.device.get()) {
 		case RE::INPUT_DEVICE::kMouse:
-			if (onlyDirections) {
-				return std::nullopt;
-			}
+			// Claimed in the Pip-Boy too: a click on a cell there is what
+			// assigns, and the dialog has nothing else to do with a click.
 			if (g_keys.useOnClick && code == kLeftMouseButton) {
 				return input::Action::kUse;
 			}
@@ -195,7 +193,8 @@ namespace
 		const RE::ButtonEvent& a_event)
 	{
 		const auto action = Claimed(a_event);
-		if (action && g_directionsOnly.load() && !Directional(*action)) {
+		if (action && g_directionsOnly.load() && !Directional(*action) &&
+			a_event.device.get() != RE::INPUT_DEVICE::kMouse) {
 			return std::nullopt;
 		}
 		return action;
