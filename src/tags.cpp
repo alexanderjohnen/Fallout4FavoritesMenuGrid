@@ -102,15 +102,15 @@ namespace
 		if (!in) {
 			return {};
 		}
-		std::string text(
-			std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		std::string text{
+			std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()
+		};
 		std::size_t at = 0;
 		while ((at = text.find("<!--", at)) != std::string::npos) {
 			auto end = text.find("-->", at + 4);
 			end = end == std::string::npos ? text.size() : end + 3;
 			for (auto i = at; i < end; ++i) {
-				if (text[i] != '
-' && text[i] != '') {
+				if (text[i] != '\n' && text[i] != '\r') {
 					text[i] = ' ';
 				}
 			}
