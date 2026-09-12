@@ -1107,6 +1107,24 @@ bool grid::Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y)
 		return false;
 	}
 
+	// In a host, Flash is asked and nothing is worked out. The arithmetic
+	// below maps screen pixels onto the stage in a straight line, which is
+	// right for a movie that fills the screen -- our own, or the Pip-Boy
+	// in power armor -- and wrong for the Pip-Boy on the wrist, where the
+	// game projects the mouse onto the screen of a model. The mark sat a
+	// cell or two off the pointer there, differently at every spot. What
+	// the game hands the movie as a mouse position is already projected,
+	// and every clip reports it in its own coordinates as mouseX/mouseY:
+	// the clip the panel hangs in is the one to ask.
+	if (g_hosted && g_panel.IsDisplayObject()) {
+		RE::Scaleform::GFx::Value parent;
+		if (g_panel.GetMember("parent", &parent) && parent.IsDisplayObject()) {
+			a_x = ReadNumber(parent, "mouseX", 0.0);
+			a_y = ReadNumber(parent, "mouseY", 0.0);
+			return true;
+		}
+	}
+
 	// The cursor counts screen pixels and the panel is laid out in the
 	// movie's own units, of which there are 1280 by 720. What has to be
 	// known is the range the cursor moves in, and the cursor carries it
@@ -1135,33 +1153,6 @@ bool grid::Pointer(RE::IMenu* a_canvas, double& a_x, double& a_y)
 	a_y = frame.y1 +
 		(cursor->cursorPosY - low(cursor->minCursorY, cursor->maxCursorY)) *
 			(frame.y2 - frame.y1) / height;
-
-	// In a host, what has been worked out so far is a point on the stage and
-	// the panel is measured in the coordinates of the clip that holds it.
-	// Flash converts between the two itself, and asking it is the only way
-	// that stays right through whatever the dialog is scaled or moved by.
-	//
-	// This was in once (597e70d), taken out on the belief that it crashed
-	// the Pip-Boy takeover, and is back now that the crash has its real
-	// name -- the icon libraries loaded into FallUI's movie, section 63.
-	if (g_hosted && g_panel.IsDisplayObject()) {
-		RE::Scaleform::GFx::Value parent;
-		if (g_panel.GetMember("parent", &parent) && parent.IsDisplayObject()) {
-			const std::array<RE::Scaleform::GFx::Value, 2> at{
-				RE::Scaleform::GFx::Value(a_x), RE::Scaleform::GFx::Value(a_y)
-			};
-			RE::Scaleform::GFx::Value point;
-			a_canvas->uiMovie->CreateObject(
-				&point, "flash.geom.Point", at.data(), 2);
-			RE::Scaleform::GFx::Value local;
-			if (point.IsObject() &&
-				parent.Invoke("globalToLocal", &local, &point, 1) &&
-				local.IsObject()) {
-				a_x = ReadNumber(local, "x", a_x);
-				a_y = ReadNumber(local, "y", a_y);
-			}
-		}
-	}
 
 	if (!g_pointerReported) {
 		g_pointerReported = true;
