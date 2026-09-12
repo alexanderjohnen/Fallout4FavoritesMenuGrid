@@ -128,12 +128,16 @@ namespace
 			}
 			const auto hex = Attribute(a_element, "hex");
 			if (!hex.empty()) {
-				g_colorHex[Lowered(name)] = hex;
+				// As written. FallUI keeps colour names in a Dictionary, so
+				// "LightBlue" and "lightblue" are two colours -- and they
+				// are: Diello's is cyan, Default.xml's is blue, and lowering
+				// both made Nuka-Cola blue where FallUI draws it cyan.
+				g_colorHex[name] = hex;
 				return;
 			}
 			const auto alias = Attribute(a_element, "alias");
 			if (!alias.empty()) {
-				g_colorAlias[Lowered(name)] = Lowered(alias);
+				g_colorAlias[name] = alias;
 			}
 		});
 	}
@@ -220,7 +224,7 @@ namespace
 					const auto comma = color.find(',', at);
 					const auto end =
 						comma == std::string::npos ? color.size() : comma;
-					wanted.push_back(Lowered(color.substr(at, end - at)));
+					wanted.push_back(std::string(color.substr(at, end - at)));
 					if (comma == std::string::npos) {
 						break;
 					}
