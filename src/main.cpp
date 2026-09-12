@@ -1307,6 +1307,32 @@ namespace
 		for (std::size_t key = 0; key < current.size(); ++key) {
 			page[key] = current[key].object;
 		}
+
+		// One thing, one place. The engine keeps a key to an object within
+		// its twelve, but the other pages are ours, and nothing stopped an
+		// item assigned on the page being played from still being written
+		// down on another -- where the next switch gave it a key again, and
+		// the player saw the same item on two rows. Where it was put last
+		// is where it belongs; the older entry goes free.
+		for (std::size_t other = 0; other < g_pages.size(); ++other) {
+			if (other == g_currentPage) {
+				continue;
+			}
+			for (auto& held : g_pages[other]) {
+				if (!held) {
+					continue;
+				}
+				const auto twice = std::ranges::find(page, held);
+				if (twice != page.end()) {
+					logger::info(
+						"page: \"{}\" is on page {} now, so it leaves page {}",
+						RE::TESFullName::GetFullName(*held),
+						g_currentPage + 1,
+						other + 1);
+					held = nullptr;
+				}
+			}
+		}
 	}
 
 	// Which page the twelve keys are really holding.
