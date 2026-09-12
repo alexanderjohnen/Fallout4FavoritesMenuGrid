@@ -1947,11 +1947,15 @@ namespace
 	std::uint32_t g_pipboySlot = 0;
 	// How many times in a row the dialog has been seen. See the watch.
 	int g_pipboySeen = 0;
+	// A key chosen while the panel was down, waiting for the next draw --
+	// twelve means none. See SelectPipboySpot.
+	std::uint32_t g_pipboyPending = 12;
 
 	void ForgetPipboyGrid()
 	{
 		g_pipboyGridUp = false;
 		g_pipboySeen = 0;
+		g_pipboyPending = 12;
 		g_pipboyCross = RE::Scaleform::GFx::Value();
 	}
 
@@ -2189,6 +2193,9 @@ namespace
 
 		if (!there) {
 			g_pipboySeen = 0;
+			// A key chosen for a dialog that has since gone belongs to no
+			// dialog that comes later.
+			g_pipboyPending = 12;
 			if (g_pipboyGridUp) {
 				// The dialog is gone and our panel with it; the movie is
 				// still alive, so this is an ordinary tidy-up.
@@ -2213,6 +2220,14 @@ namespace
 			return;
 		}
 		DrawPipboyGrid(cross, path);
+
+		// A row change chose a key before it took the panel down; now that
+		// the dialog has been found again and drawn on, the key goes in.
+		if (g_pipboyGridUp && g_pipboyPending < 12) {
+			const auto slot = g_pipboyPending;
+			g_pipboyPending = 12;
+			SelectPipboySpot(g_currentPage, slot);
+		}
 	}
 
 	// One step through the grid in the Pip-Boy.
@@ -2259,21 +2274,28 @@ namespace
 
 		if (a_page != g_currentPage) {
 			GoToPage(a_page);
-			// The twelve keys are different now, and so is the dialog's own
-			// cross: it is found again rather than trusted, because what
-			// rewriting the keys does to that clip is the game's business
-			// and not something to hold a pointer through.
-			RE::Scaleform::GFx::Value found;
-			std::string path;
-			if (!FindPipboyCross(found, path)) {
-				TakePipboyGridDown();
-				return;
-			}
-			std::string quiet;
-			DrawPipboyGrid(found, quiet);
-			if (!g_pipboyGridUp) {
-				return;
-			}
+			// And nothing more in this breath. The twelve keys are
+			// different now, and the game answers by rebuilding the cross's
+			// entries for them; drawing again at once and writing
+			// selectedIndex into that half-rebuilt cross is where the log
+			// of 597e70d ended, and where the log of 2026-09-12 ended too,
+			// after two row changes inside one second.
+			//
+			// So the panel comes down instead, and the watch takes it from
+			// here: it finds the dialog again, draws on the second sighting
+			// -- the path that held on entry three times that day -- and
+			// only then hands the cross the key chosen here. The cross
+			// stays hidden meanwhile; the game's own is not what should
+			// flash through the gap.
+			grid::Release();
+			icons::Release();
+			input::Listen(false);
+			input::ClaimDirectionsOnly(false);
+			g_pipboyGridUp = false;
+			g_pipboySeen = 0;
+			g_pipboyCross = RE::Scaleform::GFx::Value();
+			g_pipboyPending = a_slot;
+			return;
 		}
 
 		g_pipboyCross.SetMember(
