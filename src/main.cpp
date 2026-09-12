@@ -2006,26 +2006,13 @@ namespace
 			return;
 		}
 
-		// The pointer first, because it is what a hand is on. The panel
-		// hangs inside the dialog rather than on the stage here, and
-		// grid::Pointer knows to bring the cursor the rest of the way in.
-		if (auto* pipboy = GetMenu("PipboyMenu")) {
-			double x = 0.0;
-			double y = 0.0;
-			if (grid::Pointer(pipboy, x, y)) {
-				if (const auto over = grid::At(x, y)) {
-					if (over->page != g_pipboyPage ||
-						over->slot != g_pipboySlot) {
-						SelectPipboySpot(
-							over->page, static_cast<std::uint32_t>(over->slot));
-					}
-					return;
-				}
-			}
-		}
-
-		// Nothing under the pointer: follow what the dialog itself chose, so
-		// its own keys still move the mark.
+		// No pointer here, on purpose. It was let in once (597e70d), and
+		// that is when the takeover began to crash on entry: whatever row
+		// the mouse happened to rest on turned the page in the first tick,
+		// which redrew at once and wrote selectedIndex into a cross the
+		// game was still rebuilding for the twelve new keys. The keys make
+		// the same turn only when somebody presses them, and the dialog
+		// has keys of its own already. So: follow what the dialog chose.
 		RE::Scaleform::GFx::Value chosen;
 		if (!g_pipboyCross.GetMember("selectedIndex", &chosen)) {
 			return;
@@ -3326,9 +3313,7 @@ namespace
 			// dialog's own selection. Not every tick: a Scaleform read ten
 			// times a second is plenty for a thumb, and forty would be
 			// forty.
-			// Twice as often as before: this now follows the mouse as well,
-			// and ten times a second reads as a pointer that lags.
-			if (g_pipboyGridUp && tasks && ++ticks % 2 == 0) {
+			if (g_pipboyGridUp && tasks && ++ticks % 4 == 0) {
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
 			}
 
