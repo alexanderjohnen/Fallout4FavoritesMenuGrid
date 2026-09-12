@@ -3807,3 +3807,60 @@ gebaut ist, ist nicht bestätigt — bestätigt ist, was gespielt wurde.**
   Eingabe schon mitbringt.
 * **`DefaultPage`** steht auf 0 und ist nie durchgespielt worden.
 * **Farben** bei Granaten und Schrotflinten stimmen noch nicht.
+
+## 62. Die Seite war richtig, nur wusste es niemand (2026-09-12)
+
+Alexander, aus dem Starfield-Chat mitgebracht: Mit `DefaultPage` gesetzt
+und ohne Klick wechsle die Seite beim Schließen nicht; sie wechsle erst,
+wenn er die Waffe wegsteckt — als warte sie auf eine Interaktion.
+
+### Was das Log sagte, bevor irgendwas gebaut wurde
+
+Das Log vom 8.9. hat ein Schließen ohne Benutzung (16:19:31): `back to 1`,
+`switching to 1 of 4`, Inventar und Cache in derselben Sekunde neu
+geschrieben. Unser Teil lief also, mit oder ohne Klick. Der Wechsel war
+nie ausgeblieben — er war nur nirgends zu sehen.
+
+Die Frage war deshalb nicht *warum wechselt es nicht*, sondern *woran
+sieht er, dass es nicht wechselt*. Antwort: an den Waffen am Körper,
+gezeichnet von **VisibleFavorites** (fremde Mod, v1.2.3).
+
+### Warum die Anzeige stehen blieb
+
+Aus den Strings der DLL: VisibleFavorites hat einen `FavSink` auf
+`InventoryInterface::FavoriteChangedEvent` und daneben Equip-, Container-,
+Furniture- und Anim-Sinks, alle auf ein Dirty-Flag. Unser Seitenwechsel
+schreibt über `BGSInventoryList::FindAndWriteStackDataForItem` (Abschnitt
+zu `WriteFavorite`), und das schickt das Ereignis der *Liste* — nicht das
+des Inventar-Interfaces, das der Pip-Boy beim Zuweisen schickt. Für
+VisibleFavorites war nichts passiert, bis das Wegstecken über den
+Equip-Sink ein Reconcile auslöste.
+
+### Was gebaut ist (`8108309`)
+
+`AnnounceFavorites()`: nach dem Schließen, im selben UI-Task wie
+`RestoreDefaultPage`, für jeden Gegenstand mit Taste ein
+`FavoriteChangedEvent` mit dem `BGSInventoryItem*` aus
+`BGSInventoryInterface` — die Ereignisquelle ist eine private Basis bei
+`+0x60`, Offset aus dem CommonLibF4-Header.
+
+Bewusst **nicht** bei jedem Reihenwechsel im offenen Menü:
+`FavoritesManager` hört auf dasselbe Ereignis und hält zwölf
+`bufferedFavGeometries`. Was er damit beim Ereignis tut, ist nicht
+geprüft; zehnmal pro Seitenwahl muss er es jedenfalls nicht tun.
+
+### Gespielt
+
+Einmal, 12.9. 14:38, `DefaultPage=1`: Seite 2 markiert, ohne Klick
+geschlossen. Körper sprang auf Seite 1, ohne Wegstecken. Log:
+`favorites: 10 keyed items announced`, keine Warnung.
+
+Nicht gespielt: `DefaultPage=0` (die INI wird nur in `F4SEPlugin_Query`
+gelesen, ein Wechsel braucht einen Neustart). Da läuft derselbe Task,
+nur ohne Wiederherstellung; wenn es dort anders aussieht, wäre das neu.
+
+### Offen
+
+* **Pip-Boy-Raster** — unverändert, siehe Abschnitt 61.
+* **`DefaultPage`** ist jetzt einmal durchgespielt, mit Seite 1.
+* **Farben** bei Granaten und Schrotflinten.
