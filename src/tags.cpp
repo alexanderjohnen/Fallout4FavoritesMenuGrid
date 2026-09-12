@@ -90,14 +90,33 @@ namespace
 		}
 	}
 
+	// A file with its comments blanked. This reader looks for "<tag" in the
+	// text and knows nothing of XML, so an entry somebody commented out
+	// read like an entry: 4estIconLib.xml keeps a green assault rifle for
+	// "Rifle" inside <!-- -->, and once the addons were read in the right
+	// order, that rifle won. Blanked rather than cut, so the positions the
+	// block bookkeeping records stay true.
 	[[nodiscard]] std::string ReadFile(const std::filesystem::path& a_path)
 	{
 		std::ifstream in(a_path, std::ios::binary);
 		if (!in) {
 			return {};
 		}
-		return std::string(
+		std::string text(
 			std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		std::size_t at = 0;
+		while ((at = text.find("<!--", at)) != std::string::npos) {
+			auto end = text.find("-->", at + 4);
+			end = end == std::string::npos ? text.size() : end + 3;
+			for (auto i = at; i < end; ++i) {
+				if (text[i] != '
+' && text[i] != '') {
+					text[i] = ' ';
+				}
+			}
+			at = end;
+		}
+		return text;
 	}
 
 	void ReadColors(std::string_view a_text)
