@@ -2005,11 +2005,66 @@ namespace
 	// and a favorite lands on whichever page is showing.
 	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot);
 
+	// Who holds the keyboard focus in the Pip-Boy, by name -- because
+	// Accept in the assign dialog is a Keyboard.ENTER to whoever does, and
+	// with the grid up it kept using the item instead of assigning it.
+	// Said once per change, so the log shows who took it and when.
+	[[nodiscard]] std::string PipboyFocusName()
+	{
+		auto* pipboy = GetMenu("PipboyMenu");
+		RE::Scaleform::GFx::Value root;
+		RE::Scaleform::GFx::Value stage;
+		RE::Scaleform::GFx::Value focus;
+		if (!pipboy || !pipboy->uiMovie ||
+			!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject() ||
+			!root.GetMember("stage", &stage) || !stage.IsObject() ||
+			!stage.GetMember("focus", &focus)) {
+			return "(no stage)";
+		}
+		if (!focus.IsObject()) {
+			return "(nobody)";
+		}
+		RE::Scaleform::GFx::Value name;
+		return focus.GetMember("name", &name) && name.IsString()
+			? std::string(name.GetString())
+			: "(unnamed)";
+	}
+
+	std::string g_lastFocus;
+
+	void SayPipboyFocus(std::string_view a_when)
+	{
+		auto now = PipboyFocusName();
+		if (now != g_lastFocus) {
+			logger::info("pipboy: focus is on {} ({})", now, a_when);
+			g_lastFocus = std::move(now);
+		}
+	}
+
+	// Puts the focus on the cross, the way ShowHotkeys does when the
+	// dialog opens. Measured first, then set, so the log says whether
+	// it was anywhere else.
+	void FocusPipboyCross()
+	{
+		SayPipboyFocus("before we set it");
+		auto* pipboy = GetMenu("PipboyMenu");
+		RE::Scaleform::GFx::Value root;
+		RE::Scaleform::GFx::Value stage;
+		if (!pipboy || !pipboy->uiMovie || !g_pipboyCross.IsDisplayObject() ||
+			!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject() ||
+			!root.GetMember("stage", &stage) || !stage.IsObject()) {
+			return;
+		}
+		stage.SetMember("focus", g_pipboyCross);
+		SayPipboyFocus("after we set it");
+	}
+
 	void RefreshPipboyGrid()
 	{
 		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
 			return;
 		}
+		SayPipboyFocus("refresh");
 
 		// No pointer here, on purpose. It was let in once (597e70d), and
 		// that is when the takeover began to crash on entry: whatever row
@@ -2244,6 +2299,8 @@ namespace
 		}
 		g_pipboyGridUp = true;
 		g_pipboyCross = a_cross;
+
+		FocusPipboyCross();
 
 		// The four directions, and only those: Accept belongs to the dialog.
 		input::ClaimDirectionsOnly(true);
