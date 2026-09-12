@@ -2036,6 +2036,37 @@ namespace
 		grid::Mark(grid::Spot{ g_currentPage, slot });
 	}
 
+	// The cross's own arrow keys, off while the panel stands and on again
+	// after.
+	//
+	// The cross keeps the focus (alpha, not visible -- see DrawPipboyGrid),
+	// and a focused cross gets every key as a KeyboardEvent, its onKeyUp
+	// walking _UpDirectory and writing selectedIndex on UP -- in the same
+	// frame our handler has already turned the page for that press and
+	// taken the panel down. Both crash logs of 2026-09-12 end inside a
+	// dispatched event handler in the Pip-Boy's movie, reading a property
+	// of something with no class left; with visible=false, when the focus
+	// sat on the disabled list, the same row changes held seven times.
+	//
+	// onKeyUp is a public method, so its listener can be taken off and put
+	// back from here. Accept is untouched: ENTER bubbles on to the page's
+	// own onKeyUp, which calls Cross_mc.SelectItem() -- the path that
+	// assigned today.
+	void CrossListensToKeys(RE::Scaleform::GFx::Value& a_cross, bool a_on)
+	{
+		RE::Scaleform::GFx::Value handler;
+		if (!a_cross.IsObject() || !a_cross.GetMember("onKeyUp", &handler) ||
+			!handler.IsObject()) {
+			return;
+		}
+		const std::array args{ RE::Scaleform::GFx::Value("keyUp"), handler };
+		a_cross.Invoke(
+			a_on ? "addEventListener" : "removeEventListener",
+			nullptr,
+			args.data(),
+			static_cast<std::uint32_t>(args.size()));
+	}
+
 	// Takes the panel out of the Pip-Boy and gives the dialog its cross
 	// back. Safe while the Pip-Boy is open: the clip our panel hangs on is
 	// still there to be taken off. On the way out of the menu itself it is
@@ -2057,6 +2088,7 @@ namespace
 			g_pipboyCross.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 			g_pipboyCross.SetMember(
 				"mouseChildren", RE::Scaleform::GFx::Value(true));
+			CrossListensToKeys(g_pipboyCross, true);
 		}
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
@@ -2128,6 +2160,9 @@ namespace
 		// themselves when the pointer crosses them.
 		a_cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 		a_cross.SetMember("mouseChildren", RE::Scaleform::GFx::Value(false));
+		if (!g_pipboyGridUp) {
+			CrossListensToKeys(a_cross, false);
+		}
 
 		const auto pages = BuildGridPages();
 
@@ -2246,6 +2281,9 @@ namespace
 		// one tick later its entries are there, its font can be measured,
 		// and its selection can be written.
 		if (++g_pipboySeen < 2) {
+			// But out of sight already, so the player never sees the
+			// game's cross give way to ours a tick later.
+			cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 			return;
 		}
 		DrawPipboyGrid(cross, path);
