@@ -2048,7 +2048,9 @@ namespace
 		grid::Release();
 		icons::Release();
 		if (g_pipboyCross.IsDisplayObject()) {
-			g_pipboyCross.SetMember("visible", RE::Scaleform::GFx::Value(true));
+			g_pipboyCross.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
+			g_pipboyCross.SetMember(
+				"mouseChildren", RE::Scaleform::GFx::Value(true));
 		}
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
@@ -2109,9 +2111,27 @@ namespace
 			return;
 		}
 
-		a_cross.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		// Transparent, not invisible. Accept in this dialog is not a user
+		// event but a Keyboard.ENTER delivered to whatever holds
+		// stage.focus, which ShowHotkeys sets to this cross -- and Flash
+		// takes the focus off anything that turns invisible. With
+		// visible=false the focus fell back to the item list, whose ENTER
+		// is "use", and pressing Accept on a cell used the item instead of
+		// assigning it. Alpha keeps the focus. The children stop taking
+		// the mouse, because entries nobody can see should not choose
+		// themselves when the pointer crosses them.
+		a_cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
+		a_cross.SetMember("mouseChildren", RE::Scaleform::GFx::Value(false));
 
 		const auto pages = BuildGridPages();
+
+		// A panel drawn again -- icons arriving, a row change settling --
+		// keeps its mark, or the mark blinks out for the hundred
+		// milliseconds until the next refresh puts it back.
+		std::optional<grid::Spot> marked;
+		if (g_pipboyGridUp && g_pipboySlot < 12 && g_pipboyPage < pages.size()) {
+			marked = grid::Spot{ g_pipboyPage, g_pipboySlot };
+		}
 
 		auto where = g_gridWhere;
 		where.cellSize = CellSizeFor(host.width, host.height, pages.size());
@@ -2127,7 +2147,7 @@ namespace
 			pipboy,
 			font,
 			pages,
-			std::nullopt,
+			marked,
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			where,
 			&host);
@@ -2139,12 +2159,15 @@ namespace
 			icons::Want(pipboy, library);
 		}
 
+		// On a fresh takeover: a page and a key that cannot be the first
+		// answer, so the first refresh always draws a mark. On a redraw the
+		// mark is already known and was drawn just now.
+		if (!g_pipboyGridUp) {
+			g_pipboyPage = std::numeric_limits<std::size_t>::max();
+			g_pipboySlot = 12;
+		}
 		g_pipboyGridUp = true;
 		g_pipboyCross = a_cross;
-		// A page and a key that cannot be the first answer, so the first
-		// refresh always draws a mark.
-		g_pipboyPage = std::numeric_limits<std::size_t>::max();
-		g_pipboySlot = 12;
 
 		// The four directions, and only those: Accept belongs to the dialog.
 		input::ClaimDirectionsOnly(true);
