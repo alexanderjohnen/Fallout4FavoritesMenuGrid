@@ -3275,6 +3275,14 @@ namespace
 
 		while (true) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(25));
+			// Counted here, every time round, and nowhere else. It used to
+			// be counted inside the Pip-Boy refresh's own condition, behind
+			// an && -- so it only moved while the panel stood, and froze
+			// the moment the panel came down. The watch below divides by
+			// eight, and a frozen count that is not a multiple of eight is
+			// a watch that never runs again: the dialog emptied out on a
+			// row change on 2026-09-12 and nobody ever came back for it.
+			++ticks;
 
 			if (!IsGameForeground()) {
 				previousPeek = false;
@@ -3335,7 +3343,7 @@ namespace
 			// dialog's own selection. Not every tick: a Scaleform read ten
 			// times a second is plenty for a thumb, and forty would be
 			// forty.
-			if (g_pipboyGridUp && tasks && ++ticks % 4 == 0) {
+			if (g_pipboyGridUp && tasks && ticks % 4 == 0) {
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
 			}
 
