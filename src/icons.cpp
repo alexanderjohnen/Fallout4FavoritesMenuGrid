@@ -38,6 +38,18 @@ namespace
 	std::set<std::string> g_have;
 
 	RE::Scaleform::GFx::Value g_loader;
+	// Every loader whose library arrived, held until Release. Letting one
+	// go after the load made its content -- and every class in it -- a
+	// candidate for collection the moment no icon instance of ours was
+	// left, and in the Pip-Boy somebody else looks those classes up:
+	// FallUI loads the same libraries into child domains of the same
+	// movie, and a parent domain's definition shadows a child's. Once we
+	// had loaded a library into the root, FallUI's getDefinition got our
+	// copy; once our loader was collected, it got a class with nothing
+	// behind it. Three crash logs of 2026-09-12 end there, in FallUI's
+	// list redrawing after our page switch. A class that others may be
+	// handed lives as long as the movie does.
+	std::vector<RE::Scaleform::GFx::Value> g_kept;
 	RE::Scaleform::GFx::Value g_request;
 	RE::Scaleform::GFx::Value g_context;
 	RE::Scaleform::GFx::Value g_listener;
@@ -235,6 +247,7 @@ void icons::Poll(RE::IMenu* a_canvas, void (*a_changed)())
 		logger::info("icons: \"{}\" is in", g_active->shapes[g_active->shape]);
 		g_have.insert(g_active->library);
 		g_active.reset();
+		g_kept.push_back(g_loader);
 		Drop();
 		Next(a_canvas);
 		if (a_changed) {
@@ -269,6 +282,10 @@ void icons::Release()
 	if (g_loader.IsObject()) {
 		g_loader.Invoke("unload");
 	}
+	// The kept loaders are not unloaded, only let go: their movie is on
+	// its way out, and unloading would pull classes from under anything
+	// still drawing with them in this last frame.
+	g_kept.clear();
 	Drop();
 	g_queue.clear();
 	g_active.reset();
