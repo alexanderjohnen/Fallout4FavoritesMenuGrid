@@ -22,6 +22,9 @@ namespace grid
 		std::string label;   // the key: 1..9, 0, -, =
 		std::string name;    // what lies on it, empty for a free key
 		std::string symbol;  // the icon's class name, empty when there is none
+		// The sorter's keyword the symbol was found by -- "Stimpak", "Aid".
+		// A host that builds icons itself is asked with this, not the class.
+		std::string keyword;
 		// A second drawing laid over the first, when the tag names one. It
 		// takes the second colour; the first drawing takes the first.
 		std::string subsymbol;
@@ -148,6 +151,12 @@ namespace grid
 		double y{ 0.0 };
 		double width{ 0.0 };
 		double height{ 0.0 };
+		// Somebody in the host movie who makes icons from keywords -- an
+		// object answering makeTagIcon(keyword, size) with a finished,
+		// coloured Sprite. When it is there, no class of ours is created
+		// in that movie and no colour of ours is painted: the host's own
+		// artwork, from the host's own library, made by the host.
+		const RE::Scaleform::GFx::Value* iconMaker{ nullptr };
 	};
 
 	// `a_canvas` is drawn on, `a_favorites` is the menu the cross lives in;

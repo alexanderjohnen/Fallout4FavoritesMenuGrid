@@ -1741,6 +1741,7 @@ namespace
 					keyword = FallbackKeyword(object);
 				}
 				const auto* icon = tags::Find(keyword);
+				cell.keyword = std::string(keyword);
 				if (g_logIconsDue.load()) {
 					std::string colors;
 					if (icon) {
@@ -2095,6 +2096,61 @@ namespace
 		ForgetPipboyGrid();
 	}
 
+	// FallUI's icon library in the Pip-Boy, if FallUI is there.
+	//
+	//   M8r.Service.IconLibrary.instance.makeTagIcon(keyword, size)
+	//
+	// is what FallUI's own list and cross use. The class is reached the
+	// way FallUI reaches its own: through the application domain the
+	// movie was loaded into, by name. Nothing is loaded, nothing is
+	// created; a class that is not there answers with nothing, and that
+	// is the whole of "no FallUI".
+	[[nodiscard]] RE::Scaleform::GFx::Value FindPipboyIconMaker(RE::IMenu* a_pipboy)
+	{
+		RE::Scaleform::GFx::Value root;
+		RE::Scaleform::GFx::Value info;
+		RE::Scaleform::GFx::Value domain;
+		if (!a_pipboy || !a_pipboy->uiMovie ||
+			!a_pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject() ||
+			!root.GetMember("loaderInfo", &info) || !info.IsObject() ||
+			!info.GetMember("applicationDomain", &domain) || !domain.IsObject()) {
+			return {};
+		}
+
+		static bool said = false;
+		const auto say = [](std::string_view a_what) {
+			if (!said) {
+				said = true;
+				logger::info("pipboy: {}", a_what);
+			}
+		};
+
+		const RE::Scaleform::GFx::Value name{ "M8r.Service.IconLibrary" };
+		RE::Scaleform::GFx::Value has;
+		if (!domain.Invoke("hasDefinition", &has, &name, 1) || !has.IsBoolean() ||
+			!has.GetBoolean()) {
+			say("no M8r.Service.IconLibrary in this movie -- no FallUI, so the "
+				"cells go without symbols");
+			return {};
+		}
+		RE::Scaleform::GFx::Value library;
+		RE::Scaleform::GFx::Value instance;
+		if (!domain.Invoke("getDefinition", &library, &name, 1) ||
+			!library.IsObject() || !library.GetMember("instance", &instance) ||
+			!instance.IsObject()) {
+			say("M8r.Service.IconLibrary is there but would not give its "
+				"instance -- the cells go without symbols");
+			return {};
+		}
+		RE::Scaleform::GFx::Value loaded;
+		const auto ready = instance.GetMember("isLoaded", &loaded) &&
+			loaded.IsBoolean() && loaded.GetBoolean();
+		say(ready ? "the symbols come from FallUI's own IconLibrary"
+				  : "FallUI's IconLibrary is there but not loaded yet -- the "
+					"cells go without symbols until it is");
+		return ready ? instance : RE::Scaleform::GFx::Value();
+	}
+
 	// Puts the panel where the dialog's cross is, and takes the four
 	// directions while it stands there.
 	void DrawPipboyGrid(RE::Scaleform::GFx::Value& a_cross, std::string_view a_path)
@@ -2123,6 +2179,19 @@ namespace
 		if (!pipboy) {
 			return;
 		}
+
+		// Whose icons. This movie is FallUI's house: its IconLibrary has
+		// the same libraries loaded already, in child domains of its own,
+		// and makes icons from keywords for its list and its cross. Ours
+		// were the same files loaded a second time into the root domain --
+		// which shadows a child's, so from then on FallUI's getDefinition
+		// was handed our copy of every class, and four crash logs of
+		// 2026-09-12 end in FallUI's list redrawing with a class that had
+		// nothing behind it. So here the library is asked, not loaded:
+		// nothing of ours goes into this movie's domains at all. Without
+		// FallUI the cells carry their names and no symbol, the way they
+		// do everywhere without a sorter.
+		const auto maker = FindPipboyIconMaker(pipboy);
 
 		// The same class as the favorites menu's cross -- EntryHolder_mc,
 		// Quickkey_tf and all -- so the font is measured the same way.
@@ -2183,6 +2252,7 @@ namespace
 		where.detailSize = 1.0;
 		where.labelGap = 0.0;
 
+		host.iconMaker = maker.IsObject() ? &maker : nullptr;
 		grid::Draw(
 			pipboy,
 			pipboy,
@@ -2192,13 +2262,7 @@ namespace
 			g_gridColor <= 0xFFFFFF ? g_gridColor : HUDColor(),
 			where,
 			&host);
-
-		// The artwork lives in libraries that have to be loaded into the
-		// movie being drawn on, and this is a different movie from our own.
-		// Poll carries them in over the next few frames and draws again.
-		for (const auto& library : g_wantedLibraries) {
-			icons::Want(pipboy, library);
-		}
+		// And no icons::Want here -- see FindPipboyIconMaker.
 
 		// On a fresh takeover: a page and a key that cannot be the first
 		// answer, so the first refresh always draws a mark. On a redraw the

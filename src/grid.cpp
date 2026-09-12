@@ -424,21 +424,17 @@ namespace
 		}
 	}
 
-	// One drawing, fitted into a cell. Returns it so the caller can colour
-	// it; empty when the library has no such class.
-	[[nodiscard]] RE::Scaleform::GFx::Value Place(
-		RE::IMenu* a_canvas,
-		const std::string& a_class,
+	// The host's icon maker for this draw, if it brought one. See Host.
+	RE::Scaleform::GFx::Value g_iconMaker;
+
+	// Fits a drawing into a cell and hangs it on the panel.
+	[[nodiscard]] RE::Scaleform::GFx::Value Fit(
+		RE::Scaleform::GFx::Value icon,
 		double a_left,
 		double a_top,
 		const Metrics& a_m,
 		const grid::Placement& a_where)
 	{
-		RE::Scaleform::GFx::Value icon;
-		if (a_class.empty()) {
-			return icon;
-		}
-		a_canvas->uiMovie->CreateObject(&icon, a_class.c_str());
 		if (!icon.IsDisplayObject()) {
 			return {};
 		}
@@ -468,6 +464,51 @@ namespace
 		return icon;
 	}
 
+	// One drawing, fitted into a cell. Returns it so the caller can colour
+	// it; empty when the library has no such class.
+	[[nodiscard]] RE::Scaleform::GFx::Value Place(
+		RE::IMenu* a_canvas,
+		const std::string& a_class,
+		double a_left,
+		double a_top,
+		const Metrics& a_m,
+		const grid::Placement& a_where)
+	{
+		RE::Scaleform::GFx::Value icon;
+		if (a_class.empty()) {
+			return icon;
+		}
+		a_canvas->uiMovie->CreateObject(&icon, a_class.c_str());
+		return Fit(icon, a_left, a_top, a_m, a_where);
+	}
+
+	// The same drawing, made by the host. It comes back coloured and sized
+	// to what was asked, so nothing of ours touches it but the position.
+	[[nodiscard]] RE::Scaleform::GFx::Value Ask(
+		const std::string& a_keyword,
+		double a_left,
+		double a_top,
+		const Metrics& a_m,
+		const grid::Placement& a_where)
+	{
+		if (a_keyword.empty() || !g_iconMaker.IsObject()) {
+			return {};
+		}
+		const std::array args{
+			RE::Scaleform::GFx::Value(a_keyword.c_str()),
+			RE::Scaleform::GFx::Value(a_m.cell * a_where.iconFit)
+		};
+		RE::Scaleform::GFx::Value icon;
+		if (!g_iconMaker.Invoke(
+				"makeTagIcon",
+				&icon,
+				args.data(),
+				static_cast<std::uint32_t>(args.size()))) {
+			return {};
+		}
+		return Fit(icon, a_left, a_top, a_m, a_where);
+	}
+
 	// A cell's symbol.
 	//
 	// The sorter writes its colours as a list, and the list means one of two
@@ -493,6 +534,11 @@ namespace
 		const Metrics& a_m,
 		const grid::Placement& a_where)
 	{
+		if (g_iconMaker.IsObject()) {
+			// The host's, already coloured by the host.
+			std::ignore = Ask(a_cell.keyword, a_left, a_top, a_m, a_where);
+			return;
+		}
 		auto icon = Place(a_canvas, a_cell.symbol, a_left, a_top, a_m, a_where);
 		if (!icon.IsDisplayObject() || !a_where.iconColors ||
 			a_cell.colors.empty()) {
@@ -601,6 +647,7 @@ namespace
 
 void grid::Forget()
 {
+	g_iconMaker = RE::Scaleform::GFx::Value();
 	g_hidden.clear();
 	g_panel = RE::Scaleform::GFx::Value();
 	g_marker = RE::Scaleform::GFx::Value();
@@ -612,6 +659,7 @@ void grid::Forget()
 
 void grid::Release()
 {
+	g_iconMaker = RE::Scaleform::GFx::Value();
 	for (auto& shown : g_hidden) {
 		if (shown.IsDisplayObject()) {
 			shown.SetMember("visible", RE::Scaleform::GFx::Value(true));
@@ -671,6 +719,9 @@ void grid::Draw(
 	const auto hosted =
 		a_host && a_host->parent && a_host->parent->IsDisplayObject();
 	auto& ground = hosted ? *a_host->parent : stage;
+	g_iconMaker = hosted && a_host->iconMaker && a_host->iconMaker->IsObject()
+		? *a_host->iconMaker
+		: RE::Scaleform::GFx::Value();
 
 	// Everything is drawn from scratch, children and all. A page switch
 	// changes most cells anyway, and rebuilding is one code path instead of
