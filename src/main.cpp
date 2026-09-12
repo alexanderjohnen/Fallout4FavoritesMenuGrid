@@ -1944,6 +1944,9 @@ namespace
 	// only two ways that movie can go away underneath it.
 	bool g_pipboyGridUp = false;
 	RE::Scaleform::GFx::Value g_pipboyCross;
+	// The inventory list behind the dialog, held while the panel stands so
+	// its mouse can be given back. See ShieldPipboyList.
+	RE::Scaleform::GFx::Value g_pipboyList;
 	std::size_t g_pipboyPage = 0;
 	std::uint32_t g_pipboySlot = 0;
 	// How many times in a row the dialog has been seen. See the watch.
@@ -1958,6 +1961,41 @@ namespace
 		g_pipboySeen = 0;
 		g_pipboyPending = 12;
 		g_pipboyCross = RE::Scaleform::GFx::Value();
+		g_pipboyList = RE::Scaleform::GFx::Value();
+	}
+
+	// The list behind the dialog takes no mouse while the panel stands.
+	//
+	// A row change rewrites twelve keys, FallUI rebuilds its list for
+	// them, and the entries built under a resting pointer take it for a
+	// hover -- the selection jumps to whatever the mouse happens to be
+	// over, and Accept then assigns that item. The dialog locks the list's
+	// keys (disableInput) but not its mouse. Reached from the cross: cross,
+	// dialog, dimmer, page, List_mc.
+	void ShieldPipboyList(RE::Scaleform::GFx::Value& a_cross, bool a_on)
+	{
+		if (a_on) {
+			RE::Scaleform::GFx::Value dialog;
+			RE::Scaleform::GFx::Value dimmer;
+			RE::Scaleform::GFx::Value page;
+			if (!a_cross.GetMember("parent", &dialog) || !dialog.IsObject() ||
+				!dialog.GetMember("parent", &dimmer) || !dimmer.IsObject() ||
+				!dimmer.GetMember("parent", &page) || !page.IsObject() ||
+				!page.GetMember("List_mc", &g_pipboyList) ||
+				!g_pipboyList.IsDisplayObject()) {
+				g_pipboyList = RE::Scaleform::GFx::Value();
+				return;
+			}
+		}
+		if (g_pipboyList.IsDisplayObject()) {
+			g_pipboyList.SetMember(
+				"mouseChildren", RE::Scaleform::GFx::Value(!a_on));
+			g_pipboyList.SetMember(
+				"mouseEnabled", RE::Scaleform::GFx::Value(!a_on));
+		}
+		if (!a_on) {
+			g_pipboyList = RE::Scaleform::GFx::Value();
+		}
 	}
 
 	// Twelve columns across, and as many rows down as there are pages, into
@@ -2120,6 +2158,7 @@ namespace
 			g_pipboyCross.SetMember(
 				"mouseChildren", RE::Scaleform::GFx::Value(true));
 		}
+		ShieldPipboyList(g_pipboyCross, false);
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
 		ForgetPipboyGrid();
@@ -2301,6 +2340,9 @@ namespace
 		g_pipboyCross = a_cross;
 
 		FocusPipboyCross();
+		if (!g_pipboyList.IsDisplayObject()) {
+			ShieldPipboyList(a_cross, true);
+		}
 
 		// The four directions, and only those: Accept belongs to the dialog.
 		input::ClaimDirectionsOnly(true);
