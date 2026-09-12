@@ -2045,8 +2045,14 @@ namespace
 		if (!g_pipboyGridUp) {
 			return;
 		}
+		// The panel, not the icon libraries. Those were loaded into the
+		// Pip-Boy's own application domain and live as long as its movie
+		// does; letting go of them here meant loading the same library
+		// into the same domain again on the next draw, and the crash log
+		// of 2026-09-12 16:22 ends in the Pip-Boy's own ActionScript,
+		// reading a property of an object whose class is null. They go
+		// when the movie goes -- see the close event.
 		grid::Release();
-		icons::Release();
 		if (g_pipboyCross.IsDisplayObject()) {
 			g_pipboyCross.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 			g_pipboyCross.SetMember(
@@ -2310,8 +2316,9 @@ namespace
 			// only then hands the cross the key chosen here. The cross
 			// stays hidden meanwhile; the game's own is not what should
 			// flash through the gap.
+			// The icon libraries stay: same movie, same classes -- see
+			// TakePipboyGridDown.
 			grid::Release();
-			icons::Release();
 			input::Listen(false);
 			input::ClaimDirectionsOnly(false);
 			g_pipboyGridUp = false;
@@ -3416,15 +3423,21 @@ namespace
 			if (a_event.menuName == pipboyMenu) {
 				g_pipboyOpen = a_event.opening;
 			}
-			if (a_event.menuName == pipboyMenu && !a_event.opening &&
-				g_pipboyGridUp) {
-				// The movie is going away and our panel's objects belong to
-				// it. Forget them rather than reach into them -- section 42.
-				input::Listen(false);
-				input::ClaimDirectionsOnly(false);
+			if (a_event.menuName == pipboyMenu && !a_event.opening) {
+				// The movie is going away, and with it every class the icon
+				// libraries put into it -- whether or not the panel is
+				// standing at this moment. Forgetting them only while it
+				// stood left g_asked believing the next Pip-Boy, a new
+				// movie, already had them.
 				icons::Release();
-				ForgetPipboyGrid();
-				grid::Forget();
+				if (g_pipboyGridUp) {
+					// And our panel's objects belong to that movie. Forget
+					// them rather than reach into them -- section 42.
+					input::Listen(false);
+					input::ClaimDirectionsOnly(false);
+					ForgetPipboyGrid();
+					grid::Forget();
+				}
 			}
 			if (a_event.menuName == pipboyMenu && a_event.opening &&
 				g_surveyDepth > 0) {
