@@ -2059,6 +2059,44 @@ namespace
 		SayPipboyFocus("after we set it");
 	}
 
+	// Every tick while the panel stands: is the focus still on the cross?
+	// It is set there at the draw and is back on the list within 100 ms,
+	// every time, by something not found in the page's ActionScript. Until
+	// it is found, the focus is kept where Accept needs it, and the log
+	// counts how often it had to be.
+	unsigned g_focusTaken = 0;
+
+	void KeepPipboyFocus()
+	{
+		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
+			return;
+		}
+		auto* pipboy = GetMenu("PipboyMenu");
+		RE::Scaleform::GFx::Value root;
+		RE::Scaleform::GFx::Value stage;
+		RE::Scaleform::GFx::Value focus;
+		if (!pipboy || !pipboy->uiMovie ||
+			!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject() ||
+			!root.GetMember("stage", &stage) || !stage.IsObject() ||
+			!stage.GetMember("focus", &focus)) {
+			return;
+		}
+		RE::Scaleform::GFx::Value name;
+		const auto onCross = focus.IsObject() && focus.GetMember("name", &name) &&
+			name.IsString() && std::string_view(name.GetString()) == "Cross_mc";
+		if (onCross) {
+			return;
+		}
+		++g_focusTaken;
+		if (g_focusTaken <= 5 || g_focusTaken % 100 == 0) {
+			logger::info(
+				"pipboy: the focus was taken off the cross ({} times so far); "
+				"put back",
+				g_focusTaken);
+		}
+		stage.SetMember("focus", g_pipboyCross);
+	}
+
 	void RefreshPipboyGrid()
 	{
 		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
@@ -3503,6 +3541,10 @@ namespace
 			// forty.
 			if (g_pipboyGridUp && tasks && ticks % 4 == 0) {
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
+			}
+			// And the focus every tick -- see KeepPipboyFocus.
+			if (g_pipboyGridUp && tasks) {
+				tasks->AddUITask([]() { KeepPipboyFocus(); });
 			}
 
 			// The panel is really there, which is what keeps the claim on
