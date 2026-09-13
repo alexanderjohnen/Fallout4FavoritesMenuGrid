@@ -4112,3 +4112,78 @@ Start (die Bibliothek schreibt hinein, was sie aufgelöst hat), dann `.log`,
 namentlich — das ist die einzige Arbeit, die dann noch offen sein kann.
 
 MCM bleibt verschoben. Das Badge bleibt weggelassen.
+
+## 65. Der Controller im Zuweisen-Dialog (2026-09-13, abends) — ungelöst, aufgeschrieben
+
+Ein Nexus-Spieler (OG, Gamepad): die Markierung im Pip-Boy-Dialog „springt
+wild herum", in 1.0.1 schlimmer als in 1.0. Alexander bestätigt es. Vier
+Builds, zwei Stunden, am Ende zurück auf 1.1.0. Die Arbeit liegt auf dem
+Branch `controller-wip` (Commits `82b888c` bis `97a28d3` samt Revert);
+`runtime-independent` steht wieder auf `v1.1.0`, und das liegt im Spiel.
+
+### Was gemessen ist (jede Zeile aus dem Log, mit `pipboy: choose page … by …`)
+
+1. **Die Sprünge sind „by pad"** — nicht Zeiger, nicht Kreuz. Bei einzelnen
+   D-Pad-Drücken (0,3–0,9 s Abstand) landete die Markierung trotzdem auf
+   falschen Feldern: LEFT von Taste 4 auf 9, DOWN von 2 auf Seite 4 Taste 1.
+2. **Der Grund:** seit `d65429b` hält das Kreuz den Fokus (nötig für E). Das
+   Spiel macht aus D-Pad *und* linkem Stick Pfeiltasten für das, was den
+   Fokus hält — das Kreuz läuft sie in seiner Kreuzform (links/rechts 1–6,
+   hoch/runter 7–12). `RefreshPipboyGrid` **folgte** dem `selectedIndex` des
+   Kreuzes, also begann unser nächster Schritt am falschen Feld. W/S sind
+   für das Kreuz keine Pfeiltasten, deshalb war die Tastatur immer glatt.
+3. **Mit Stick doppelt:** unser Stick-Handler *und* die Pfeiltasten des
+   Spiels. Gehalten kommen die Pfeiltasten in Serie → Quickscroll, und die
+   Liste dahinter hört sie ebenfalls (sie ist `disableInput`, aber die
+   Seiten-Neuzeichnung setzt das zurück: `List_mc.disableInput =
+   _ComponentViewMode` in `redrawUIComponent`).
+4. **A (Gamepad-Accept) erreicht unseren MenuControls-Handler nicht.** Im
+   Log kein einziger `pad press code 0x1000`, während E (0x45) und die
+   D-Pad-Codes ankommen. Wer A vorher abfängt, ist nicht untersucht.
+
+### Was auf `controller-wip` gebaut wurde, und was davon trägt
+
+* `82b888c` — `choose … by …`-Logzeile (**behalten**), Zeiger im Pip-Boy bei
+  Gamepad ignoriert (harmlos), Liste jeden Tick neu gesperrt (**richtig**,
+  weil die Neuzeichnung sie entsperrt).
+* `437aeb0` — kein Wiederholen bei Halten im Pip-Boy (**richtig**: ein
+  Reihenwechsel ist 24 Schreibvorgänge plus Neuzeichnen, zehn pro Sekunde
+  laufen sich über den Haufen).
+* `15b318c` — 200-ms-Sperre (**falsch**: verwarf jeden zweiten echten
+  Tipp, es gab keine Doppel-Drücke) und Stick abgeklemmt (**falsch**: das
+  Spiel erzeugt aus dem Stick keine D-Pad-Drücke, im Log keine). Beides in
+  `230ed2c` zurück.
+* `e7b0646` — **das Raster ist Autorität über die Auswahl**: Kreuz wird
+  geschrieben, nie gelesen (außer einmal beim Betreten); Abweichung jeden
+  Tick zurückgeschrieben. **Richtig** und die Hälfte der Lösung: die Sprünge
+  am D-Pad waren danach weg. Übrig blieb das Flimmern (Kreuz läuft, wir
+  schreiben zurück) und der Stick (Quickscroll, Liste).
+* `97a28d3` — Kreuz-Listener ab, E/A/Klick selbst annehmen → `SelectItem`.
+  **Gescheitert**, weil A nicht bei uns ankommt (Punkt 4) und E „nicht so
+  richtig" ging (unklar, was; Log sagt `the dialog assigns`). Revertiert.
+
+### Was beim nächsten Mal zu klären ist, bevor gebaut wird
+
+Genau eine Frage: **Wie erreicht der A-Knopf das Menü, und können wir davor
+stehen?** Kandidaten: `PipboyMenu` verarbeitet „Accept" als Benutzerereignis
+(`ProcessUserEvent`) vor MenuControls; oder der Handler-Reihenfolge im
+Pip-Boy ist eine andere als im Favoritenmenü. Messen: einen Handler-Dump
+beim Pip-Boy-Öffnen (Reihenfolge von `MenuControls::handlers`), und ob A
+überhaupt als `ButtonEvent` an *irgendeinem* unserer Einstiege vorbeikommt.
+
+Wenn A erreichbar ist: `97a28d3` erneut, plus `e7b0646`, plus
+Listen-Sperre — dann sind Kreuz-Pfeile weg, Fokus bleibt, E/A/Klick sind
+unsere. Wenn nicht: Kreuz-Listener bleibt, `e7b0646` bleibt (Sprünge weg),
+und der Stick wird als bekannte Macke dokumentiert („im Zuweisen-Dialog das
+D-Pad benutzen").
+
+Antwort an den Nexus-Spieler bis dahin: bekannt, D-Pad statt Stick, Fix in
+Arbeit.
+
+### Randnotiz
+
+Alexander, am Ende des Abends: „Ist nicht deine Schuld, Controller sind
+einfach scheiße für ein Spiel wie Fallout." Trotzdem: drei Builds mit
+falscher Erwartung an einem Abend sind drei zu viel. Die Regel aus 63 und
+64 gilt hier zum dritten Mal — eine Logzeile pro Ereignis *vor* dem ersten
+Fix hätte den Abend halbiert.
