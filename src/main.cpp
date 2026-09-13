@@ -2264,6 +2264,50 @@ namespace
 		return grid::At(x, y);
 	}
 
+	// Every tick while the panel stands: is the focus still on the cross?
+	//
+	// Accept in the dialog is a Keyboard.ENTER to whoever holds the focus,
+	// and the instrument of 2026-09-13 17:51 showed it plainly: every
+	// press with the focus on Cross_mc assigned, every press with it on
+	// List_mc used the item. Who moves it is FallUI: its InvListParser
+	// ends every rebuild of the inventory list -- which our page switch
+	// causes -- with stage.focus = List_mc, unconditionally. So the focus
+	// is put back whenever it is found elsewhere, and the log counts how
+	// often. (This was built once before and taken out again the same
+	// evening, because Accept happened to work in that one test.)
+	unsigned g_focusTaken = 0;
+
+	void KeepPipboyFocus()
+	{
+		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
+			return;
+		}
+		auto* pipboy = GetMenu("PipboyMenu");
+		RE::Scaleform::GFx::Value root;
+		RE::Scaleform::GFx::Value stage;
+		RE::Scaleform::GFx::Value focus;
+		if (!pipboy || !pipboy->uiMovie ||
+			!pipboy->uiMovie->GetVariable(&root, "root") || !root.IsObject() ||
+			!root.GetMember("stage", &stage) || !stage.IsObject() ||
+			!stage.GetMember("focus", &focus)) {
+			return;
+		}
+		RE::Scaleform::GFx::Value name;
+		const auto onCross = focus.IsObject() && focus.GetMember("name", &name) &&
+			name.IsString() && std::string_view(name.GetString()) == "Cross_mc";
+		if (onCross) {
+			return;
+		}
+		++g_focusTaken;
+		if (g_focusTaken <= 5 || g_focusTaken % 100 == 0) {
+			logger::info(
+				"pipboy: the focus was taken off the cross ({} times so far); "
+				"put back",
+				g_focusTaken);
+		}
+		stage.SetMember("focus", g_pipboyCross);
+	}
+
 	void RefreshPipboyGrid()
 	{
 		if (!g_pipboyGridUp || !g_pipboyCross.IsDisplayObject()) {
@@ -3769,6 +3813,10 @@ namespace
 			// forty.
 			if (g_pipboyGridUp && tasks && ticks % 4 == 0) {
 				tasks->AddUITask([]() { RefreshPipboyGrid(); });
+			}
+			// And the focus every tick -- see KeepPipboyFocus.
+			if (g_pipboyGridUp && tasks) {
+				tasks->AddUITask([]() { KeepPipboyFocus(); });
 			}
 
 			// The panel is really there, which is what keeps the claim on
