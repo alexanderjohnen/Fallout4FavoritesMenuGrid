@@ -20,9 +20,6 @@ namespace
 	// instead of a string is what took the game down.
 	constexpr std::uint64_t kUseQuickkeyItem = 303130;
 
-	// How far into it the equip call sits. Read out of the disassembly, and
-	// out of ToggleEquip, which adds the same 0x1b3 to the same ID.
-	constexpr std::size_t kEquipCall = 0x1b3;
 
 	bool (*g_useQuickkey)(RE::FavoritesManager*, std::uint32_t) = nullptr;
 
@@ -117,38 +114,121 @@ namespace
 
 }
 
+namespace
+{
+	// Every direct call inside a stretch of code: where it stands and where
+	// it goes. Bounded by length, not by a return, because a function's end
+	// is not something to guess at from bytes; a target outside the code
+	// section is data that happened to look like E8 and is dropped.
+	struct Call
+	{
+		std::uintptr_t site;
+		std::uintptr_t target;
+	};
+
+	[[nodiscard]] std::vector<Call> CallsIn(std::uintptr_t a_from, std::size_t a_length)
+	{
+		std::vector<Call> calls;
+		const auto* bytes = reinterpret_cast<const std::uint8_t*>(a_from);
+		for (std::size_t at = 0; at + 5 <= a_length; ++at) {
+			if (bytes[at] != 0xE8) {
+				continue;
+			}
+			std::int32_t rel = 0;
+			std::memcpy(&rel, bytes + at + 1, sizeof(rel));
+			const auto target = a_from + at + 5 + rel;
+			if (InText(target)) {
+				calls.push_back({ a_from + at, target });
+			}
+		}
+		return calls;
+	}
+
+	// How far into a handler and into a candidate the search reaches. Both
+	// are generous: OnButtonEvent is a few hundred bytes, UseQuickkeyItem
+	// about five hundred, and the relationship being looked for is specific
+	// enough that a wider window finds nothing extra.
+	constexpr std::size_t kHandlerWindow = 0x800;
+	constexpr std::size_t kCandidateWindow = 0x600;
+}
+
 void use::Find()
 {
-	// The address is the answer to a long question, and the question is
-	// closed: FavoritesMenuEx's signature led to the wrong function, the
-	// right one was read out of FavoritesManager's own OnButtonEvent, and it
-	// has been used ever since. The whole trail is in the handoff; what
-	// belongs here is the number and a check that it is code.
-	const auto address = REL::Module::get().base() +
-		REL::IDDatabase::get().id2offset(kUseQuickkeyItem);
-	if (!InText(address)) {
-		logger::warn(
-			"use: ID {} does not land in the code -- nothing will be used",
-			kUseQuickkeyItem);
+	// The address is found the way it was first read, every start, on
+	// whatever runtime this is.
+	//
+	// FavoritesManager is an input handler, and the eighth slot of that
+	// vtable is OnButtonEvent -- the one place the game itself uses a
+	// favorite when a digit is pressed. Somewhere in it is a call to
+	// UseQuickkeyItem, and UseQuickkeyItem is the function that, in turn,
+	// calls ActorEquipManager::EquipObject to put the thing on. Both ends
+	// of that chain the library knows on every runtime: the vtable and
+	// EquipObject. Neither UseQuickkeyItem nor the call inside it has to be
+	// named by number any more, which was the one number in this plugin
+	// that a game update could quietly move.
+	const auto base = REL::Module::get().base();
+	REL::Relocation<std::uintptr_t*> vtable{ RE::VTABLE::FavoritesManager[0] };
+	const auto onButtonEvent = vtable.get()[8];
+	REL::Relocation<std::uintptr_t> equipObject{ REL::ID(332489) };
+	if (!InText(onButtonEvent)) {
+		logger::warn("use: OnButtonEvent is not in the code -- nothing will be used");
 		return;
 	}
+
+	// The candidates are the functions OnButtonEvent calls; the one that
+	// calls EquipObject is UseQuickkeyItem, and that call is the site.
+	std::uintptr_t found = 0;
+	std::uintptr_t site = 0;
+	int matches = 0;
+	for (const auto& call : CallsIn(onButtonEvent, kHandlerWindow)) {
+		for (const auto& inner : CallsIn(call.target, kCandidateWindow)) {
+			if (inner.target == equipObject.address()) {
+				if (found != call.target) {
+					++matches;
+				}
+				found = call.target;
+				site = inner.site;
+				break;
+			}
+		}
+	}
+	if (matches != 1 || !found) {
+		logger::warn(
+			"use: {} functions called from OnButtonEvent call EquipObject -- "
+			"nothing will be used",
+			matches);
+		return;
+	}
+
+	// What the old number said, on the one runtime where it is known, so
+	// that the two answers can be held against each other there. (id2offset
+	// answers with a neighbour rather than failing for an unknown ID, so it
+	// is only asked where the ID is real.)
+	if (const auto legacy = REL::Module::get().version() == F4SE::RUNTIME_1_10_163
+			? REL::IDDatabase::get().id2offset(kUseQuickkeyItem)
+			: std::size_t{ 0 };
+		legacy != 0 && base + legacy != found) {
+		logger::warn(
+			"use: found UseQuickkeyItem at {:#x}, but ID {} says {:#x} -- the "
+			"search is wrong, and nothing will be used",
+			found - base,
+			kUseQuickkeyItem,
+			legacy);
+		return;
+	}
+
 	g_useQuickkey =
-		reinterpret_cast<bool (*)(RE::FavoritesManager*, std::uint32_t)>(address);
+		reinterpret_cast<bool (*)(RE::FavoritesManager*, std::uint32_t)>(found);
 
 	// And the one call inside it that can take something off again.
 	auto& trampoline = F4SE::GetTrampoline();
-	const auto site = address + kEquipCall;
-	if (*reinterpret_cast<const std::uint8_t*>(site) != 0xE8) {
-		logger::warn(
-			"use: {:#x} is not a call -- nothing will be taken off",
-			site - REL::Module::get().base());
-		return;
-	}
 	g_equip =
 		reinterpret_cast<decltype(g_equip)>(trampoline.write_call<5>(site, &EquipThunk));
 	logger::info(
-		"use: UseQuickkeyItem is {:#x}, and its equip call comes through here",
-		address - REL::Module::get().base());
+		"use: UseQuickkeyItem is {:#x}, found through OnButtonEvent; its equip "
+		"call at +{:#x} comes through here",
+		found - base,
+		site - found);
 }
 
 bool use::Ready()

@@ -917,9 +917,40 @@ namespace
 			if (!a_stack.extra) {
 				return;
 			}
-			using func_t = void (*)(RE::ExtraDataList*, std::uint8_t);
-			static REL::Relocation<func_t> setFavorite{ REL::ID(534268) };
-			setFavorite(a_stack.extra.get(), index);
+			SetFavorite(*a_stack.extra, index);
+		}
+
+		// ExtraDataList::SetFavorite, written out from its own bytes rather
+		// than called by number (OG ID 534268, disassembled 2026-09-13 and
+		// kept in the handoff, section 64):
+		//
+		//     extra = GetByType(list, kFavorite)
+		//     if (index == 0xFE)  RemoveExtra(list, kFavorite)
+		//     else if (extra)     extra->quickkeyIndex = index
+		//     else                new ExtraFavorite{ index }; AddExtra(list, it)
+		//
+		// Every piece of that the library has on every runtime; the number
+		// it replaces was the only one for this function, and the Runtime
+		// Database has no bridge for it. What the engine does around it --
+		// the list's lock, a debug check -- the library's list operations
+		// do their own way, which is the part the game has to confirm.
+		static void SetFavorite(RE::ExtraDataList& a_list, std::uint8_t a_index)
+		{
+			if (a_index == kNotAFavorite) {
+				a_list.RemoveExtra(RE::EXTRA_DATA_TYPE::kFavorite);
+				return;
+			}
+			if (auto* extra = a_list.GetByType<RE::ExtraFavorite>()) {
+				extra->quickkeyIndex = static_cast<std::int8_t>(a_index);
+				return;
+			}
+			// Through the game's own heap, which is what F4_HEAP_REDEFINE_NEW
+			// on BSExtraData means: the list will free it one day.
+			auto* extra = new RE::ExtraFavorite();
+			F4SE::stl::emplace_vtable(extra);
+			extra->type = RE::EXTRA_DATA_TYPE::kFavorite;
+			extra->quickkeyIndex = static_cast<std::int8_t>(a_index);
+			a_list.AddExtra(extra);
 		}
 
 		std::uint8_t index;
