@@ -180,7 +180,23 @@ void use::Find()
 	std::uintptr_t found = 0;
 	std::uintptr_t site = 0;
 	int matches = 0;
-	for (const auto& call : CallsIn(onButtonEvent, kHandlerWindow)) {
+	const auto outer = CallsIn(onButtonEvent, kHandlerWindow);
+	{
+		// What the search sees, said once, so a miss can be read rather
+		// than guessed at.
+		std::string list;
+		for (const auto& call : outer) {
+			list += std::format(" +{:#x}->{:#x}", call.site - onButtonEvent, call.target - base);
+		}
+		logger::info(
+			"use: OnButtonEvent is {:#x} (vtable {:#x}), EquipObject {:#x}; {} calls:{}",
+			onButtonEvent - base,
+			vtable.address() - base,
+			equipObject.address() - base,
+			outer.size(),
+			list);
+	}
+	for (const auto& call : outer) {
 		for (const auto& inner : CallsIn(call.target, kCandidateWindow)) {
 			if (inner.target == equipObject.address()) {
 				if (found != call.target) {
