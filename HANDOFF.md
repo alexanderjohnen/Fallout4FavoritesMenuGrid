@@ -4187,3 +4187,21 @@ einfach scheiße für ein Spiel wie Fallout." Trotzdem: drei Builds mit
 falscher Erwartung an einem Abend sind drei zu viel. Die Regel aus 63 und
 64 gilt hier zum dritten Mal — eine Logzeile pro Ereignis *vor* dem ersten
 Fix hätte den Abend halbiert.
+
+### Nachtrag, noch am selben Abend (zwei Korrekturen von Alexander)
+
+* **D-Pad statt Stick** ist als Rat falsch: die 1.1.0 im Spiel und auf Nexus
+  hat den D-Pad-Sprungfehler ebenso, weil `e7b0646` nur auf `controller-wip`
+  liegt. Der richtige Rat ist **WASD**; so hat Alexander es dem Spieler
+  gesagt.
+* **`97a28d3` hat das Kämpfen nicht beendet.** Mit abgehängtem Kreuz-Listener
+  fühlten sich D-Pad und Stick genauso an wie davor: dasselbe „gegen einen
+  Sprung ankämpfen". Damit ist die Erklärung von oben unvollständig — das
+  Kreuz und sein `onKeyUp` sind nicht der einzige, der die Markierung
+  bewegt. Kandidaten, ungeprüft: der Wiedereintritt nach einem Reihenwechsel
+  (frische Übernahme setzt `g_pipboySlot = 12`, der Refresh nimmt dann
+  einmal den `selectedIndex` des Kreuzes, bevor die „pending key" unsere
+  Zelle setzt — mit WASD ist das dieselbe Zelle, mit Pad nicht, wenn das
+  Kreuz inzwischen woanders steht); oder ein Pfeil-Weg über
+  `ProcessUserEvent` an der Seite vorbei. **Beim nächsten Mal zuerst: eine
+  Logzeile pro `grid::Mark` mit Aufrufer**, dann sehen, wer zieht.
