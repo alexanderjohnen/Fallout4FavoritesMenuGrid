@@ -182,12 +182,11 @@ namespace
 	int g_crossKey = 0;
 
 	// Whether the grid takes the Pip-Boy's assign dialog over by itself.
-	//
-	// Off, because it crashes. Tying it to PipboyCrossKey was the first
-	// attempt at switching it off and was no switch at all -- that key was
-	// set, so it kept running and kept crashing without anybody pressing
-	// anything. A thing that is off needs its own way of being off.
-	bool g_pipboyAuto = false;
+	// Always: the grid is the mod, in the Pip-Boy as much as in the menu.
+	// It spent a week off, under Debug as PipboyAuto, while the takeover
+	// crashed; the crash was the icon libraries loaded into FallUI's
+	// movie (section 63), and the switch went with it.
+	constexpr bool g_pipboyAuto = true;
 
 	[[nodiscard]] std::filesystem::path GetSettingsPath()
 	{
@@ -544,7 +543,6 @@ namespace
 		read(L"Debug", L"PeekKey", g_peekKey);
 		read(L"Debug", L"SurveyKey", g_surveyKey);
 		read(L"Debug", L"PipboyCrossKey", g_crossKey);
-		g_pipboyAuto = yes(L"Debug", L"PipboyAuto", false);
 		g_logIcons = yes(L"Debug", L"LogIcons", false);
 		g_surveyDepth = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
