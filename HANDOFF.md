@@ -3864,3 +3864,162 @@ nur ohne Wiederherstellung; wenn es dort anders aussieht, wäre das neu.
 * **Pip-Boy-Raster** — unverändert, siehe Abschnitt 61.
 * **`DefaultPage`** ist jetzt einmal durchgespielt, mit Seite 1.
 * **Farben** bei Granaten und Schrotflinten.
+
+## 63. Der Pip-Boy, ein Absturz mit vier Namen, und der Releasekandidat (2026-09-12/13)
+
+Zwei Tage, fünfundzwanzig Commits. Am Ende steht das Pip-Boy-Raster, das
+seit `597e70d` abgestürzt war, und alles, was danach noch fehlte. Der Weg
+dahin ist der Teil, der aufgeschrieben gehört: **vier** Erklärungen für
+denselben Absturz, drei davon falsch, und was jede widerlegt hat.
+
+### Was vorher stand
+
+Abschnitt 61 nannte zwei Verdachtsmomente: die 50-ms-Schleife fasst das
+Panel an, bevor der Wächter merkt, dass der Dialog weg ist — und die
+Zeigerauswahl. Beides waren Vermutungen ohne Log. Alexanders Erinnerung:
+es lief, bis der Zeiger dazukam.
+
+### Der Absturz, viermal erklärt
+
+Bis 16:22 am 12.9. gab es **keinen Crash-Log** — Buffout war einer
+anderen Mod gewichen. Ohne Stack war jede Erklärung gleich gut, und ich
+habe drei gebaut, die falsch waren:
+
+1. **Der Zeiger** (`ef7826b`). Herausgenommen, weil er das Betreten
+   umschaltete und sofort neu zeichnete. → Das Betreten hielt danach
+   dreimal — aber der Reihenwechsel krachte weiter. Der Zeiger war
+   Auslöser, nie Ursache.
+2. **Der Reihenwechsel selbst** (`f05048d`): nicht mehr synchron
+   zeichnen, sondern Panel runter und vom Wächter neu finden. → Sieben
+   Reihenwechsel hielten um 15:16. Um 15:23 krachte es nach einer
+   Zuweisung wieder. (Die Änderung ist geblieben; sie ist richtig, nur
+   nicht die Antwort.)
+3. **Die Pfeiltaste des Kreuzes** (`ce1d359`, zurückgenommen in
+   `a57c0cc`): mit `alpha` statt `visible` hatte das Kreuz den Fokus, und
+   sein `onKeyUp` lief bei W mit. → Krachte beim dritten W statt beim
+   ersten. Und ohne den Listener ging Accept nicht mehr, weil dessen
+   ENTER-Zweig `stopPropagation` ruft.
+4. **Der Garbage Collector** (`9bd3540`): die Loader-Objekte halten,
+   damit unsere Klassen nicht eingesammelt werden. → Krachte sofort.
+
+Der Crash-Logger (Addictol Crash Logger, seit 16:22) lieferte den Stack,
+viermal denselben: `Scaleform::GFx::AS3::Class::GetPrototype` mit
+`rcx = 0` — ein Ereignishandler **im Pip-Boy-Film** liest eine Eigenschaft
+eines Objekts, dessen Klasse null ist. Nichts von uns im Stack.
+
+### Die Ursache
+
+FallUIs `Pipboy_InvPage.swf` (mit JPEXS dekompiliert, wie in Abschnitt
+13) hat eine eigene `IconLibrary`, die **dieselben** Bibliotheken
+(`FallUI_IconLib.swf`, `DielloIconLib.swf`) in Kinddomains des
+Pip-Boy-Films lädt und ihre Klassen mit `getDefinition` holt, wenn die
+Inventarliste neu gezeichnet wird. Wir luden dieselben Dateien in die
+**Wurzeldomain** desselben Films — `CreateObject` findet Klassen nur
+dort. Eine Elterndomain schlägt die Kinddomain: ab da bekam FallUI
+unsere Kopie jeder Klasse. Was genau daran stirbt, ist nicht bewiesen;
+bewiesen ist, dass es aufhört, sobald wir nichts mehr in diesen Film
+laden.
+
+**Lösung (`5bc339e`):** Im Pip-Boy wird nicht mehr geladen, sondern
+gefragt: `M8r.Service.IconLibrary.instance.makeTagIcon(keyword, size)`,
+erreicht über `root.loaderInfo.applicationDomain.getDefinition`. Die
+Zelle trägt dafür ihr Schlagwort (`grid::Cell::keyword`), der `Host`
+einen `iconMaker`. Ohne FallUI: Zellen ohne Symbol, das Log sagt, welche
+der drei Ausreden gilt. Danach elf Reihenwechsel am Stück, kein Absturz —
+und seither keiner mehr.
+
+### Was danach noch alles falsch war, in der Reihenfolge der Entdeckung
+
+* **Ticks zählten nur bei stehendem Panel** (`5e1ae36`): `++ticks` stand
+  hinter einem `&&`. Der Wächter teilt durch acht; eingefroren auf einem
+  anderen Wert lief er nie wieder — der Dialog blieb leer.
+* **Accept benutzte statt zuzuweisen.** Accept ist ein `Keyboard.ENTER`
+  an das, was `stage.focus` hält; `ShowHotkeys` setzt es auf `Cross_mc`.
+  `visible=false` nimmt den Fokus weg (`c1ce3cc`: `alpha` stattdessen).
+  Und *etwas* holt den Fokus innerhalb von 100 ms auf `List_mc` zurück —
+  wer, steht nicht im gelesenen ActionScript. Einmal nach dem Zeichnen
+  setzen (`f17426d`) reicht; jeden Tick nachsetzen (`9b4960a`) war
+  unnötig und wurde zurückgenommen, weil E zu dem Zeitpunkt schon
+  funktionierte und ich das Log falsch gelesen hatte.
+* **Auswahl der Liste sprang zur Maus** nach Reihenwechsel. Kein
+  Mausereignis: `BSScrollingList.InvalidateData` macht einen eigenen
+  Treffertest mit `mouseX/mouseY`, solange `bMouseDrivenNav` gesetzt ist.
+  Einziger öffentlicher Ausschalter: `SetPlatform(1)` (Gamepad, sonst
+  ohne Wirkung). Dazu `mouseChildren=false` als Schild gegen Rollover
+  (`ae3936b`, `7c16acd`).
+* **Default-Seite nach dem Pip-Boy** (`0d25e23`): der Countdown hing nur
+  am Favoritenmenü.
+* **Aufräumen nur bei stehendem Panel** (`881470e`): nach Klick und
+  Weiterwandern der Maus nahm der Reihenwechsel das Panel, das Spiel
+  schloss den Dialog, niemand hob das Schild — Liste mausblind. Und beim
+  Pip-Boy-Schließen wurde die Listenreferenz nur vergessen, wenn das
+  Panel stand: Absturz `main.cpp:1998` im zweiten Pip-Boy auf dem toten
+  Film. Regel: Dialog weg → Schild runter; Film weg → alles vergessen.
+  Immer.
+* **Zeiger im Pip-Boy** (`570fe17`, `4c7756a`): zurück, mit Klick =
+  `Cross_mc.SelectItem()`. Die lineare Umrechnung Bildschirm→Bühne stimmt
+  nur bei Vollbild (Power Armor, Bakas Vollbild-Pip-Boy); der normale
+  Pip-Boy ist ein projiziertes Bild. Antwort: `parent.mouseX/mouseY` —
+  Flash kennt die projizierte Maus in jedem Clip.
+* **Doppelbelegung über Seiten** (`610804a`, `7740b28`): die Engine
+  hält eine Taste je Objekt, unser Buch nicht. `RememberCurrentPage`
+  streicht, was auf der gespielten Seite liegt, von allen anderen —
+  und läuft jetzt auch vor jedem Zeichnen.
+
+### Farben, endlich
+
+Der Vergleich Pip-Boy (FallUI zeichnet) gegen Favoritenmenü (wir) machte
+es messbar. Drei Fehler in `tags.cpp`, keiner in der Farbrechnung:
+
+1. **Reihenfolge** (`7c16acd`): `directory_iterator` nahm den Ordner
+   `FIS/` mit den Addons *vor* der Datei `FIS (FallUI Item Sorter).xml`
+   daneben; die Hauptdatei überschrieb jedes Addon. FallUI: Hauptdatei,
+   dann Addons. Jetzt: Dateien eines Ordners vor seinen Unterordnern.
+2. **Kommentare** (`6c85b19`/`1bb7fa1`): `4estIconLib.xml` hat ein
+   grünes Gewehr in `<!-- -->`. Unser Leser kannte keine Kommentare.
+3. **Groß/Klein** (`de23054`): FallUI hält Farbnamen in einem Dictionary.
+   Diellos `LightBlue` (cyan) ist nicht Defaults `lightblue` (blau). Wir
+   hatten beides kleingeschrieben.
+
+Bewusst nicht gebaut: das Badge (`subicon`, unten rechts, zweite Farbe
+oder erste um 40 % gedunkelt — die Zahlen stehen in FallUIs
+`addSubIcon`). Alexander: stört nicht, zurückgestellt, bis sich jemand
+beklagt.
+
+### Werkzeuge dieser zwei Tage
+
+* **Addictol Crash Logger** (ersetzt Buffout 4 auf dieser Maschine).
+  `Documents\My Games\Fallout4\F4SE\crash-*.log`, mit Minidump
+  (`bCrashLogWriteMiniDump = true`, in Vortex' Staging-Kopie ebenfalls —
+  `sed -i` auf einer Hardlink-Datei trennt den Link).
+* **JPEXS** auf `Data\Interface\Pipboy_InvPage.swf` und `PipboyMenu.swf`
+  (FallUIs Versionen). Die dekompilierten Skripte liegen unter
+  `%LOCALAPPDATA%\Temp\claude\pipboy_as\`, sind aber jederzeit
+  reproduzierbar: `ffdec-cli.exe -export script <ziel> <swf>`.
+* **VisibleFavorites**, weiterhin, als Anzeige dessen, was die Engine
+  wirklich hält.
+
+### Die Lehre, diesmal
+
+Vier Erklärungen ohne Stack, drei falsch, jede mit einem eigenen Build
+und einem eigenen Absturz für Alexander. Der Crash-Logger hat sie in
+einer Zeile erledigt. **Ohne Stack keine Ursache benennen** — nur den
+Test, der die nächste Vermutung widerlegt. Und: als Alexander sagte, es
+habe bis zum Zeiger funktioniert, war das richtig beobachtet und falsch
+gedeutet — von uns beiden. Eine Beobachtung sagt, *wann* es anfing,
+nicht *warum*.
+
+### Stand: Releasekandidat 1.0.0
+
+Gespielt, alles von Alexander: Betreten ohne sichtbares Kreuz, Icons aus
+FallUIs Bibliothek, Reihenwechsel, A/D in der Reihe, E und Klick weisen
+zu (auf jeder Seite, im Favoritenmenü nachgesehen), Liste bleibt
+bedienbar, kein Absturz mehr seit `5bc339e`, Zeiger sitzt unter der
+Markierung, keine Doppelbelegung, Default-Seite nach dem Pip-Boy.
+
+Nicht gespielt, bewusst: ohne FallUI/FIS (README sagt es), Vanilla-Pip-Boy
+(unser AS-Wissen ist FallUIs Version), Next-Gen.
+
+Offen für 1.1: MCM (config.json + `MCM\Settings\FavoritesMenuGrid.ini`,
+Werte bei jedem Menüöffnen neu lesen, Keybind-Format), Badge, die
+Fokus-Logzeilen (drei je Dialog, dürfen bleiben oder gehen).
