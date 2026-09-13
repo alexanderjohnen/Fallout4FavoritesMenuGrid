@@ -1757,31 +1757,12 @@ namespace
 	[[nodiscard]] std::vector<grid::Page> BuildGridPages()
 	{
 		EnsurePages();
-		const auto live = ReadFavorites();
-		// What is drawn is what is true: an item on the live keys is drawn
-		// nowhere else. Otherwise an item just assigned in the Pip-Boy kept
+		// The book first, so what is drawn is what is true: the live keys
+		// go into the page being played and strike the same items off the
+		// other pages. Otherwise an item just assigned in the Pip-Boy kept
 		// showing on its old row until the next page switch remembered.
-		//
-		// Struck from the book, not written into it. For one build (7740b28)
-		// this called RememberCurrentPage here, which also copies the live
-		// keys into the page being played -- and with that in place Accept
-		// in the Pip-Boy's dialog used the item instead of assigning it,
-		// every time, found by bisecting on 2026-09-13. Why a write into
-		// our own book at draw time should reach the dialog's Accept is
-		// not understood; that it does is measured, so the book is only
-		// written where it always was, on a page switch.
-		for (std::size_t other = 0; other < g_pages.size(); ++other) {
-			if (other == g_currentPage) {
-				continue;
-			}
-			for (auto& held : g_pages[other]) {
-				if (held && std::ranges::any_of(live, [&](const auto& a_key) {
-						return a_key.object == held;
-					})) {
-					held = nullptr;
-				}
-			}
-		}
+		RememberCurrentPage();
+		const auto live = ReadFavorites();
 		g_wantedLibraries.clear();
 
 		std::vector<grid::Page> rows(g_pages.size());
