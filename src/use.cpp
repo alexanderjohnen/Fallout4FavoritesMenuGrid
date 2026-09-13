@@ -166,8 +166,12 @@ void use::Find()
 	// EquipObject. Neither UseQuickkeyItem nor the call inside it has to be
 	// named by number any more, which was the one number in this plugin
 	// that a game update could quietly move.
+	// FavoritesManager carries two vtables in front: the event receiver's
+	// at offset 0, the input handler's at offset 0x10 -- and OnButtonEvent
+	// is in the second. The first was tried first; its eighth slot is an
+	// empty default (0x1e0770 on 1.10.163), which found nothing.
 	const auto base = REL::Module::get().base();
-	REL::Relocation<std::uintptr_t*> vtable{ RE::VTABLE::FavoritesManager[0] };
+	REL::Relocation<std::uintptr_t*> vtable{ RE::VTABLE::FavoritesManager[1] };
 	const auto onButtonEvent = vtable.get()[8];
 	REL::Relocation<std::uintptr_t> equipObject{ REL::ID(332489) };
 	if (!InText(onButtonEvent)) {
