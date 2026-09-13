@@ -112,24 +112,10 @@ py -3 deploy.py
 `cmake.exe` liegt hier nicht im PATH, sondern unter
 `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`.
 
-CommonLibF4 ist ein Submodul (`extern/CommonLibF4`, Branch `community`,
-Commit `da3e995`) und wird als Unterverzeichnis mitgebaut; vcpkg liefert nur
-`boost-stl-interfaces`, `fmt`, `spdlog` und `rsm-mmio`.
-
-**CommonLibF4 braucht einen Ein-Zeilen-Patch**, sonst kompiliert es mit dem
-aktuellen MSVC nicht: In `include/RE/msvc/memory.h` steht zweimal
-`std::is_lvalue_reference<deleter_type> && ...` statt
-`std::is_lvalue_reference_v<...>`. Ohne `_v` ist das ein Typ, und `&&`
-dahinter liest MSVC als Rvalue-Referenz — Syntaxfehler (C2059). Der Patch
-liegt unter `patches/0001-commonlibf4-is_lvalue_reference_v.patch` und muss
-nach einem frischen `git submodule update` neu angewandt werden:
-
-```
-git -C extern/CommonLibF4 apply ../../patches/0001-commonlibf4-is_lvalue_reference_v.patch
-```
-
-Sauberer wäre ein eigener Fork von CommonLibF4 mit dieser Korrektur als
-Submodul. **Noch nicht entschieden.**
+CommonLibF4RD ist ein Submodul (`extern/CommonLibF4RD`, Zzyxz) und wird als
+Unterverzeichnis mitgebaut; vcpkg liefert `boost-stl-interfaces`, `fmt`,
+`spdlog`, `rsm-mmio` und `zydis`. Der frühere Ein-Zeilen-Patch für
+CommonLibF4 ist mit dem Wechsel hinfällig (Abschnitt 64).
 
 Das Spiel liegt unter
 `G:\Program Files (x86)\Steam\steamapps\common\Fallout 4`, Version
@@ -4023,3 +4009,106 @@ Nicht gespielt, bewusst: ohne FallUI/FIS (README sagt es), Vanilla-Pip-Boy
 Offen für 1.1: MCM (config.json + `MCM\Settings\FavoritesMenuGrid.ini`,
 Werte bei jedem Menüöffnen neu lesen, Keybind-Format), Badge, die
 Fokus-Logzeilen (drei je Dialog, dürfen bleiben oder gehen).
+
+## 64. Eine DLL für drei Spielversionen, und der Fokus zum dritten Mal (2026-09-13)
+
+### Der Anlass
+
+Mehrere Anfragen nach NG/AE auf der Modseite. Die 1.0.0 kannte genau zwei
+Adressen aus eigener Hand — `UseQuickkeyItem` (OG-ID 303130) und
+`ExtraDataList::SetFavorite` (534268) — und beide gibt es nur in der
+OG-Nummerierung. Alles andere kommt aus der Bibliothek.
+
+### Runtime Database und CommonLibF4RD
+
+`f4rd-runtime.bin` (Nexus 108394, 264 MB) ist eine Musterdatenbank: zu jeder
+AE-ID ein Byte-Steckbrief der Funktion, dazu für einen Teil der Datensätze
+Aliase (OG-ID ↔ AE-ID) und bekannte Adressen je Version. Die Bibliothek
+`CommonLibF4RD` (github.com/Zzyxz/CommonLibF4RD) löst `REL::ID(OG, AE)` beim
+Start gegen die laufende EXE auf, fällt auf die Address Library zurück, wo die
+Datenbank fehlt, und scheitert **laut** (`F4RD FAIL id=… reason=…`), statt
+irgendwohin zu schreiben. Unsere Bibliotheksfunktionen tragen dort alle zwei
+IDs; die Strukturoffsets, die wir von Hand benutzen (`storedFavTypes` +0x90,
+Ereignisquelle +0x60, `MenuCursor`), sind in den RD-Headern gleich.
+
+Für unsere zwei eigenen Adressen gibt es in der Datenbank **weder Alias noch
+Muster**, das ist nachgeschlagen (Parser in `%LOCALAPPDATA%\Temp\claude\
+f4rd_lookup.py`, nicht im Repo; die EXE auf der Platte ist Steam-verschlüsselt,
+also nur der Datensatzvergleich, kein Bytevergleich). Also:
+
+* **`UseQuickkeyItem` wird gefunden statt genannt** (`use.cpp`): vtable
+  `VTABLE::FavoritesManager[1]` — die des Eingabehandlers bei Objektoffset
+  0x10, **nicht** `[0]`, das ist der Ereignisempfänger und dessen achter Slot
+  eine leere Vorgabe (`0x1e0770`), was einen ganzen Build gekostet hat —,
+  Slot 8 = `OnButtonEvent`, dessen `call`-Ziele sind die Kandidaten, und der
+  eine, der `ActorEquipManager::EquipObject` (OG 332489 / AE 2231402) ruft,
+  ist es. Der Hook sitzt an eben diesem Aufruf statt bei festem `+0x1b3`. Auf
+  1.10.163 wird das Ergebnis gegen die alte ID geprüft: `0x126fcb0`, `+0x1b3`,
+  beides identisch — gemessen am 13.9. 17:18.
+* **`SetFavorite` ist abgeschrieben** (`SetFavoriteFunctor::SetFavorite`):
+  `GetByType(kFavorite)`; `0xFE` → `RemoveExtra`; gefunden → `[+0x18] =
+  index`; sonst neues `ExtraFavorite` + `AddExtra`. Das steht so in der
+  Disassembly (`PeekIDs=254434:0x60,534268:0x150,786568:0x60`, 13.9. 16:58);
+  `ClearFavorite` ist dabei nur `mov dl,0x49; jmp RemoveExtra` und taugt nicht
+  als Anker. Was die Engine drumherum tut (Listensperre, eine Debug-Prüfung),
+  machen die Bibliotheksfunktionen auf ihre Art; `LogFavorites` vor und nach
+  Seitenwechseln war danach identisch.
+
+Der Bibliothekswechsel selbst (`50e907e`): `HandleEvent`-Überladungen statt
+`OnButtonEvent`/`OnThumbstickEvent`, `TESObjectARMO::data` statt `armorData`,
+`SerializationInterface` kommt const, `F4SEPlugin_Version` mit
+`kAddressIndependence_Signatures` und beiden Layout-Flags, keine
+Runtime-Sperre mehr. Auf OG danach alles wie vorher — gespielt.
+
+### Der Fokus, zum dritten Mal — und diesmal gemessen
+
+Beim Spielen des Branches: E im Pip-Boy benutzt statt zuzuweisen, **manchmal**.
+Bisektion über fünf Builds (de23054 ja, 570fe17 ja, 4c7756a ja, 1.0.0 nein)
+zeigte auf `7740b28`, und das war **falsch** — der Fehler ist nicht
+deterministisch, und „ja" hieß dreimal Glück. Was ihn festgenagelt hat, war
+eine Log-Zeile pro E-Druck (`7d84e49`):
+
+    ging nicht:  Accept pressed -- focus on List_mc   (4×)
+    ging:        Accept pressed -- focus on Cross_mc  (1×)
+
+Der Dieb heißt FallUI: `M8r/PipboyInvPage/Service/InvListParser.as`,
+`tryStep4SelectListEntry()` endet mit `stage.focus = List_mc` — ohne
+Bedingung, bei jedem Neuaufbau der Inventarliste, und den löst jeder unserer
+Seitenwechsel aus (und auch anderes; Alexander sah es nicht nur nach W/S).
+
+Die Lösung ist die, die am 12.9. abends schon einmal gebaut (`9b4960a`) und
+zurückgenommen wurde, weil E in *dem einen* Test ging: `KeepPipboyFocus`,
+jeden Tick, Fokus zurück aufs Kreuz, Zähler im Log. Danach 19 von 19.
+Dazu `focusRect=false` auf dem Kreuz (Flash malte sonst den gelben
+Fokusrahmen, 418×419, und ließ ihn nach dem Dialog stehen) und der Fokus
+zurück auf die Liste beim Abbau, wie `HideHotkeys` es tut.
+
+**Die 1.0.0 auf Nexus hat diesen Fehler.** 1.0.1 (Branch `release-1.0`, alte
+Bibliothek) trägt nur diese drei Commits.
+
+### Was gelöscht wurde
+
+Der alte CommonLibF4-Submodul und `patches/`. Der Revert von `ade71cc`: die
+Zeile in `BuildGridPages` war nie schuld, `RememberCurrentPage` steht dort
+wieder.
+
+### Die Lehre, dieselbe wie in 63, nur teurer
+
+Ein Test, der einmal „geht" sagt, sagt bei einem zeitabhängigen Fehler gar
+nichts. Ich habe eine richtige Lösung an einem Glückstreffer gemessen und
+weggeworfen, und eine unschuldige Zeile an drei Glückstreffern verurteilt.
+Beides hätte die Log-Zeile pro Tastendruck vom ersten Moment an verhindert.
+Und: Alexander hat mit Recht verlangt, bei jedem Build in drei Sätzen zu
+hören, was er kann, was nicht, und was zu tun ist. Das steht jetzt im
+Gedächtnis dieses Projekts und gehört vor jede Übergabe.
+
+### Stand: 1.1.0, für Tester
+
+Eine DLL für 1.10.163, 1.10.980/984 und 1.11.x. Auf OG gespielt (alles wie
+1.0.1). Auf NG/AE ungespielt; dort braucht es die Runtime Database. Vom
+Tester: eine leere `FavoritesMenuGrid.trace` neben der DLL vor dem ersten
+Start (die Bibliothek schreibt hinein, was sie aufgelöst hat), dann `.log`,
+`.trace` und ggf. Crash-Log. Wenn eine Adresse fehlt, steht sie dort
+namentlich — das ist die einzige Arbeit, die dann noch offen sein kann.
+
+MCM bleibt verschoben. Das Badge bleibt weggelassen.

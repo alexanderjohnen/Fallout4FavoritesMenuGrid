@@ -7,16 +7,19 @@ is built with, and what it reads at runtime, is listed here.
 
 | Component | Licence | Used for |
 | --- | --- | --- |
-| [CommonLibF4](https://github.com/alandtse/CommonLibF4) (community branch, with the one-line patch under `patches/`) | MIT | the game's types and functions |
+| [CommonLibF4RD](https://github.com/Zzyxz/CommonLibF4RD) | MIT | the game's types and functions, and addresses resolved for the running executable |
+| [Zydis](https://github.com/zyantific/zydis) | MIT | required by CommonLibF4RD (callsite discovery) |
 | [spdlog](https://github.com/gabime/spdlog) | MIT | the log file |
 | [fmt](https://github.com/fmtlib/fmt) | MIT | formatting |
-| [boost-stl-interfaces](https://www.boost.org/) | BSL-1.0 | required by CommonLibF4 |
-| [rsm-mmio](https://github.com/Ryan-rsm-McKenzie/mmio) | MIT | required by CommonLibF4 |
+| [boost-stl-interfaces](https://www.boost.org/) | BSL-1.0 | required by CommonLibF4RD |
+| [rsm-mmio](https://github.com/Ryan-rsm-McKenzie/mmio) | MIT | required by CommonLibF4RD |
 
 ## Required at runtime, not shipped
 
 - [F4SE](https://f4se.silverlock.org/) and the
   [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327).
+- The [Runtime Database](https://www.nexusmods.com/fallout4/mods/108394)
+  (`f4rd-runtime.bin`) on Next-Gen and 1.11.x; optional on 1.10.163.
 
 ## Read at runtime, not shipped
 
