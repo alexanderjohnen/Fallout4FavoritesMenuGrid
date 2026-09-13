@@ -173,7 +173,10 @@ void use::Find()
 	const auto base = REL::Module::get().base();
 	REL::Relocation<std::uintptr_t*> vtable{ RE::VTABLE::FavoritesManager[1] };
 	const auto onButtonEvent = vtable.get()[8];
-	REL::Relocation<std::uintptr_t> equipObject{ REL::ID(332489) };
+	// OG, then AE (NG takes the AE one): the library's own pair for
+	// ActorEquipManager::EquipObject, repeated here because the search
+	// needs the address rather than the call.
+	REL::Relocation<std::uintptr_t> equipObject{ REL::ID(332489, 2231402) };
 	if (!InText(onButtonEvent)) {
 		logger::warn("use: OnButtonEvent is not in the code -- nothing will be used");
 		return;

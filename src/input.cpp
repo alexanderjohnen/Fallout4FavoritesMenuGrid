@@ -274,7 +274,7 @@ namespace
 			return button && ClaimedNow(*button).has_value();
 		}
 
-		void OnButtonEvent(const RE::ButtonEvent* a_event) override
+		void HandleEvent(const RE::ButtonEvent* a_event) override
 		{
 			if (!a_event || !g_listening || !g_action) {
 				return;
@@ -309,7 +309,7 @@ namespace
 			g_action(*action);
 		}
 
-		void OnThumbstickEvent(const RE::ThumbstickEvent* a_event) override
+		void HandleEvent(const RE::ThumbstickEvent* a_event) override
 		{
 			if (!a_event || !g_listening || !g_action || !ClaimsStick(*a_event)) {
 				return;

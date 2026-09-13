@@ -2,3 +2,6 @@
 	path = extern/CommonLibF4
 	url = https://github.com/Ryan-rsm-McKenzie/CommonLibF4.git
 	branch = community
+[submodule "extern/CommonLibF4RD"]
+	path = extern/CommonLibF4RD
+	url = https://github.com/Zzyxz/CommonLibF4RD.git

@@ -29,7 +29,7 @@ set(Boost_USE_STATIC_RUNTIME OFF)
 # ---- Dependencies ----
 
 if (NOT TARGET CommonLibF4)
-	add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/CommonLibF4/CommonLibF4" CommonLibF4)
+	add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/CommonLibF4RD/CommonLibF4" CommonLibF4)
 endif ()
 
 find_package(fmt REQUIRED CONFIG)

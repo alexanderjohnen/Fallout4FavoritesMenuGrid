@@ -1575,7 +1575,7 @@ namespace
 		case RE::ENUM_FORM_ID::kARMO:
 			{
 				auto* armor = a_object->As<RE::TESObjectARMO>();
-				return armor && armor->armorData.rating > 0 ? "Armor" : "Clothes";
+				return armor && armor->data.rating > 0 ? "Armor" : "Clothes";
 			}
 
 		case RE::ENUM_FORM_ID::kALCH:
@@ -3970,17 +3970,42 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(
 		return false;
 	}
 
-	// Only the original runtime for now. Address IDs differ on 1.10.980 and
-	// later, and a wrong ID would not fail loudly -- it would read whatever
-	// happens to sit at that address.
-	const auto version = a_f4se->RuntimeVersion();
-	if (version != F4SE::RUNTIME_1_10_163) {
-		logger::critical("unsupported runtime v{}", version.string());
-		return false;
-	}
-
+	// No runtime is refused by its number. Every address this plugin
+	// uses comes through the library, which resolves it for the running
+	// executable and fails loudly when it cannot -- and the one function
+	// found by hand, UseQuickkeyItem, is found by relationship and
+	// refused when the relationship does not hold. See use.cpp.
+	logger::info("runtime v{}", a_f4se->RuntimeVersion().string());
 	return true;
 }
+
+// What F4SE 0.7 and later read instead of calling F4SEPlugin_Query: the
+// plugin is address-independent (signatures through the library) and
+// written against both structure layouts it declares.
+namespace
+{
+	[[nodiscard]] constexpr F4SE::PluginVersionData MakePluginVersionData() noexcept
+	{
+		F4SE::PluginVersionData data{};
+		data.pluginVersion =
+			((PLUGIN_VERSION_MAJOR & 0xFF) << 24) |
+			((PLUGIN_VERSION_MINOR & 0xFF) << 16) |
+			((PLUGIN_VERSION_PATCH & 0xFFF) << 4);
+		constexpr std::string_view name{ PLUGIN_LOG_NAME };
+		for (std::size_t i = 0; i < name.size() && i + 1 < std::size(data.name); ++i) {
+			data.name[i] = name[i];
+		}
+		data.addressIndependence =
+			F4SE::PluginVersionData::kAddressIndependence_Signatures;
+		data.structureIndependence =
+			F4SE::PluginVersionData::kStructureIndependence_1_10_980Layout |
+			F4SE::PluginVersionData::kStructureIndependence_1_11_137Layout;
+		return data;
+	}
+}
+
+extern "C" DLLEXPORT constinit F4SE::PluginVersionData F4SEPlugin_Version =
+	MakePluginVersionData();
 
 extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f4se)
 {
@@ -3999,7 +4024,9 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f
 
 	// The pages live in the co-save. Registering has to happen here, in
 	// Load, not later.
-	if (const auto serialization = F4SE::GetSerializationInterface()) {
+	// The library hands the interface out const and takes SetUniqueID
+	// non-const; the call only records a number.
+	if (auto* serialization = const_cast<F4SE::SerializationInterface*>(F4SE::GetSerializationInterface())) {
 		serialization->SetUniqueID(kSaveUniqueID);
 		serialization->SetSaveCallback(SaveCallback);
 		serialization->SetLoadCallback(LoadCallback);

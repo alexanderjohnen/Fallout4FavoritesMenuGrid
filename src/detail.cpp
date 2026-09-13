@@ -203,7 +203,7 @@ namespace
 	{
 		const auto* data = a_instance
 			? static_cast<const RE::TESObjectARMO::InstanceData*>(a_instance)
-			: &a_armor->armorData;
+			: &a_armor->data;
 
 		AddResistances(a_line, data->damageTypes);
 	}
