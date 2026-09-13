@@ -3,9 +3,10 @@
 A Fallout 4 port of [Favorites Menu Grid for Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid):
 all of your favorite pages at once, on a grid you can point at.
 
-Still being built, and tested only on one machine so far. See
-[HANDOFF.md](HANDOFF.md) for where the work stands and how each piece was
-arrived at.
+Version 1.0.0. Tested on one machine, with FallUI and its Item Sorter
+installed; built to work without them, but that has not been played. See
+[HANDOFF.md](HANDOFF.md) for how each piece was arrived at, and
+[docs/NEXUS.md](docs/NEXUS.md) for the mod page.
 
 ## What it does
 
@@ -15,6 +16,8 @@ arrived at.
 - **Every cell is one move away.** The mouse or the keys reach any key on any
   page, and using one turns to its page on the way. There is no scrolling
   between pages while the grid is up.
+- **The same grid in the Pip-Boy.** Assigning a favorite there shows the grid
+  in place of the twelve-key cross, so a favorite goes straight onto any page.
 - **The game's own favorites.** Everything is written into Fallout 4's twelve
   real favorite slots through the engine's own routines, so the number keys,
   the ammo counters and the equipped state keep working the way the game
