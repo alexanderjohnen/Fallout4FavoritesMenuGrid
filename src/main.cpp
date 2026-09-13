@@ -2187,6 +2187,53 @@ namespace
 	// Puts the focus on the cross, the way ShowHotkeys does when the
 	// dialog opens. Measured first, then set, so the log says whether
 	// it was anywhere else.
+	// One line per Accept in the Pip-Boy's dialog: who holds the focus at
+	// that instant, whether the dimmer (and so the dialog) is up, and
+	// whether the list is taking input. Read on the UI thread, a moment
+	// after the press -- close enough to say which of the two the
+	// dialog did.
+	void NoteAcceptInPipboy()
+	{
+		if (!g_pipboyGridUp) {
+			return;
+		}
+		auto* tasks = F4SE::GetTaskInterface();
+		if (!tasks) {
+			return;
+		}
+		tasks->AddUITask([]() {
+			std::string dimmer = "?";
+			std::string listInput = "?";
+			std::string selected = "?";
+			RE::Scaleform::GFx::Value dialog;
+			RE::Scaleform::GFx::Value fade;
+			RE::Scaleform::GFx::Value value;
+			if (g_pipboyCross.IsDisplayObject() &&
+				g_pipboyCross.GetMember("parent", &dialog) && dialog.IsObject() &&
+				dialog.GetMember("parent", &fade) && fade.IsObject()) {
+				if (fade.GetMember("visible", &value) && value.IsBoolean()) {
+					dimmer = value.GetBoolean() ? "up" : "down";
+				}
+			}
+			if (g_pipboyList.IsDisplayObject() &&
+				g_pipboyList.GetMember("disableInput", &value) && value.IsBoolean()) {
+				listInput = value.GetBoolean() ? "disabled" : "enabled";
+			}
+			if (g_pipboyCross.IsDisplayObject() &&
+				g_pipboyCross.GetMember("selectedIndex", &value)) {
+				selected = value.IsNumber() ? std::to_string(static_cast<int>(value.GetNumber()))
+						: std::to_string(value.GetUInt());
+			}
+			logger::info(
+				"pipboy: Accept pressed -- focus on {}, dimmer {}, list input {}, "
+				"cross selectedIndex {}",
+				PipboyFocusName(),
+				dimmer,
+				listInput,
+				selected);
+		});
+	}
+
 	void FocusPipboyCross()
 	{
 		SayPipboyFocus("before we set it");
@@ -3943,6 +3990,7 @@ namespace
 		input::SetRepeat(g_repeatDelay, g_repeatInterval);
 		input::SetOnAction(&OnAction);
 		input::Install();
+		input::SetOnUsePassedThrough(NoteAcceptInPipboy);
 
 		std::thread(KeyboardPollingLoop).detach();
 		logger::info("ready -- the keys are in FavoritesMenuGrid.ini");

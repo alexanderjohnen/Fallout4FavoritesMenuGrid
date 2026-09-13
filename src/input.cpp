@@ -7,6 +7,7 @@ namespace
 	input::Keys g_keys;
 	input::Pad g_pad;
 	void (*g_action)(input::Action) = nullptr;
+	void (*g_usePassed)() = nullptr;
 	std::atomic_bool g_listening{ false };
 
 	// When the panel last drew, in steady-clock ticks. Written on the UI
@@ -271,6 +272,13 @@ namespace
 				return true;
 			}
 			const auto* button = a_event->As<RE::ButtonEvent>();
+			if (button && g_usePassed && g_directionsOnly.load() &&
+				button->QJustPressed() &&
+				button->device.get() == RE::INPUT_DEVICE::kKeyboard &&
+				(static_cast<std::int32_t>(button->idCode) == g_keys.use ||
+					static_cast<std::int32_t>(button->idCode) == g_keys.useAlt)) {
+				g_usePassed();
+			}
 			return button && ClaimedNow(*button).has_value();
 		}
 
@@ -521,6 +529,11 @@ void input::SetRepeat(double a_delay, double a_interval)
 void input::SetOnAction(void (*a_action)(Action))
 {
 	g_action = a_action;
+}
+
+void input::SetOnUsePassedThrough(void (*a_note)())
+{
+	g_usePassed = a_note;
 }
 
 void input::Alive()

@@ -104,6 +104,12 @@ namespace input
 	// Listen is on.
 	void Install();
 
+	// Called for every press of the use key that this handler lets
+	// through while it claims directions only -- the Pip-Boy's Accept.
+	// An instrument: the dialog sometimes assigns on it and sometimes
+	// uses the item instead, and nothing so far says which it will be.
+	void SetOnUsePassedThrough(void (*a_note)());
+
 	void SetKeys(const Keys& a_keys);
 	void SetPad(const Pad& a_pad);
 
