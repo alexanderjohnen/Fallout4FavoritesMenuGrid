@@ -2381,6 +2381,18 @@ namespace
 				"mouseChildren", RE::Scaleform::GFx::Value(true));
 		}
 		ShieldPipboyList(g_pipboyCross, false);
+		// The focus goes back to the list, which is where HideHotkeys puts
+		// it; left on a cross nobody can see, it kept its rectangle.
+		if (g_pipboyList.IsDisplayObject()) {
+			if (auto* pipboy = GetMenu("PipboyMenu"); pipboy && pipboy->uiMovie) {
+				RE::Scaleform::GFx::Value root;
+				RE::Scaleform::GFx::Value stage;
+				if (pipboy->uiMovie->GetVariable(&root, "root") && root.IsObject() &&
+					root.GetMember("stage", &stage) && stage.IsObject()) {
+					stage.SetMember("focus", g_pipboyList);
+				}
+			}
+		}
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
 		ForgetPipboyGrid();
@@ -2519,6 +2531,11 @@ namespace
 		// themselves when the pointer crosses them.
 		a_cross.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 		a_cross.SetMember("mouseChildren", RE::Scaleform::GFx::Value(false));
+		// Flash draws a yellow rectangle around whatever holds keyboard
+		// focus, and a focus set from here counts as keyboard. The game's
+		// own setting of it does not show one; ours did, 418 by 419,
+		// exactly the cross, and it stayed after the dialog had gone.
+		a_cross.SetMember("focusRect", RE::Scaleform::GFx::Value(false));
 
 		const auto pages = BuildGridPages();
 
