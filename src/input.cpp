@@ -79,6 +79,24 @@ namespace
 			a_action == input::Action::kSlotRight;
 	}
 
+	// Whether a held key or stick walks on. Not up or down in the Pip-Boy:
+	// a step there is a row change, which rebuilds the whole dialog, and
+	// ten of those a second -- the rate that suits a row of cells in our
+	// own menu -- ran over each other (four rows in one second, log of
+	// 2026-09-14 19:04). The game's own cross steps once per press, and so
+	// does this. Left and right stay: a key in a row is cheap.
+	[[nodiscard]] bool Repeats(input::Action a_action)
+	{
+		if (!Walks(a_action)) {
+			return false;
+		}
+		if (g_directionsOnly.load() &&
+			(a_action == input::Action::kPageUp || a_action == input::Action::kPageDown)) {
+			return false;
+		}
+		return true;
+	}
+
 	// The mouse numbers its own buttons from zero, so the left one is zero.
 	constexpr std::int32_t kLeftMouseButton = 0;
 
@@ -305,7 +323,7 @@ namespace
 				return;
 			}
 
-			if (!Walks(*action)) {
+			if (!Repeats(*action)) {
 				return;
 			}
 			const auto held = a_event->QHeldDownSecs();
@@ -338,6 +356,9 @@ namespace
 				return;
 			}
 
+			if (!Repeats(*direction)) {
+				return;
+			}
 			const std::chrono::duration<double> since = now - g_stickSince;
 			const std::chrono::duration<double> step = now - g_stickStepped;
 			if (since.count() < g_repeatDelay || step.count() < g_repeatInterval) {

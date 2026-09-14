@@ -2277,6 +2277,33 @@ namespace
 		RE::Scaleform::GFx::Value name;
 		const auto onCross = focus.IsObject() && focus.GetMember("name", &name) &&
 			name.IsString() && std::string_view(name.GetString()) == "Cross_mc";
+		// The list stays locked. ShowHotkeys locks it (disableInput), but
+		// the page's own redraw unlocks it again -- List_mc.disableInput =
+		// _ComponentViewMode, false -- and our row change is what redraws.
+		// A held down on the pad then moved the list behind the dialog.
+		// HideHotkeys unlocks it itself when the dialog goes.
+		RE::Scaleform::GFx::Value locked;
+		if (g_pipboyList.IsDisplayObject() &&
+			g_pipboyList.GetMember("disableInput", &locked) && locked.IsBoolean() &&
+			!locked.GetBoolean()) {
+			g_pipboyList.SetMember("disableInput", RE::Scaleform::GFx::Value(true));
+		}
+		// On a controller the cross's selection is ours, every tick: the
+		// pad's arrows never reach the cross any more (probe.cpp), so any
+		// drift is the game's rebuild after a row change, and Accept reads
+		// the cross at the instant of the press. See RefreshPipboyGrid.
+		if (input::LastDevice() == input::Device::kGamepad && g_pipboySlot < 12) {
+			RE::Scaleform::GFx::Value chosen;
+			if (g_pipboyCross.GetMember("selectedIndex", &chosen)) {
+				const auto slot = chosen.IsNumber()
+					? static_cast<std::uint32_t>(chosen.GetNumber())
+					: static_cast<std::uint32_t>(chosen.GetUInt());
+				if (slot != g_pipboySlot) {
+					g_pipboyCross.SetMember(
+						"selectedIndex", RE::Scaleform::GFx::Value(g_pipboySlot));
+				}
+			}
+		}
 		if (onCross) {
 			return;
 		}
@@ -2327,6 +2354,22 @@ namespace
 			return;
 		}
 		if (slot == g_pipboySlot && g_currentPage == g_pipboyPage) {
+			return;
+		}
+		// Followed at the keyboard, where the arrow keys move the cross and
+		// that is a way to choose. Not on a controller: the pad's arrows
+		// are kept from the cross (probe.cpp), so a cross that differs is
+		// the game's rebuild after a row change putting its own choice in
+		// -- 9 or 10, measured 2026-09-14 19:04 -- and following that was
+		// the jump. The mark stays; the cross is written back. The takeover
+		// (no mark yet) still takes the dialog's opening choice.
+		if (input::LastDevice() == input::Device::kGamepad && g_pipboySlot < 12) {
+			g_pipboyCross.SetMember(
+				"selectedIndex", RE::Scaleform::GFx::Value(g_pipboySlot));
+			logger::info(
+				"pipboy: the cross drifted to key {} -- written back to {}",
+				KeyLabel(slot),
+				KeyLabel(g_pipboySlot));
 			return;
 		}
 		g_pipboySlot = slot;
