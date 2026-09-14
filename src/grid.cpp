@@ -1220,8 +1220,15 @@ std::optional<grid::Spot> grid::At(double a_x, double a_y)
 	return Spot{ row, slot };
 }
 
-void grid::Mark(const std::optional<Spot>& a_spot)
+void grid::Mark(const std::optional<Spot>& a_spot, const char* a_who)
 {
+	if (a_who) {
+		if (a_spot) {
+			logger::info("mark: page {} slot {} by {}", a_spot->page + 1, a_spot->slot + 1, a_who);
+		} else {
+			logger::info("mark: none by {}", a_who);
+		}
+	}
 	if (!g_marker.IsDisplayObject()) {
 		return;
 	}

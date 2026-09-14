@@ -53,6 +53,8 @@ add_library(
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h
+	src/probe.cpp
+	src/probe.h
 	src/tags.cpp
 	src/tags.h
 	src/use.cpp

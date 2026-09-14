@@ -23,6 +23,7 @@
 #include "input.h"
 #include "menu.h"
 #include "peek.h"
+#include "probe.h"
 #include "tags.h"
 #include "use.h"
 
@@ -2127,7 +2128,7 @@ namespace
 	// turn while the Pip-Boy is open (they always have -- see the polling
 	// loop). So: read the cross's selectedIndex, mark that key on that row,
 	// and a favorite lands on whichever page is showing.
-	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot);
+	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot, const char* a_by);
 
 	// Who holds the keyboard focus in the Pip-Boy, by name -- because
 	// Accept in the assign dialog is a Keyboard.ENTER to whoever does, and
@@ -2302,7 +2303,7 @@ namespace
 		if (const auto over = PipboyPointerSpot()) {
 			if (over->page != g_pipboyPage || over->slot != g_pipboySlot) {
 				SelectPipboySpot(
-					over->page, static_cast<std::uint32_t>(over->slot));
+					over->page, static_cast<std::uint32_t>(over->slot), "pointer");
 			}
 			return;
 		}
@@ -2330,7 +2331,7 @@ namespace
 		}
 		g_pipboySlot = slot;
 		g_pipboyPage = g_currentPage;
-		grid::Mark(grid::Spot{ g_currentPage, slot });
+		grid::Mark(grid::Spot{ g_currentPage, slot }, "refresh following the cross");
 	}
 
 	// The cross keeps its own keyUp listener. It was taken off for a day
@@ -2653,7 +2654,8 @@ namespace
 		if (g_pipboyGridUp && g_pipboyPending < 12) {
 			const auto slot = g_pipboyPending;
 			g_pipboyPending = 12;
-			SelectPipboySpot(g_currentPage, slot);
+			logger::info("pipboy: the key chosen before the row change goes in -- slot {}", slot + 1);
+			SelectPipboySpot(g_currentPage, slot, "pending key");
 		}
 	}
 
@@ -2681,8 +2683,10 @@ namespace
 	//
 	// Both the keys and the pointer come through here, so the two cannot
 	// drift apart.
-	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot)
+	void SelectPipboySpot(std::size_t a_page, std::uint32_t a_slot, const char* a_by)
 	{
+		// Measurement (HANDOFF 65): every choice says who made it.
+		logger::info("pipboy: choose page {} key {} by {}", a_page + 1, KeyLabel(a_slot), a_by);
 		// Choosing draws again, drawing marks again, and marking is what
 		// asked to choose. One at a time.
 		static bool busy = false;
@@ -2730,7 +2734,7 @@ namespace
 			"selectedIndex", RE::Scaleform::GFx::Value(a_slot));
 		g_pipboyPage = a_page;
 		g_pipboySlot = a_slot;
-		grid::Mark(grid::Spot{ a_page, a_slot });
+		grid::Mark(grid::Spot{ a_page, a_slot }, a_by);
 	}
 
 	void MovePipboyMark(int a_pages, int a_slots)
@@ -2761,7 +2765,9 @@ namespace
 		page = step(page, a_pages, rows);
 
 		SelectPipboySpot(
-			static_cast<std::size_t>(page), static_cast<std::uint32_t>(slot));
+			static_cast<std::size_t>(page),
+			static_cast<std::uint32_t>(slot),
+			input::LastDevice() == input::Device::kGamepad ? "pad" : "keys");
 	}
 
 	// A click on the marked cell assigns, through the dialog's own
@@ -2792,7 +2798,7 @@ namespace
 				g_currentPage + 1);
 			return;
 		}
-		SelectPipboySpot(over->page, static_cast<std::uint32_t>(over->slot));
+		SelectPipboySpot(over->page, static_cast<std::uint32_t>(over->slot), "click");
 		logger::info(
 			"pipboy: click on page {} key {} -- the dialog assigns",
 			over->page + 1,
@@ -4028,6 +4034,10 @@ namespace
 		// The one call the grid cannot make up for itself. Looked for once,
 		// here, so a failure is in the log before anyone clicks anything.
 		use::Find();
+
+		// A measurement (HANDOFF 65): what the Pip-Boy menu itself is
+		// handed while our grid stands in its dialog. Speaks only then.
+		probe::WatchPipboyMenu([]() { return g_pipboyGridUp; });
 
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;
