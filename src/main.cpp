@@ -4083,7 +4083,11 @@ namespace
 
 		// The Pip-Boy menu is not handed the pad's directions or the left
 		// stick while our grid stands in its dialog -- see probe.h.
-		probe::WatchPipboyMenu([]() { return g_pipboyGridUp; });
+		// Also while a row change is in flight: the panel is down for a
+		// tick or two then, and a stick still held would reach the list
+		// behind the dialog in that gap (played 2026-09-14, the list
+		// scrolled with the stick).
+		probe::WatchPipboyMenu([]() { return g_pipboyGridUp || g_pipboyPending < 12; });
 
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;

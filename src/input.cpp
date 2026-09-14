@@ -578,8 +578,16 @@ void input::Listen(bool a_on)
 		// pointer they did not ask for.
 		g_pointerAwake.store(g_lastDevice.load() != Device::kGamepad);
 	} else {
-		g_stickHeld.reset();
 		g_stepped.fill(0.0F);
+		// Not in the Pip-Boy. A row change there takes the panel down for a
+		// tick or two and stops listening meanwhile; forgetting the stick
+		// at that moment made a stick still held count as a fresh push
+		// when the panel came back -- another row, and another, for as
+		// long as the thumb stayed (played 2026-09-14). Held stays held
+		// until the stick is seen at rest again.
+		if (!g_directionsOnly.load()) {
+			g_stickHeld.reset();
+		}
 	}
 }
 
