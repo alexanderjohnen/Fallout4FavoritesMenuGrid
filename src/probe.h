@@ -1,19 +1,23 @@
 #pragma once
 
-// A measurement, not a feature: says in the log what the Pip-Boy menu
-// itself is handed while our grid stands in its assign dialog. Nothing
-// is changed on the way through.
+// Stands between the Pip-Boy menu and its own input while our grid is in
+// the assign dialog.
 //
-// Why: the grid's own handler (input.cpp) turns the D-pad into the same
-// steps as W/S/A/D, and still the mark jumped at the pad and not at the
-// keys (HANDOFF 65). The one path that differs is the menu's own:
-// IMenu::HandleEvent turns button events into Scaleform key events for
-// whatever holds the focus. Whether the pad's presses, the stick, and the
-// A button go through there -- and in what shape -- is what this writes
-// down, one line per press.
+// Why: the grid's handler (input.cpp) already turns the D-pad into the
+// same steps as W/S/A/D. But the menu has a second path of its own:
+// IMenu::HandleEvent turns a pad press into a Scaleform arrow for whatever
+// holds the focus -- the cross, since it has to hold the focus for E --
+// and the cross walks that arrow on release, in its own shape. Measured
+// 2026-09-14: every D-pad press was two steps, ours on press and the
+// cross's on release; the left stick reached the menu the same way. W/S
+// never produce those arrows, which is why the keyboard was always smooth.
+//
+// So while our grid stands there, the menu is not handed the D-pad's
+// directions or the left stick. Everything else -- A, which the menu takes
+// as Accept and assigns with, and B, which closes -- goes through untouched.
 namespace probe
 {
-	// Hooks the Pip-Boy menu's input slots. `a_active` says whether to
-	// speak; it is asked on every event and should be cheap.
+	// Hooks the Pip-Boy menu's input slots. `a_active` says whether our
+	// grid stands in the dialog; it is asked on every event.
 	void WatchPipboyMenu(bool (*a_active)());
 }

@@ -11,10 +11,7 @@ namespace
 	ButtonFn* g_button = nullptr;
 	StickFn* g_stick = nullptr;
 
-	// The last direction the stick was reported at, so a held stick is one
-	// line and not one per frame.
-	int g_stickX = 0;
-	int g_stickY = 0;
+	constexpr std::int32_t kLeftThumbstick = 0x0B;
 
 	[[nodiscard]] const char* DeviceName(RE::INPUT_DEVICE a_device)
 	{
@@ -30,9 +27,31 @@ namespace
 		}
 	}
 
-	[[nodiscard]] bool Speaking()
+	[[nodiscard]] bool Active()
 	{
 		return g_active && g_active();
+	}
+
+	// What the grid keeps from the menu: the four directions off the pad,
+	// by the name the game gives them, and the left stick. Not the
+	// keyboard's arrows -- those are not what jumped -- and not Accept,
+	// which is how the dialog assigns.
+	[[nodiscard]] bool Kept(const RE::InputEvent& a_event)
+	{
+		if (!Active()) {
+			return false;
+		}
+		if (const auto* button = a_event.As<RE::ButtonEvent>()) {
+			if (button->device.get() != RE::INPUT_DEVICE::kGamepad) {
+				return false;
+			}
+			const std::string_view name{ button->QUserEvent() };
+			return name == "Up" || name == "Down" || name == "Left" || name == "Right";
+		}
+		if (const auto* stick = a_event.As<RE::ThumbstickEvent>()) {
+			return stick->idCode == kLeftThumbstick;
+		}
+		return false;
 	}
 
 	[[nodiscard]] std::string Describe(const RE::ButtonEvent& a_event)
@@ -48,49 +67,44 @@ namespace
 									   std::format("held {:.2f}s", a_event.QHeldDownSecs()));
 	}
 
-	// What the menu is asked, and what it answers. Only presses and
-	// releases: a held key asks every frame.
 	bool ShouldHandle(RE::BSInputEventUser* a_self, const RE::InputEvent* a_event)
 	{
+		if (a_event && Kept(*a_event)) {
+			// Said once per press, not per frame of a held stick.
+			if (const auto* button = a_event->As<RE::ButtonEvent>();
+				button && button->QJustPressed()) {
+				logger::info("pipboy: {} kept from the menu", Describe(*button));
+			}
+			return false;
+		}
 		const auto answer = g_should(a_self, a_event);
-		if (a_event && Speaking()) {
-			if (const auto* button = a_event->As<RE::ButtonEvent>()) {
-				if (button->QJustPressed() || button->value == 0.0F) {
-					logger::info(
-						"probe: menu asked about {} -- {}",
-						Describe(*button),
-						answer ? "takes it" : "declines");
-				}
+		if (a_event && Active()) {
+			if (const auto* button = a_event->As<RE::ButtonEvent>();
+				button && button->QJustPressed() &&
+				button->device.get() == RE::INPUT_DEVICE::kGamepad) {
+				logger::info(
+					"pipboy: menu asked about {} -- {}",
+					Describe(*button),
+					answer ? "takes it" : "declines");
 			}
 		}
 		return answer;
 	}
 
-	// What the menu is handed. This is the slot that turns a press into a
-	// Scaleform key event for the focused clip.
+	// The same gate on the slots themselves, in case anything hands the
+	// menu an event without asking first.
 	void OnButton(RE::BSInputEventUser* a_self, const RE::ButtonEvent* a_event)
 	{
-		if (a_event && Speaking() &&
-			(a_event->QJustPressed() || a_event->value == 0.0F)) {
-			logger::info("probe: menu handles {}", Describe(*a_event));
+		if (a_event && Kept(*a_event)) {
+			return;
 		}
 		g_button(a_self, a_event);
 	}
 
 	void OnStick(RE::BSInputEventUser* a_self, const RE::ThumbstickEvent* a_event)
 	{
-		if (a_event && Speaking()) {
-			const auto x = a_event->xValue > 0.5F ? 1 : a_event->xValue < -0.5F ? -1 : 0;
-			const auto y = a_event->yValue > 0.5F ? 1 : a_event->yValue < -0.5F ? -1 : 0;
-			if (x != g_stickX || y != g_stickY) {
-				g_stickX = x;
-				g_stickY = y;
-				logger::info(
-					"probe: menu handles stick {:#x} x {:+} y {:+}",
-					static_cast<std::uint32_t>(a_event->idCode),
-					x,
-					y);
-			}
+		if (a_event && Kept(*a_event)) {
+			return;
 		}
 		g_stick(a_self, a_event);
 	}
@@ -103,13 +117,15 @@ void probe::WatchPipboyMenu(bool (*a_active)())
 	// PipboyMenu carries four vtables; the second is the input handler's
 	// (BSInputEventUser at 0x10 of IMenu), the same layout that use.cpp
 	// found on FavoritesManager. Its slots: 1 ShouldHandleEvent, 4 the
-	// thumbstick, 8 the button.
+	// thumbstick, 8 the button. What was in the slots before is kept and
+	// called -- on 2026-09-14 two of the three already pointed outside
+	// the game, so some other plugin sits here too.
 	REL::Relocation<std::uintptr_t> vtable{ RE::VTABLE::PipboyMenu[1] };
 	g_should = reinterpret_cast<ShouldFn*>(vtable.write_vfunc(1, &ShouldHandle));
 	g_stick = reinterpret_cast<StickFn*>(vtable.write_vfunc(4, &OnStick));
 	g_button = reinterpret_cast<ButtonFn*>(vtable.write_vfunc(8, &OnButton));
 	logger::info(
-		"probe: watching PipboyMenu input (should {:#x}, stick {:#x}, button {:#x})",
+		"pipboy: standing before PipboyMenu's input (should {:#x}, stick {:#x}, button {:#x})",
 		reinterpret_cast<std::uintptr_t>(g_should) - REL::Module::get().base(),
 		reinterpret_cast<std::uintptr_t>(g_stick) - REL::Module::get().base(),
 		reinterpret_cast<std::uintptr_t>(g_button) - REL::Module::get().base());

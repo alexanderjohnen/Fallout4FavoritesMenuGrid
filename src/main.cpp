@@ -4035,8 +4035,8 @@ namespace
 		// here, so a failure is in the log before anyone clicks anything.
 		use::Find();
 
-		// A measurement (HANDOFF 65): what the Pip-Boy menu itself is
-		// handed while our grid stands in its dialog. Speaks only then.
+		// The Pip-Boy menu is not handed the pad's directions or the left
+		// stick while our grid stands in its dialog -- see probe.h.
 		probe::WatchPipboyMenu([]() { return g_pipboyGridUp; });
 
 		g_gridKeys.clear = g_clearKey;
