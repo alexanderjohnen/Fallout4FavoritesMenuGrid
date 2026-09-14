@@ -21,3 +21,12 @@ namespace probe
 	// grid stands in the dialog; it is asked on every event.
 	void WatchPipboyMenu(bool (*a_active)());
 }
+
+namespace probe
+{
+	// Says in the log whether the hooks are still in the vtable, and who
+	// is there instead when they are not. Asked when the grid goes up in
+	// the dialog: on 2026-09-14 the hooks were installed and then never
+	// called, so somebody writes those slots after us.
+	void CheckPipboyMenu();
+}

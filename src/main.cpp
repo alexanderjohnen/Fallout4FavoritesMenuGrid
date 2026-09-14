@@ -2557,6 +2557,9 @@ namespace
 			g_pipboyPage = std::numeric_limits<std::size_t>::max();
 			g_pipboySlot = 12;
 		}
+		if (!g_pipboyGridUp) {
+			probe::CheckPipboyMenu();
+		}
 		g_pipboyGridUp = true;
 		g_pipboyCross = a_cross;
 

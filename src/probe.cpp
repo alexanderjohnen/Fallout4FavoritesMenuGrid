@@ -4,6 +4,28 @@ namespace
 {
 	bool (*g_active)() = nullptr;
 
+	std::uintptr_t g_slotShould = 0;
+	std::uintptr_t g_slotStick = 0;
+	std::uintptr_t g_slotButton = 0;
+
+	// The module an address belongs to, by file name, or the offset alone.
+	[[nodiscard]] std::string Whose(std::uintptr_t a_address)
+	{
+		HMODULE module = nullptr;
+		if (::GetModuleHandleExW(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				reinterpret_cast<LPCWSTR>(a_address),
+				&module) &&
+			module) {
+			wchar_t path[MAX_PATH]{};
+			if (::GetModuleFileNameW(module, path, MAX_PATH)) {
+				const auto name = std::filesystem::path(path).filename().string();
+				return std::format("{}+{:#x}", name, a_address - reinterpret_cast<std::uintptr_t>(module));
+			}
+		}
+		return std::format("{:#x}", a_address);
+	}
+
 	using ShouldFn = bool(RE::BSInputEventUser*, const RE::InputEvent*);
 	using ButtonFn = void(RE::BSInputEventUser*, const RE::ButtonEvent*);
 	using StickFn = void(RE::BSInputEventUser*, const RE::ThumbstickEvent*);
@@ -121,12 +143,39 @@ void probe::WatchPipboyMenu(bool (*a_active)())
 	// called -- on 2026-09-14 two of the three already pointed outside
 	// the game, so some other plugin sits here too.
 	REL::Relocation<std::uintptr_t> vtable{ RE::VTABLE::PipboyMenu[1] };
+	g_slotShould = vtable.address() + sizeof(void*) * 1;
+	g_slotStick = vtable.address() + sizeof(void*) * 4;
+	g_slotButton = vtable.address() + sizeof(void*) * 8;
 	g_should = reinterpret_cast<ShouldFn*>(vtable.write_vfunc(1, &ShouldHandle));
 	g_stick = reinterpret_cast<StickFn*>(vtable.write_vfunc(4, &OnStick));
 	g_button = reinterpret_cast<ButtonFn*>(vtable.write_vfunc(8, &OnButton));
 	logger::info(
-		"pipboy: standing before PipboyMenu's input (should {:#x}, stick {:#x}, button {:#x})",
-		reinterpret_cast<std::uintptr_t>(g_should) - REL::Module::get().base(),
-		reinterpret_cast<std::uintptr_t>(g_stick) - REL::Module::get().base(),
-		reinterpret_cast<std::uintptr_t>(g_button) - REL::Module::get().base());
+		"pipboy: standing before PipboyMenu's input at {:#x} -- before us: should {}, stick {}, button {}",
+		vtable.address() - REL::Module::get().base(),
+		Whose(reinterpret_cast<std::uintptr_t>(g_should)),
+		Whose(reinterpret_cast<std::uintptr_t>(g_stick)),
+		Whose(reinterpret_cast<std::uintptr_t>(g_button)));
+}
+
+void probe::CheckPipboyMenu()
+{
+	if (!g_slotShould) {
+		return;
+	}
+	const auto read = [](std::uintptr_t a_slot) {
+		return *reinterpret_cast<std::uintptr_t*>(a_slot);
+	};
+	const auto should = read(g_slotShould);
+	const auto stick = read(g_slotStick);
+	const auto button = read(g_slotButton);
+	const bool ours =
+		should == reinterpret_cast<std::uintptr_t>(&ShouldHandle) &&
+		stick == reinterpret_cast<std::uintptr_t>(&OnStick) &&
+		button == reinterpret_cast<std::uintptr_t>(&OnButton);
+	logger::info(
+		"pipboy: the menu's input slots are {} -- should {}, stick {}, button {}",
+		ours ? "still ours" : "NOT ours any more",
+		Whose(should),
+		Whose(stick),
+		Whose(button));
 }
