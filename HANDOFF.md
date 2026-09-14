@@ -1,6 +1,6 @@
 # Favorites Menu Grid (Fallout 4) — Arbeitsstand
 
-Stand: 2026-09-06. Portierung von
+Stand: 2026-09-14. Der Controller im Pip-Boy ist seit Abschnitt 66 gelöst; Abschnitt 0 ist älter als 63–66. Portierung von
 [Favorites Menu Grid für Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid).
 **Abschnitt 0 ist der Einstieg.** Er sagt, was gilt; die nummerierten
 Abschnitte danach sagen, wie es dazu kam, und sind Fundgrube, nicht Pflicht.
@@ -4205,3 +4205,75 @@ Fix hätte den Abend halbiert.
   Kreuz inzwischen woanders steht); oder ein Pfeil-Weg über
   `ProcessUserEvent` an der Seite vorbei. **Beim nächsten Mal zuerst: eine
   Logzeile pro `grid::Mark` mit Aufrufer**, dann sehen, wer zieht.
+
+## 66. Der Controller im Zuweisen-Dialog, gelöst — und die Frage aus 65 hatte die falsche Richtung (2026-09-14)
+
+Alexanders Vorschlag zum Einstieg: „Wir wissen, dass WASD richtig
+funktioniert. Können wir für das Pad nicht genau das machen?" Unsere
+Übersetzung (`input.cpp`, `Claimed()`) *war* schon 1:1 — D-Pad und Stick
+landen auf denselben `Action`s wie W/S/A/D. Der Unterschied lag daneben:
+das Spiel macht aus derselben Pad-Eingabe zusätzlich eine Scaleform-Pfeiltaste
+für das, was den Fokus hält, und das ist seit `d65429b` das Kreuz. Aus W/S
+macht es keine. „Pad = WASD" hieß also: die zweiten Wege abklemmen.
+
+### Gemessen, in dieser Reihenfolge (jeder Schritt ein Build, jeder gespielt)
+
+1. **Messbuild** (`003e593`): Haken auf die drei Eingabe-Slots von
+   `VTABLE::PipboyMenu[1]` (1 `ShouldHandleEvent`, 4 Thumbstick, 8 Button),
+   nur loggend; `SelectPipboySpot` sagt, wer gewählt hat. Ergebnis pro
+   D-Pad-Druck: Menü nimmt `'Right'` → unser Schritt → beim **Loslassen**
+   `refresh following the cross` einen weiter. Zwei Schritte je Druck. Der
+   Stick kam als `stick 0xb` beim Menü an. **A kommt als `'Accept'` beim
+   Menü an und weist darüber zu** — die Frage aus 65 („wie erreicht A das
+   Menü?") war beantwortet, aber unwichtig: A funktioniert, es musste nur
+   in Ruhe gelassen werden.
+2. **Menü-Slots gesperrt** (`00da4c4`): unverändert. Zweiter Lauf zeigte
+   sogar *keine* Haken-Zeilen — Erklärung: `BakaFullscreenPipboy.dll` stand
+   schon vor uns in zwei der drei Slots (`f0cee7f` schreibt seither den
+   Modulnamen), aber das war nicht der Grund; der Haken stand („still
+   ours"), das Kreuz lief trotzdem. **Das Menü war nie der Beweger.**
+3. **`GFxConvertHandler`** (`ec21938`): steht in `MenuControls::handlers`
+   und wandelt Eingaben in Scaleform-Ereignisse für die Filme. Die Liste
+   läuft an unserem „meins" vorbei weiter — Abschnitt 22 hatte das anders
+   behauptet. Beide Türen zu: links/rechts sauber, hoch/runter nicht.
+4. **Hoch/runter** (`7321c44`): zwei Ursachen im Log. Gehaltener Stick →
+   vier Reihen pro Sekunde (jede ein Dialogumbau). Und nach manchen
+   Reihenwechseln `slot 9/10 by refresh following the cross`: der Umbau
+   setzt die Kreuzauswahl neu, und wir folgten — der „zweite Beweger" aus
+   dem Nachtrag zu 65. Jetzt: am Controller ist das Raster Autorität
+   (`e7b0646` aus `controller-wip`, aber nur bei `LastDevice() == kGamepad`;
+   die Tastatur folgt den Pfeiltasten weiter), hoch/runter wiederholt im
+   Pip-Boy nicht (`Repeats()` in `input.cpp`, links/rechts schon), Liste
+   jeden Tick gesperrt (`82b888c`).
+5. **Stick immer noch Schnellfeuer, Liste läuft mit** (`bf9e87a`): der
+   Reihenwechsel nimmt das Panel kurz runter und ruft `Listen(false)`, das
+   `g_stickHeld` vergaß — der noch gehaltene Stick war danach ein neuer
+   Schubs. Und in der Lücke war `g_pipboyGridUp` false, die Türen offen, der
+   Stick fiel an die Liste. Beides zu: Stick bleibt gehalten, solange
+   `directionsOnly`; Türen aktiv auch bei `g_pipboyPending < 12`.
+
+**Gespielt (Alexander): Pad und Stick, alle Richtungen, A, B — sauber. Tastatur
+und Maus im Dialog danach gegengespielt — unverändert.**
+
+### Was daraus bleibt
+
+| | |
+| --- | --- |
+| `pipboyinput.cpp` | Zwei Türen (`PipboyMenu[1]`, `GFxConvertHandler[0]`): gamepad `Up/Down/Left/Right` (per `QUserEvent()`-Name) und linker Stick (`0xb`) werden nicht weitergereicht, solange das Gitter im Dialog steht oder ein Reihenwechsel läuft. Vorherige Slot-Inhalte werden gerufen. `Check()` beim Betreten: einmal „ours", sonst laut |
+| Wer sonst noch da ist | `BakaFullscreenPipboy.dll` in PipboyMenu-Slots 1 und 8, vor uns; harmlos |
+| `MenuControls::handlers` | läuft **nicht** beim ersten „meins" ab — Abschnitt 22 ist darin falsch |
+| Kreuz am Pad | wird geschrieben, nie gelesen; Tastatur folgt weiter |
+| Pip-Boy-Wiederholung | Reihen nie, Tasten in der Reihe ja |
+| Log | `pipboy: choose page … key … by pad/keys/pointer/click/pending key`, `following the cross to key …` (Betreten und Tastatur-Pfeile), `the cross drifted … written back` (nie gesehen, seit die Türen zu sind) |
+
+### Die Lehre
+
+Dieselbe wie 63–65, endlich befolgt: fünf Builds, jeder mit einer Messung
+davor, keiner mit einer Vermutung. Und die zweite: Alexanders Formulierung
+war die richtige Frage. „Pad = WASD" hat direkt auf die Übersetzungswege
+gezeigt, statt auf das, was ich in 65 suchen wollte.
+
+### Stand: 1.1.1
+
+Für alle, OG gespielt. `release-1.0` wird nicht fortgeführt. Offen wie
+gehabt: NG/AE-Tester, MCM, Badge.

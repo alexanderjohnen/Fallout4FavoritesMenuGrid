@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	Fallout4FavoritesMenuGrid
-	VERSION 1.1.0
+	VERSION 1.1.1
 	LANGUAGES CXX
 )
 
@@ -53,8 +53,8 @@ add_library(
 	src/main.cpp
 	src/peek.cpp
 	src/peek.h
-	src/probe.cpp
-	src/probe.h
+	src/pipboyinput.cpp
+	src/pipboyinput.h
 	src/tags.cpp
 	src/tags.h
 	src/use.cpp

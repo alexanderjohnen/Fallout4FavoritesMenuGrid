@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 — 2026-09-14
+
+Fixed: with a controller, the mark in the Pip-Boy's assign dialog jumped between cells, a held stick ran through the pages, and the inventory list behind the dialog scrolled along. Cause: the game turned every D-pad press and stick push into an arrow key for the dialog's own hidden cross as well, and the cross walked it in its own shape; the grid then followed the cross. While the grid is in the dialog the D-pad's directions and the left stick now go to the grid alone. Up and down step one page per press or push; left and right still repeat while held. Keyboard and mouse are unchanged.
+
+Played on 1.10.163 with FallUI. Not played on Next-Gen or 1.11.x; the notes for 1.1.0 below still apply there.
+
+This is the release for everyone: 1.0.x is not continued.
+
 ## 1.1.0 — 2026-09-13 (test release)
 
 One DLL for Fallout 4 1.10.163, Next-Gen (1.10.980/984) and 1.11.x. Addresses are resolved for the running game by CommonLibF4RD and the Runtime Database (required on Next-Gen and 1.11.x, optional on 1.10.163). The two functions this mod used to name by fixed number are now found by their relationship to functions the library knows, and refused rather than guessed when that fails.

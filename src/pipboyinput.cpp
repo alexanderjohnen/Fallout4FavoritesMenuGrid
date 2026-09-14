@@ -1,4 +1,4 @@
-#include "probe.h"
+#include "pipboyinput.h"
 
 namespace
 {
@@ -28,20 +28,6 @@ namespace
 		return std::format("{:#x}", a_address);
 	}
 
-	[[nodiscard]] const char* DeviceName(RE::INPUT_DEVICE a_device)
-	{
-		switch (a_device) {
-		case RE::INPUT_DEVICE::kKeyboard:
-			return "keyboard";
-		case RE::INPUT_DEVICE::kMouse:
-			return "mouse";
-		case RE::INPUT_DEVICE::kGamepad:
-			return "gamepad";
-		default:
-			return "other";
-		}
-	}
-
 	[[nodiscard]] bool Active()
 	{
 		return g_active && g_active();
@@ -69,19 +55,6 @@ namespace
 		return false;
 	}
 
-	[[nodiscard]] std::string Describe(const RE::ButtonEvent& a_event)
-	{
-		const std::string_view name{ a_event.QUserEvent() };
-		return std::format(
-			"{} code {:#x} event '{}' {}",
-			DeviceName(a_event.device.get()),
-			static_cast<std::uint32_t>(a_event.idCode),
-			name,
-			a_event.QJustPressed()   ? "pressed" :
-			a_event.value == 0.0F    ? "released" :
-									   std::format("held {:.2f}s", a_event.QHeldDownSecs()));
-	}
-
 	// One door: three slots of one BSInputEventUser vtable, with what was
 	// in them before, which is called for everything not kept.
 	struct Door
@@ -96,6 +69,7 @@ namespace
 		ShouldFn* ourShould = nullptr;
 		StickFn* ourStick = nullptr;
 		ButtonFn* ourButton = nullptr;
+		bool checked = false;
 
 		void Install(const REL::ID& a_vtable, ShouldFn* a_should, StickFn* a_stick, ButtonFn* a_button)
 		{
@@ -118,7 +92,10 @@ namespace
 				Whose(reinterpret_cast<std::uintptr_t>(button)));
 		}
 
-		void Check() const
+		// Said once when all is well, and every time it is not: a plugin
+		// loaded after us that writes these slots would put the pad's
+		// arrows back on the cross without a word otherwise.
+		void Check()
 		{
 			if (!slotShould) {
 				return;
@@ -133,10 +110,14 @@ namespace
 				s == reinterpret_cast<std::uintptr_t>(ourShould) &&
 				t == reinterpret_cast<std::uintptr_t>(ourStick) &&
 				b == reinterpret_cast<std::uintptr_t>(ourButton);
+			if (ours && checked) {
+				return;
+			}
+			checked = true;
 			logger::info(
 				"pipboy: the input slots of {} are {} -- should {}, stick {}, button {}",
 				name,
-				ours ? "still ours" : "NOT ours any more",
+				ours ? "ours" : "NOT ours",
 				Whose(s),
 				Whose(t),
 				Whose(b));
@@ -145,24 +126,9 @@ namespace
 		bool ShouldHandle(RE::BSInputEventUser* a_self, const RE::InputEvent* a_event) const
 		{
 			if (a_event && Kept(*a_event)) {
-				// Said once per press, not per frame of a held stick.
-				if (const auto* b = a_event->As<RE::ButtonEvent>(); b && b->QJustPressed()) {
-					logger::info("pipboy: {} kept from {}", Describe(*b), name);
-				}
 				return false;
 			}
-			const auto answer = should(a_self, a_event);
-			if (a_event && Active()) {
-				if (const auto* b = a_event->As<RE::ButtonEvent>();
-					b && b->QJustPressed() && b->device.get() == RE::INPUT_DEVICE::kGamepad) {
-					logger::info(
-						"pipboy: {} asked about {} -- {}",
-						name,
-						Describe(*b),
-						answer ? "takes it" : "declines");
-				}
-			}
-			return answer;
+			return should(a_self, a_event);
 		}
 
 		// The same gate on the slots themselves, in case anything hands
@@ -195,7 +161,7 @@ namespace
 	void ConvertStick(RE::BSInputEventUser* a_self, const RE::ThumbstickEvent* a_event) { g_convert.OnStick(a_self, a_event); }
 }
 
-void probe::WatchPipboyMenu(bool (*a_active)())
+void pipboyinput::Install(bool (*a_active)())
 {
 	g_active = a_active;
 
@@ -209,7 +175,7 @@ void probe::WatchPipboyMenu(bool (*a_active)())
 	g_convert.Install(RE::VTABLE::GFxConvertHandler[0], &ConvertShould, &ConvertStick, &ConvertButton);
 }
 
-void probe::CheckPipboyMenu()
+void pipboyinput::Check()
 {
 	g_menu.Check();
 	g_convert.Check();

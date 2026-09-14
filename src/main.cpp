@@ -23,7 +23,7 @@
 #include "input.h"
 #include "menu.h"
 #include "peek.h"
-#include "probe.h"
+#include "pipboyinput.h"
 #include "tags.h"
 #include "use.h"
 
@@ -2289,7 +2289,7 @@ namespace
 			g_pipboyList.SetMember("disableInput", RE::Scaleform::GFx::Value(true));
 		}
 		// On a controller the cross's selection is ours, every tick: the
-		// pad's arrows never reach the cross any more (probe.cpp), so any
+		// pad's arrows never reach the cross any more (pipboyinput.cpp), so any
 		// drift is the game's rebuild after a row change, and Accept reads
 		// the cross at the instant of the press. See RefreshPipboyGrid.
 		if (input::LastDevice() == input::Device::kGamepad && g_pipboySlot < 12) {
@@ -2358,7 +2358,7 @@ namespace
 		}
 		// Followed at the keyboard, where the arrow keys move the cross and
 		// that is a way to choose. Not on a controller: the pad's arrows
-		// are kept from the cross (probe.cpp), so a cross that differs is
+		// are kept from the cross (pipboyinput.cpp), so a cross that differs is
 		// the game's rebuild after a row change putting its own choice in
 		// -- 9 or 10, measured 2026-09-14 19:04 -- and following that was
 		// the jump. The mark stays; the cross is written back. The takeover
@@ -2374,7 +2374,8 @@ namespace
 		}
 		g_pipboySlot = slot;
 		g_pipboyPage = g_currentPage;
-		grid::Mark(grid::Spot{ g_currentPage, slot }, "refresh following the cross");
+		logger::info("pipboy: following the cross to key {}", KeyLabel(slot));
+		grid::Mark(grid::Spot{ g_currentPage, slot });
 	}
 
 	// The cross keeps its own keyUp listener. It was taken off for a day
@@ -2601,7 +2602,7 @@ namespace
 			g_pipboySlot = 12;
 		}
 		if (!g_pipboyGridUp) {
-			probe::CheckPipboyMenu();
+			pipboyinput::Check();
 		}
 		g_pipboyGridUp = true;
 		g_pipboyCross = a_cross;
@@ -2700,7 +2701,6 @@ namespace
 		if (g_pipboyGridUp && g_pipboyPending < 12) {
 			const auto slot = g_pipboyPending;
 			g_pipboyPending = 12;
-			logger::info("pipboy: the key chosen before the row change goes in -- slot {}", slot + 1);
 			SelectPipboySpot(g_currentPage, slot, "pending key");
 		}
 	}
@@ -2780,7 +2780,7 @@ namespace
 			"selectedIndex", RE::Scaleform::GFx::Value(a_slot));
 		g_pipboyPage = a_page;
 		g_pipboySlot = a_slot;
-		grid::Mark(grid::Spot{ a_page, a_slot }, a_by);
+		grid::Mark(grid::Spot{ a_page, a_slot });
 	}
 
 	void MovePipboyMark(int a_pages, int a_slots)
@@ -4082,12 +4082,12 @@ namespace
 		use::Find();
 
 		// The Pip-Boy menu is not handed the pad's directions or the left
-		// stick while our grid stands in its dialog -- see probe.h.
+		// stick while our grid stands in its dialog -- see pipboyinput.h.
 		// Also while a row change is in flight: the panel is down for a
 		// tick or two then, and a stick still held would reach the list
 		// behind the dialog in that gap (played 2026-09-14, the list
 		// scrolled with the stick).
-		probe::WatchPipboyMenu([]() { return g_pipboyGridUp || g_pipboyPending < 12; });
+		pipboyinput::Install([]() { return g_pipboyGridUp || g_pipboyPending < 12; });
 
 		g_gridKeys.clear = g_clearKey;
 		g_gridKeys.move = g_moveKey;

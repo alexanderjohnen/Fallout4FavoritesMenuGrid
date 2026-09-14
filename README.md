@@ -3,7 +3,7 @@
 A Fallout 4 port of [Favorites Menu Grid for Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid):
 all of your favorite pages at once, on a grid you can point at.
 
-Version 1.1.0. Tested on one machine, with FallUI and its Item Sorter
+Version 1.1.1. Tested on one machine, with FallUI and its Item Sorter
 installed; built to work without them, but that has not been played. See
 [HANDOFF.md](HANDOFF.md) for how each piece was arrived at, and
 [docs/NEXUS.md](docs/NEXUS.md) for the mod page.

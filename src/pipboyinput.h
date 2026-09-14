@@ -23,13 +23,13 @@
 // While our grid stands there, neither is handed the D-pad's directions
 // or the left stick. Everything else -- A, which the menu takes as Accept
 // and assigns with, and B, which closes -- goes through untouched.
-namespace probe
+namespace pipboyinput
 {
 	// Hooks both. `a_active` says whether our grid stands in the dialog;
 	// it is asked on every event.
-	void WatchPipboyMenu(bool (*a_active)());
+	void Install(bool (*a_active)());
 
 	// Says in the log whether the hooks are still in the vtables, and who
 	// is there instead when they are not. Asked when the grid goes up.
-	void CheckPipboyMenu();
+	void Check();
 }

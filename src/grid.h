@@ -197,9 +197,7 @@ namespace grid
 
 	// Picks a cell out. Cheap enough for every frame: the outline is a child
 	// of its own that only ever moves, so nothing is drawn again for it.
-	// `a_who` names the caller for the log; left out, nothing is said.
-	// Measurement for the Pip-Boy (HANDOFF 65): who moves the mark.
-	void Mark(const std::optional<Spot>& a_spot, const char* a_who = nullptr);
+	void Mark(const std::optional<Spot>& a_spot);
 
 	// Forgets the panel. The display objects belong to the movie that is
 	// going away, so this runs when the menu closes.
