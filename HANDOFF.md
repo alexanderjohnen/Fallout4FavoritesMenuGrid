@@ -4277,3 +4277,46 @@ gezeigt, statt auf das, was ich in 65 suchen wollte.
 
 Für alle, OG gespielt. `release-1.0` wird nicht fortgeführt. Offen wie
 gehabt: NG/AE-Tester, MCM, Badge.
+
+## 67. Nach 1.1.1: zwei Wünsche von Nexus, beide für dasselbe Update (2026-09-16)
+
+xDefiantx auf Nexus: Standard-Icons ohne Fremd-Mod, und Pause im Menü.
+Alexander will **beides in einem Update** (1.2), 1.1.1 ist gepackt und
+gespielt, aber noch nicht hochgeladen.
+
+### PauseGame — gebaut (`5c99899`), nicht gespielt
+
+`[Grid] PauseGame=0/1`, setzt `kPausesGame` auf unserem Menü wie der
+Pip-Boy. In der Spiel-INI steht zum Testen `PauseGame=1` — vor dem Packen
+wieder raus. Zu prüfen: Welt steht; Anlegen (E/A) greift trotz Pause;
+Zeiger/Tasten laufen; Schließen gibt die Welt frei. Wenn Anlegen in der
+Pause nicht greift, müsste es beim Schließen nachgeholt werden.
+
+### Vanilla-Icons — nicht angefangen, aber vermessen
+
+Ich hatte behauptet, Vanilla habe keine Icons. Falsch: das Kreuz hat
+`Icon_mc` mit einem Bild je Art (`FavIconType`, Abschnitt 13), und
+`g_iconOfObject` merkt sie sich schon pro Gegenstand — nur gezeichnet wird
+nie. Was feststeht:
+
+* `FavoritesMenu.swf` (Kopie in `..\FavoritesMenu-vanilla\`, dekompiliert
+  unter `export\scripts`) exportiert das Clip als
+  `FavoritesMenu_fla.HotkeyIcons_6` — Timeline-Clip, `stop()` auf Bild 1,
+  `gotoAndStop(FavIconType)` wählt das Bild. Der Dokumentklassen-Konstruktor
+  (`FavoritesMenu`) ist harmlos, wenn die SWF als Bibliothek mitläuft.
+* Weg: `icons.cpp` lädt die SWF wie eine FIS-Bibliothek in unsere
+  Anwendungsdomäne, `getDefinition` → Instanz → `gotoAndStop` → an die Zelle,
+  als Auffangsymbol, wenn keine Sorter-Bibliothek da ist (oder immer, wenn
+  kein Tag greift — Entscheidung offen).
+* Offen, und zuerst zu messen: **welche Bildnummer zeigt was** — einmal die
+  Bilder von `symbol118` ansehen (JPEXS exportiert Frames) und gegen
+  `detail.cpp` eine Tabelle Gegenstandsart → Bild bauen, damit auch Seiten
+  Icons bekommen, die nie auf dem sichtbaren Kreuz standen. Und ob der
+  Pip-Boy-Dialog (FallUIs Film) dasselbe Clip hat.
+* Spielen mit und ohne FallUI. Ohne FallUI ist bis heute nichts gespielt
+  (README sagt es).
+
+### Nexus-Antwort, so gegeben
+
+Standard-Icons: noch nicht gezeichnet, kommt im nächsten Update. Pause:
+kommt als INI-Option.
