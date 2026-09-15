@@ -52,4 +52,9 @@ namespace menu
 	void Hide();
 
 	[[nodiscard]] bool IsOpen();
+
+	// Whether the game stands still behind the menu, the way it does behind
+	// the Pip-Boy. Read before the menu is next opened; each opening builds
+	// the menu anew, so a change takes effect on the next one.
+	void SetPausesGame(bool a_on);
 }

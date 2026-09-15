@@ -10,6 +10,7 @@ namespace
 	void (*g_ready)() = nullptr;
 	void (*g_advance)() = nullptr;
 	void (*g_gone)() = nullptr;
+	bool g_pauses = false;
 
 	class GridMenu : public RE::IMenu
 	{
@@ -35,10 +36,12 @@ namespace
 				return;
 			}
 
-			// Cursor and input, without pausing: the point of a favorites
-			// menu is to be quick, and a paused game behind it would be a
-			// different thing entirely. kUsesMenuContext is what takes the
-			// mouse off the camera and gives it to the menu.
+			// Cursor and input. Not paused unless the INI asks: the point of
+			// a favorites menu is to be quick, and a paused game behind it is
+			// a different thing -- but some want the Pip-Boy's kind of pause
+			// (asked for on Nexus, 2026-09-15), and that is one flag.
+			// kUsesMenuContext is what takes the mouse off the camera and
+			// gives it to the menu.
 			// No kCustomRendering. It says the menu paints itself, and the
 			// game then leaves it out of its own pass -- the grid was drawn,
 			// forty children and all, onto a movie nobody rendered.
@@ -47,6 +50,9 @@ namespace
 				RE::UI_MENU_FLAGS::kUsesMenuContext,
 				RE::UI_MENU_FLAGS::kUpdateUsesCursor,
 				RE::UI_MENU_FLAGS::kRequiresUpdate);
+			if (g_pauses) {
+				menuFlags.set(RE::UI_MENU_FLAGS::kPausesGame);
+			}
 
 			// Above the HUD, below anything the player opens on purpose.
 			depthPriority = RE::UI_DEPTH_PRIORITY::kStandard;
@@ -140,4 +146,9 @@ bool menu::IsOpen()
 {
 	auto* ui = RE::UI::GetSingleton();
 	return ui && ui->GetMenuOpen(kName);
+}
+
+void menu::SetPausesGame(bool a_on)
+{
+	g_pauses = a_on;
 }

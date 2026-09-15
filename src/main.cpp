@@ -536,6 +536,7 @@ namespace
 		g_iconFallback = yes(L"Grid", L"IconFallback", true);
 		g_stripItemTags = yes(L"Grid", L"StripItemTags", true);
 		g_hideCrosshair = yes(L"Grid", L"HideCrosshair", true);
+		menu::SetPausesGame(yes(L"Grid", L"PauseGame", false));
 		g_showHint = yes(L"Grid", L"ShowKeyHints", true);
 		g_hintExtra = ReadText(path, L"Grid", L"KeyHintExtra", L"TAB) CLOSE");
 
