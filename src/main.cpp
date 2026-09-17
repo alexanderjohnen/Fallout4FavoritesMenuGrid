@@ -2410,7 +2410,16 @@ namespace
 		ShieldPipboyList(g_pipboyCross, false);
 		// The focus goes back to the list, which is where HideHotkeys puts
 		// it; left on a cross nobody can see, it kept its rectangle.
+		//
+		// And the list's keys come back. HideHotkeys frees them
+		// (disableInput = false) in the same frame it asks for the redraw
+		// that removes the dialog; KeepPipboyFocus, still running that
+		// frame, locked them again, and nothing here unlocked them. The
+		// list then held the focus and took no key: no up or down after
+		// assigning, with the stick or W/S, until a tab change rebuilt
+		// the page (Hitman136 on Nexus, 2026-09-16, on 1.1.1).
 		if (g_pipboyList.IsDisplayObject()) {
+			g_pipboyList.SetMember("disableInput", RE::Scaleform::GFx::Value(false));
 			if (auto* pipboy = GetMenu("PipboyMenu"); pipboy && pipboy->uiMovie) {
 				RE::Scaleform::GFx::Value root;
 				RE::Scaleform::GFx::Value stage;
