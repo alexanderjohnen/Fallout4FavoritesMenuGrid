@@ -186,9 +186,11 @@ namespace
 		WriteBlock(a_out, a_label, a_address, kPlainLength);
 	}
 
-	// Every `lea reg, [rip + x]` in the code section that points at the
-	// address. That is how a vtable pointer reaches an object, so this finds
-	// the places where the engine builds one for itself.
+	// Every `lea reg, [rip + x]` or `mov reg, [rip + x]` in the code section
+	// that points at the address. The first is how a vtable pointer reaches
+	// an object, so this finds the places where the engine builds one for
+	// itself; the second is how a global -- a BSFixedString made once from a
+	// literal -- is read where it is used.
 	[[nodiscard]] std::vector<std::uintptr_t> FindReferences(std::uintptr_t a_target)
 	{
 		std::vector<std::uintptr_t> hits;
@@ -198,7 +200,8 @@ namespace
 		const auto size = text.size();
 
 		for (std::size_t index = 0; index + 7 <= size; ++index) {
-			if ((bytes[index] & 0xF8) != 0x48 || bytes[index + 1] != 0x8D) {
+			if ((bytes[index] & 0xF8) != 0x48 ||
+				(bytes[index + 1] != 0x8D && bytes[index + 1] != 0x8B)) {
 				continue;
 			}
 			if ((bytes[index + 2] & 0xC7) != 0x05) {
@@ -297,6 +300,30 @@ void peek::Run(const std::filesystem::path& a_settings)
 				std::format("data {:#x} used at", request.value),
 				hit,
 				request.length);
+			// A literal is usually mentioned once, in the initializer that
+			// makes a BSFixedString global of it: `lea rdx, [literal]` and
+			// then `lea rcx, [global]`. The global is what the rest of the
+			// code names, so it is followed here rather than in another run.
+			const auto* code = reinterpret_cast<const std::uint8_t*>(hit);
+			if (code[0] == 0x48 && code[1] == 0x8D && code[2] == 0x15 &&
+				code[7] == 0x48 && code[8] == 0x8D && code[9] == 0x0D) {
+				std::int32_t displacement = 0;
+				std::memcpy(&displacement, code + 10, sizeof(displacement));
+				const auto global = hit + 14 + displacement;
+				const auto uses = FindReferences(global);
+				logger::info(
+					"peek: data {:#x} becomes global {:#x}, mentioned {} time(s)",
+					request.value,
+					global - base,
+					uses.size());
+				for (const auto use : uses) {
+					WritePlace(
+						out,
+						std::format("global {:#x} used at", global - base),
+						use,
+						request.length);
+				}
+			}
 		}
 	}
 

@@ -266,8 +266,10 @@ namespace
 			RE::Scaleform::GFx::Value(a_height)
 		};
 		a_graphics.Invoke("drawRect", nullptr, rect.data(), rect.size());
-		const std::array clear{ RE::Scaleform::GFx::Value(0.0) };
-		a_graphics.Invoke("lineStyle", nullptr, clear.data(), clear.size());
+		// No arguments, not a zero: lineStyle(0) is a hairline, and it stayed
+		// on for every fill after the backdrop's outline -- a fan of lines
+		// from the corner to each icon.
+		a_graphics.Invoke("lineStyle");
 	}
 
 	// Four right angles around a rectangle, each two strokes meeting at a
