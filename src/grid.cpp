@@ -57,7 +57,9 @@ namespace
 	constexpr double kHoldFillAlpha = 0.40;
 	constexpr double kKeyAlpha = 1.0;
 	// The emblem stands in for a name, not beside one: as solid as the name.
-	constexpr double kEmblemAlpha = 0.9;
+	// Fully so, because its parts overlap where the wings meet the ring, and
+	// anything less than opaque shows every seam twice as bright.
+	constexpr double kEmblemAlpha = 1.0;
 
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
 	{
@@ -607,12 +609,19 @@ namespace
 			call("endFill", {});
 		};
 
+		// Each wing grows out of the ring's outer edge at its own height --
+		// the upper and lower ones meet it further in than the middle one
+		// -- and reaches a little under the ring, which is drawn over it.
 		const auto ring = a_radius * 0.30;
-		const auto half = a_radius * 0.14;
+		const auto half = a_radius * 0.16;
+		const auto lift = a_radius * 0.60;
+		const auto edgeAt = [&](double a_dy) {
+			return std::sqrt(std::max(0.0, a_radius * a_radius - a_dy * a_dy)) - ring * 0.5;
+		};
 		for (const auto side : { -1.0, 1.0 }) {
-			wing(side, a_radius * 0.8, a_radius * 3.0, a_cy, half);
-			wing(side, a_radius * 0.9, a_radius * 2.3, a_cy - a_radius * 0.62, half);
-			wing(side, a_radius * 0.9, a_radius * 2.3, a_cy + a_radius * 0.62, half);
+			wing(side, edgeAt(0.0), a_radius * 3.0, a_cy, half);
+			wing(side, edgeAt(lift), a_radius * 2.3, a_cy - lift, half);
+			wing(side, edgeAt(lift), a_radius * 2.3, a_cy + lift, half);
 		}
 
 		call("beginFill", { color, a_alpha });
