@@ -474,6 +474,7 @@ namespace
 	[[nodiscard]] RE::Scaleform::GFx::Value Place(
 		RE::IMenu* a_canvas,
 		const std::string& a_class,
+		int a_frame,
 		double a_left,
 		double a_top,
 		const Metrics& a_m,
@@ -484,6 +485,10 @@ namespace
 			return icon;
 		}
 		a_canvas->uiMovie->CreateObject(&icon, a_class.c_str());
+		if (a_frame > 0 && icon.IsDisplayObject()) {
+			const RE::Scaleform::GFx::Value frame{ static_cast<double>(a_frame) };
+			icon.Invoke("gotoAndStop", nullptr, &frame, 1);
+		}
 		return Fit(icon, a_left, a_top, a_m, a_where);
 	}
 
@@ -544,7 +549,8 @@ namespace
 			std::ignore = Ask(a_cell.keyword, a_left, a_top, a_m, a_where);
 			return;
 		}
-		auto icon = Place(a_canvas, a_cell.symbol, a_left, a_top, a_m, a_where);
+		auto icon = Place(
+			a_canvas, a_cell.symbol, a_cell.frame, a_left, a_top, a_m, a_where);
 		if (!icon.IsDisplayObject() || !a_where.iconColors ||
 			a_cell.colors.empty()) {
 			return;

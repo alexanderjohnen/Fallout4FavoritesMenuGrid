@@ -22,6 +22,9 @@ namespace grid
 		std::string label;   // the key: 1..9, 0, -, =
 		std::string name;    // what lies on it, empty for a free key
 		std::string symbol;  // the icon's class name, empty when there is none
+		// For a timeline clip -- the game's own HotkeyIcons -- which frame
+		// is the picture. Zero for a clip that is its own picture.
+		int frame{ 0 };
 		// The sorter's keyword the symbol was found by -- "Stimpak", "Aid".
 		// A host that builds icons itself is asked with this, not the class.
 		std::string keyword;

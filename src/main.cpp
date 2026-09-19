@@ -1756,6 +1756,57 @@ namespace
 		return line;
 	}
 
+	// The game's own picture for an item: the frame of HotkeyIcons_6 in
+	// FavoritesMenu.swf, which is what the cross shows when no interface
+	// mod has replaced it. The engine decides it in one function -- ID
+	// 1423768, read out of the running game on 2026-09-19 -- by form type,
+	// then WeaponType* keywords (on the instance, so a stock makes a rifle),
+	// the item keywords among the default objects (Grenade, Mine, Chem,
+	// Alcohol, Food, RepairKit, Medbag, Gloves, Helmet, Clothes), and the
+	// HC_EffectType* keywords for survival aid. Asking it is exact; a table
+	// of our own would only drift from it.
+	inline constexpr auto kVanillaIconLibrary = "FavoritesMenu.swf";
+	inline constexpr auto kVanillaIconClass = "FavoritesMenu_fla.HotkeyIcons_6";
+	// Frame 1 is the empty picture the clip stops on; 59 is what the engine
+	// answers for a thing it has no picture for.
+	inline constexpr int kVanillaNoIcon = 59;
+
+	[[nodiscard]] int VanillaIconFrame(
+		RE::TESBoundObject* a_object,
+		RE::BGSInventoryItem::Stack* a_stack)
+	{
+		using func_t = std::int32_t(RE::TESBoundObject*, RE::BGSInventoryItem::Stack*);
+		static REL::Relocation<func_t> favIconType{ REL::ID(1423768) };
+		return favIconType(a_object, a_stack);
+	}
+
+	// One walk of the inventory for every object the pages hold. The
+	// favorited stack of an object is the one to ask -- its mods decide the
+	// picture -- and any other stack of it will do when none has a key.
+	[[nodiscard]] std::unordered_map<RE::TESBoundObject*, int> VanillaIconFrames(
+		const std::set<RE::TESBoundObject*>& a_objects)
+	{
+		std::unordered_map<RE::TESBoundObject*, int> frames;
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (a_objects.empty() || !player || !player->inventoryList) {
+			return frames;
+		}
+		std::set<RE::TESBoundObject*> settled;
+		player->inventoryList->ForEachStack(
+			[&](RE::BGSInventoryItem& a_item) { return a_objects.contains(a_item.object); },
+			[&](RE::BGSInventoryItem& a_item, RE::BGSInventoryItem::Stack& a_stack) {
+				if (settled.contains(a_item.object)) {
+					return true;
+				}
+				frames[a_item.object] = VanillaIconFrame(a_item.object, &a_stack);
+				if (FavoriteOf(a_stack) < 12) {
+					settled.insert(a_item.object);
+				}
+				return true;
+			});
+		return frames;
+	}
+
 	// Which icon libraries the page being drawn actually needs. Only these
 	// are asked for: a player with a dozen addon libraries installed has no
 	// use for eleven of them on any given screen.
@@ -1771,6 +1822,20 @@ namespace
 		RememberCurrentPage();
 		const auto live = ReadFavorites();
 		g_wantedLibraries.clear();
+
+		std::set<RE::TESBoundObject*> held;
+		for (std::size_t row = 0; row < g_pages.size(); ++row) {
+			for (std::size_t slot = 0; slot < 12; ++slot) {
+				if (auto* object = row == g_currentPage ? live[slot].object
+														 : g_pages[row][slot]) {
+					held.insert(object);
+				}
+			}
+		}
+		const auto vanilla = g_useIcons
+			? VanillaIconFrames(held)
+			: std::unordered_map<RE::TESBoundObject*, int>{};
+		const auto hudColor = HUDColor();
 
 		std::vector<grid::Page> rows(g_pages.size());
 		for (std::size_t row = 0; row < g_pages.size(); ++row) {
@@ -1840,6 +1905,15 @@ namespace
 					if (!icon->library.empty()) {
 						g_wantedLibraries.insert(icon->library);
 					}
+				} else if (const auto found = vanilla.find(object);
+						   found != vanilla.end() && found->second > 1 &&
+						   found->second != kVanillaNoIcon) {
+					// No sorter knows this thing: the game's own picture,
+					// in the HUD colour the cross would tint it.
+					cell.symbol = kVanillaIconClass;
+					cell.frame = found->second;
+					cell.colors = { hudColor };
+					g_wantedLibraries.insert(kVanillaIconLibrary);
 				}
 			}
 		}

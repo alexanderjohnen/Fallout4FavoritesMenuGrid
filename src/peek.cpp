@@ -224,7 +224,9 @@ void peek::Run(const std::filesystem::path& a_settings)
 	const auto offsets = ParseList(ReadSetting(a_settings, L"PeekRVAs"));
 	const auto vtables = ParseList(ReadSetting(a_settings, L"PeekVtableRefs"));
 	const auto dataRefs = ParseList(ReadSetting(a_settings, L"PeekDataRefs"));
-	if (ids.empty() && offsets.empty() && vtables.empty() && dataRefs.empty()) {
+	const auto forms = ParseList(ReadSetting(a_settings, L"PeekForms"));
+	if (ids.empty() && offsets.empty() && vtables.empty() && dataRefs.empty() &&
+		forms.empty()) {
 		return;
 	}
 
@@ -325,6 +327,30 @@ void peek::Run(const std::filesystem::path& a_settings)
 				}
 			}
 		}
+	}
+
+	// A pointer to a form, kept in the data section: which form is it? The
+	// engine's icon table names keywords through such pointers, and the
+	// names are only to be had from the running game.
+	for (const auto& request : forms) {
+		const auto address = base + request.value;
+		if (!InSegment(address, REL::Segment::data) &&
+			!InSegment(address, REL::Segment::rdata)) {
+			logger::warn("peek: {:#x} is not in a data section", request.value);
+			continue;
+		}
+		const auto* form = *reinterpret_cast<RE::TESForm* const*>(address);
+		if (!form) {
+			logger::info("peek: form at {:#x} is null", request.value);
+			continue;
+		}
+		const auto* editorID = form->GetFormEditorID();
+		logger::info(
+			"peek: form at {:#x} -> {:08X} type {} \"{}\"",
+			request.value,
+			form->GetFormID(),
+			static_cast<int>(form->GetFormType()),
+			editorID ? editorID : "");
 	}
 
 	logger::info("peek: wrote {}", path.string());
