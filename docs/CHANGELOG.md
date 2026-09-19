@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0 — 2026-09-19
+
+Fixed: after assigning a favorite in the Pip-Boy, the inventory list stopped taking up and down (stick or W/S) until a tab change rebuilt it. The dialog frees the list's keys as it closes, and the grid locked them again in the same frame. Reported by Hitman136.
+
+New: GridBackdrop, a dark plate behind the grid in percent (0 to 100, off by default), for skies that hide the icons. With a backdrop, the Vault-Tec emblem and "Q.A.O.S. - Quick Access Operating System" stand over the grid while nothing is marked.
+
+New: PauseGame=1 stops the game while the favorites menu is open, the way the Pip-Boy does. Off by default: the menu is meant to be as quick as the game's own.
+
+New: the game's own icons. An item no sorter has tagged - or every item, without a sorter - shows the picture the vanilla favorites cross would show, on the frame the game's own routine picks (weapon type keywords on the actual instance, the item keywords the game uses for gloves, helmets, clothes, chems, alcohol, food, repair kits and med bags, and the survival effect keywords), tinted in your HUD colour. Loaded from the game's FavoritesMenu.swf; nothing is shipped. Not in the Pip-Boy, where FallUI draws the icons. Seen on one machine only, with FallUI.
+
+New: IconColors=2 paints every icon in your HUD colour, the way the cross tints its own; 1 keeps the sorter's colours, 0 leaves the artwork white.
+
+Played on 1.10.163 with FallUI. Not played on Next-Gen or 1.11.x; the vanilla icons are off there.
+
 ## 1.1.1 — 2026-09-14
 
 Fixed: with a controller, the mark in the Pip-Boy's assign dialog jumped between cells, a held stick ran through the pages, and the inventory list behind the dialog scrolled along. Cause: the game turned every D-pad press and stick push into an arrow key for the dialog's own hidden cross as well, and the cross walked it in its own shape; the grid then followed the cross. While the grid is in the dialog the D-pad's directions and the left stick now go to the grid alone. Up and down step one page per press or push; left and right still repeat while held. Keyboard and mouse are unchanged.

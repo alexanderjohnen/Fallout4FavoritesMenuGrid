@@ -4456,3 +4456,29 @@ Handschuhe). Zwei Befunde:
 
 Die Testwerte `VanillaIconsOnly=1` und `LogIcons=1` stehen noch in der
 Spiel-INI.
+
+### IconColors=2 (`08ad947`)
+
+`IconColors` ist jetzt 0/1/2: weiß, Sorter-Farben, HUD-Farbe für alles.
+Umsetzung im Zellenbau (`cell.colors = { hudColor }`); `grid::iconColors`
+bleibt der Schalter "überhaupt färben". Im Pip-Boy ohne Wirkung, FallUI
+färbt dort selbst. Im Spiel gesehen.
+
+### Pip-Boy und Vanilla-Icons -- nicht in 1.2
+
+Im Pip-Boy lädt das Grid absichtlich keine Bibliotheken (Abschnitt 63,
+der Absturz beim erneuten Laden in dieselbe Domäne), also gibt es dort
+kein `FavoritesMenu.swf` und keinen Auffang: ein ungetaggtes Ding bleibt
+eine leere Zelle, auch wenn FallUIs `makeTagIcon` nichts liefert. Ein
+Versuch, `Symbol` dort auf `Place` fallen zu lassen, wurde zurückgenommen
+-- ohne Bibliothek ist die Klasse nicht da. Wenn überhaupt: die SWF einmal
+je Pip-Boy-Film laden und bis zu dessen Ende behalten, wie die
+FIS-Bibliotheken dort.
+
+### 1.2.0 gepackt (2026-09-19)
+
+Tag `v1.2.0`, Zips in `..\Fallout4FavoritesMenuGrid-release\` nach dem
+Muster von 1.1.0 (`Data`-Layout plus `git archive` der Quellen).
+Changelog in `docs/CHANGELOG.md`, Nexus-Text in `docs/NEXUS.md` ergänzt
+(Backdrop, Pause, Vanilla-Icons, IconColors=2). 1.1.1 wird nicht
+hochgeladen; 1.2.0 ersetzt es.

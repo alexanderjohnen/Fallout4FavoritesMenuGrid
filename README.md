@@ -3,7 +3,7 @@
 A Fallout 4 port of [Favorites Menu Grid for Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid):
 all of your favorite pages at once, on a grid you can point at.
 
-Version 1.1.1. Tested on one machine, with FallUI and its Item Sorter
+Version 1.2.0. Tested on one machine, with FallUI and its Item Sorter
 installed; built to work without them, but that has not been played. See
 [HANDOFF.md](HANDOFF.md) for how each piece was arrived at, and
 [docs/NEXUS.md](docs/NEXUS.md) for the mod page.
@@ -31,8 +31,11 @@ installed; built to work without them, but that has not been played. See
 - **Icons from the setup you already have.** If an item sorter and an icon
   library are installed, the cells carry the same symbols you see in your
   other menus. Nothing of that is shipped with this mod -- it is read where
-  you already have it, the way FallUI's own auto-detect does, and everything
-  works without it.
+  you already have it, the way FallUI's own auto-detect does. Without a
+  sorter, or for an item no sorter knows, the cell shows the game's own
+  favorites-cross picture, chosen the way the game chooses it.
+- **A dark backdrop, if you want one**, and a pause while the menu is open,
+  the way the Pip-Boy pauses: both off by default, both one line in the INI.
 - **The game's own look.** Fallout 4 lets you colour the interface, and the
   grid follows that colour rather than bringing its own.
 

@@ -32,6 +32,11 @@ sorter, no UI mod - although you will want one for the icons, see below.
 
 **THE GRID**
 
+GridBackdrop in the INI puts a dark plate behind the grid (0 to 100 percent,
+off by default) for skies that swallow the icons; with it, the Vault-Tec
+emblem stands over the grid until something is marked. PauseGame=1 stops the
+world while the menu is open, the way the Pip-Boy does.
+
 One row per page, one cell per key. Set the number of pages in the INI (up to
 eight). The key numbers stand above the columns, the page numbers beside the
 rows.
@@ -71,8 +76,11 @@ If you have FallUI's Item Sorter and Icon Library (or DEF_UI), every cell
 shows the item's icon in the colour your sorter configuration and colour set
 ask for - the same symbol you see in FallUI's menus, read from the files you
 already have. Icon addons (Diello, 4estGimp and the rest) are read as well.
-Nothing of that artwork is shipped with this mod. Without a sorter the cells
-show names, and everything else works the same.
+Nothing of that artwork is shipped with this mod. Without a sorter - or for an
+item no sorter has tagged - the cell shows the picture the game's own favorites
+cross would show, chosen by the game's own rule, in your HUD colour.
+IconColors=2 in the INI paints every icon in the HUD colour instead of the
+sorter's colours.
 
 In the Pip-Boy the icons are made by FallUI's own icon library, so they match
 the inventory list exactly.
