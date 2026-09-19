@@ -460,6 +460,17 @@ namespace
 			return {};
 		}
 
+		// Where the drawing lies in the clip's own space. A sorter's icon
+		// starts at its origin; the game's HotkeyIcons clip is drawn around
+		// it, and placed by its origin it sat half a cell up and left.
+		double boundsX = 0.0;
+		double boundsY = 0.0;
+		RE::Scaleform::GFx::Value bounds;
+		if (icon.Invoke("getBounds", &bounds, &icon, 1) && bounds.IsObject()) {
+			boundsX = ReadNumber(bounds, "x", 0.0);
+			boundsY = ReadNumber(bounds, "y", 0.0);
+		}
+
 		const auto room = a_m.cell * a_where.iconFit;
 		const auto scale = std::min(room / width, room / height);
 		icon.SetMember("scaleX", RE::Scaleform::GFx::Value(scale));
@@ -471,10 +482,12 @@ namespace
 		icon.SetMember("alpha", RE::Scaleform::GFx::Value(1.0));
 		icon.SetMember(
 			"x",
-			RE::Scaleform::GFx::Value(a_left + (a_m.cell - width * scale) / 2.0));
+			RE::Scaleform::GFx::Value(
+				a_left + (a_m.cell - width * scale) / 2.0 - boundsX * scale));
 		icon.SetMember(
 			"y",
-			RE::Scaleform::GFx::Value(a_top + (a_m.cell - height * scale) / 2.0));
+			RE::Scaleform::GFx::Value(
+				a_top + (a_m.cell - height * scale) / 2.0 - boundsY * scale));
 		g_panel.Invoke("addChild", nullptr, &icon, 1);
 		return icon;
 	}
