@@ -4342,3 +4342,99 @@ von `build/Release` und `Data\F4SE\Plugins` prüfen.
 allem: dieser Fix, `PauseGame` (Abschnitt 67, ungespielt), die
 Vanilla-Icons, und ein dunkler Grid-Hintergrund als INI-Option mit
 Deckkraft (Hitman136, 0 = wie bisher).
+
+---
+
+## 69. 1.2 gebaut: Hintergrund, Vanilla-Icons, Emblem (2026-09-19)
+
+Alles in einer Sitzung, alles im Spiel gesehen außer den Vanilla-Icons
+selbst.
+
+### GridBackdrop (`4fc7143`, `27cae48`)
+
+`[Grid] GridBackdrop=0..100`, Deckkraft der schwarzen Platte hinter dem
+Panel; 0 wie bisher. Die Platte gab es schon (`backdrop`-Flag, nie gesetzt).
+Beim ersten Einschalten ein **Linienfächer** von der Panelecke zu jeder
+Zelle: `Outline` hinterließ den Stift, und `lineStyle(0)` ist in Flash eine
+Haarlinie, `lineStyle()` ohne Argumente tut in Scaleform gar nichts. Jede
+`drawRect` danach zog vom Stift zur Ecke. **Regel:** Ein Rahmen ist das
+Letzte auf seinem `graphics`, sonst bekommt er ein eigenes Sprite (so macht
+es der Marker schon). Der Backdrop-Rahmen hat jetzt eins.
+
+### PauseGame -- funktionierte, stand nur falsch
+
+Abschnitt 67 sagte "gebaut, nicht gespielt". Der Test scheiterte, weil
+`PauseGame=1` in der Spiel-INI **unter `[Debug]`** stand, gelesen wird
+`[Grid]`. Richtig einsortiert: Welt steht, Anlegen greift, Schließen gibt
+frei. Nichts am Code geändert.
+
+### Vanilla-Icons (`8cd9512`, `9a99b03`) -- gebaut, im Spiel nicht gesehen
+
+Der Weg zur Bildnummer, mit `peek` aus dem laufenden Spiel gelesen:
+
+* `FavIconType` im Kreuz kommt aus dem **Pip-Boy-Datenbaum** (`favIconType`
+  am Inventareintrag, `PipboyObject`-Map `BSFixedString -> PipboyValue*`,
+  Wert bei `+0x18`).
+* Geschrieben wird er von **`int GetFavIconType(TESBoundObject*,
+  BGSInventoryItem::Stack*)`, ID 1423768** (1.10.163, RVA `0xc0c4a0`).
+  Vorgabe 59 (leer). Switch über den Formtyp:
+  * WEAP: `WeaponType*`-Keywords **mit Instanzdaten** (ein Schaft macht aus
+    der Pistole ein Rifle). MissileLauncher 15, Fatman 16, Minigun 17,
+    GatlingLaser 18, Cryolator 19, Flamer 20, FlareGun 21, GammaGun 22,
+    JunkJet 23, RailwayRifle 24, Syringer 25, Broadsider 26, AlienBlaster 27,
+    Ripper 28, Shishkebab 29, BottlecapMine 32, CryoGrenade 34, CryoMine 33,
+    PulseGrenade 38, PulseMine 37, PlasmaGrenade 36, PlasmaMine 35,
+    Molotov 39, NukaGrenade 40, Shotgun 5, AssaultRifle 7, GaussRifle 8,
+    LaserMusket 9, Laser 3 (mit Rifle 10), Plasma 4 (mit Rifle 11),
+    Melee1H 12, Melee2H 13, HandToHand 14, Pistol 2, Rifle 6; sonst
+    Default-Object Mine 31, Grenade 30, sonst 2.
+  * ARMO: Default-Objects Gloves 44, Helmet 45, Clothes 47, sonst 43.
+  * ALCH: zwei feste Formen 55 (Stimpak-Familie), eine 58; Default-Objects
+    Chem 54, Alcohol 57, Food 56, Medbag 42; `HC_EffectType_` Disease 50,
+    Hunger 52, Sleep 51, Thirst 53, Adrenaline 49; sonst 54.
+  * MISC: Default-Object RepairKit 41. AMMO 48, BOOK 46. Andere 59.
+  * Default-Objects sind `BGSDefaultObjectManager::objectArray` ab `0x20`,
+    Indizes 384..393 = `kMineItemKeyword` .. `kClothesitemkeyword` -- der
+    Enum in CommonLibF4 stimmt dort.
+* **Nachgebaut wird nichts davon.** `VanillaIconFrame` ruft 1423768 auf,
+  einmal je Objekt beim Bau der Seiten (`VanillaIconFrames`, ein
+  Inventardurchlauf; der favorisierte Stapel gewinnt). Auflösung über
+  `IDDatabase::id2offset` nur auf 1.10.163 -- `REL::ID(1423768)` allein
+  quittiert CommonLibF4RD mit `og_bridge_failed` und **beendet das Spiel**
+  (so geschehen, `9a99b03`). Andere Laufzeiten: keine Vanilla-Icons.
+* Gezeichnet: `FavoritesMenu.swf` als Bibliothek wie eine FIS-Bibliothek,
+  Klasse `FavoritesMenu_fla.HotkeyIcons_6`, `gotoAndStop(frame)`
+  (`grid::Cell::frame`), in HUD-Farbe getönt. Greift nur, wenn die
+  Sorter-Kette nichts liefert. Bild 1 und 59 sind leer.
+* **Offen:** ob `FavoritesMenu.swf` als Bibliothek lädt und die Klasse
+  liefert -- mit FIS greift der Auffang bei Alexander praktisch nie. Test:
+  `IconFallback=0`, dann fallen ungetaggte Dinge auf Vanilla; das Log sagt
+  unter `icons:`, ob die Bibliothek kam. Und einmal ohne FallUI spielen.
+
+### Emblem und Q.A.O.S. (`ad632eb`, `760ed4e`, `e38628c`)
+
+Mit Hintergrund war das Kopfband ohne Markierung eine leere Platte. Dort
+steht jetzt das Vault-Tec-Emblem, aus der Zeichen-API (Flügel setzen an der
+Ring-Außenkante auf ihrer Höhe an, tauchen unter den Ring, Ring als dicker
+Strich **zuletzt**; alles deckend, weil Alpha jede Überlappung doppelt
+zeigt), darunter in Detailgröße "Q.A.O.S. - Quick Access Operating
+System". Beides nur bei `GridBackdrop > 0`, und weg, sobald `Say` einen
+Namen hat.
+
+### peek, erweitert
+
+`PeekDataRefs=rva` sucht `lea` **und** `mov reg,[rip+x]` auf eine
+Datenadresse und folgt einem String-Literal zur `BSFixedString`-Globalen,
+die sein Initialisierer anlegt. `PeekForms=rva,...` nennt die Form hinter
+einem Zeiger im Datenbereich (FormID, Typ, Editor-ID). `PeekRVAs=rva:len`
+holt zerstückelte Funktionen, deren Exception-Eintrag nur ein Stück kennt.
+Kontaktbogen der 59 Bilder: JPEXS `-selectid 118 -format sprite:png
+-export sprite`, dann Pillow.
+
+### Für das Paket 1.2
+
+Fix aus 68, GridBackdrop, PauseGame, Vanilla-Icons, Emblem. Vorher: die
+Vanilla-Icons einmal sehen; Spiel-INI aufräumen (`PauseGame=1`,
+`GridBackdrop=70`, `PeekForms=...` sind Testwerte -- die Referenz-INI im
+Repo hat 0/0); Version und README; Nexus-Text (Hitman136: Bug behoben,
+Hintergrund da; xDefiantx: Icons und Pause da).
