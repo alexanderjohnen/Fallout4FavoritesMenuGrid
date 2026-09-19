@@ -1771,13 +1771,38 @@ namespace
 	// answers for a thing it has no picture for.
 	inline constexpr int kVanillaNoIcon = 59;
 
+	// Resolved once, the way use.cpp does it: through the database, on the
+	// one runtime the number is known for. REL::ID with a single number is
+	// what CommonLibF4RD refuses (og_bridge_failed, and the game went down
+	// with it on 2026-09-19). Null on any other runtime, and then there are
+	// simply no vanilla icons.
+	using VanillaIconFunc = std::int32_t(RE::TESBoundObject*, RE::BGSInventoryItem::Stack*);
+
+	[[nodiscard]] VanillaIconFunc* VanillaIconType()
+	{
+		static VanillaIconFunc* const resolved = []() -> VanillaIconFunc* {
+			if (REL::Module::get().version() != F4SE::RUNTIME_1_10_163) {
+				logger::info("icons: no vanilla icons on this runtime");
+				return nullptr;
+			}
+			const auto& module = REL::Module::get();
+			const auto address = module.base() + REL::IDDatabase::get().id2offset(1423768);
+			const auto text = module.segment(REL::Segment::text);
+			if (address < text.address() || address >= text.address() + text.size()) {
+				logger::warn("icons: ID 1423768 lands outside the code");
+				return nullptr;
+			}
+			return reinterpret_cast<VanillaIconFunc*>(address);
+		}();
+		return resolved;
+	}
+
 	[[nodiscard]] int VanillaIconFrame(
 		RE::TESBoundObject* a_object,
 		RE::BGSInventoryItem::Stack* a_stack)
 	{
-		using func_t = std::int32_t(RE::TESBoundObject*, RE::BGSInventoryItem::Stack*);
-		static REL::Relocation<func_t> favIconType{ REL::ID(1423768) };
-		return favIconType(a_object, a_stack);
+		auto* favIconType = VanillaIconType();
+		return favIconType ? favIconType(a_object, a_stack) : kVanillaNoIcon;
 	}
 
 	// One walk of the inventory for every object the pages hold. The
@@ -1788,7 +1813,7 @@ namespace
 	{
 		std::unordered_map<RE::TESBoundObject*, int> frames;
 		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (a_objects.empty() || !player || !player->inventoryList) {
+		if (a_objects.empty() || !VanillaIconType() || !player || !player->inventoryList) {
 			return frames;
 		}
 		std::set<RE::TESBoundObject*> settled;
