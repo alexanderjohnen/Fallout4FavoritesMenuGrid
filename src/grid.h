@@ -133,9 +133,10 @@ namespace grid
 		// air keeps the plates readable as a lattice.
 		double iconFit{ 0.78 };
 
-		// Whether an icon is painted in the colour its tag asks for. FIS
-		// names one per keyword -- aid red, weapons blue -- and the artwork
-		// is white so that something can. Off leaves it white.
+		// Whether an icon is painted at all. FIS names a colour per keyword
+		// -- aid red, weapons blue -- and the artwork is white so that
+		// something can; which colours go on is the cell's business. Off
+		// leaves everything white.
 		bool iconColors{ true };
 
 	};

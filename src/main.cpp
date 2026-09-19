@@ -114,6 +114,9 @@ namespace
 	// And whether something nobody has a symbol for still gets one, by what
 	// kind of thing it is.
 	bool g_iconFallback = true;
+	// 0 leaves the artwork white, 1 paints the sorter's colours, 2 paints
+	// everything in the HUD colour, the way the cross does.
+	int g_iconColorMode = 1;
 	// Debug: skip the sorter's chain so every cell falls to the game's own
 	// picture. The one way to see those on a save where a sorter tagged
 	// everything.
@@ -541,7 +544,12 @@ namespace
 			0,
 			100);
 		g_useIcons = yes(L"Grid", L"UseIcons", true);
-		g_gridWhere.iconColors = yes(L"Grid", L"IconColors", true);
+		g_iconColorMode = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Grid", L"IconColors", 1, path.c_str())),
+			0,
+			2);
+		g_gridWhere.iconColors = g_iconColorMode != 0;
 		g_iconFallback = yes(L"Grid", L"IconFallback", true);
 		g_stripItemTags = yes(L"Grid", L"StripItemTags", true);
 		g_hideCrosshair = yes(L"Grid", L"HideCrosshair", true);
@@ -1931,7 +1939,9 @@ namespace
 					if (!icon->subsymbol.empty()) {
 						cell.subsymbol = "m_" + icon->subsymbol;
 					}
-					cell.colors = icon->colors;
+					cell.colors = g_iconColorMode == 2
+						? std::vector<std::uint32_t>{ hudColor }
+						: icon->colors;
 					if (!icon->library.empty()) {
 						g_wantedLibraries.insert(icon->library);
 					}
