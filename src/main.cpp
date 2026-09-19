@@ -2407,7 +2407,6 @@ namespace
 			g_pipboyCross.SetMember(
 				"mouseChildren", RE::Scaleform::GFx::Value(true));
 		}
-		ShieldPipboyList(g_pipboyCross, false);
 		// The focus goes back to the list, which is where HideHotkeys puts
 		// it; left on a cross nobody can see, it kept its rectangle.
 		//
@@ -2418,6 +2417,10 @@ namespace
 		// list then held the focus and took no key: no up or down after
 		// assigning, with the stick or W/S, until a tab change rebuilt
 		// the page (Hitman136 on Nexus, 2026-09-16, on 1.1.1).
+		//
+		// Before the shield comes off: ShieldPipboyList(false) lets go of
+		// g_pipboyList, and this block stood after it once (9468549) and
+		// never ran.
 		if (g_pipboyList.IsDisplayObject()) {
 			g_pipboyList.SetMember("disableInput", RE::Scaleform::GFx::Value(false));
 			if (auto* pipboy = GetMenu("PipboyMenu"); pipboy && pipboy->uiMovie) {
@@ -2429,6 +2432,7 @@ namespace
 				}
 			}
 		}
+		ShieldPipboyList(g_pipboyCross, false);
 		input::Listen(false);
 		input::ClaimDirectionsOnly(false);
 		ForgetPipboyGrid();
