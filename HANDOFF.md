@@ -4438,3 +4438,21 @@ Vanilla-Icons einmal sehen; Spiel-INI aufräumen (`PauseGame=1`,
 `GridBackdrop=70`, `PeekForms=...` sind Testwerte -- die Referenz-INI im
 Repo hat 0/0); Version und README; Nexus-Text (Hitman136: Bug behoben,
 Hintergrund da; xDefiantx: Icons und Pause da).
+
+### Nachtrag 2026-09-19, spät: Vanilla-Icons im Spiel gesehen
+
+`[Debug] VanillaIconsOnly=1` (`8cc9e36`) überspringt die Sorter-Kette,
+damit auf einem durchgetaggten Spielstand alles auf Vanilla fällt.
+Ergebnis: `FavoritesMenu.swf` lädt neben FallUI als Bibliothek, die Klasse
+kommt, die Bilder stimmen (Pistole, Gewehr, Granaten, Pillen, Helm,
+Handschuhe). Zwei Befunde:
+
+* Die Clips saßen eine halbe Zelle nach oben links: `HotkeyIcons_6` ist um
+  seinen Ursprung gezeichnet, FIS-Symbole beginnen bei (0,0). `Fit` liest
+  jetzt `getBounds` und rechnet den Ursprung heraus (`1cfa685`) -- gilt für
+  jede Bibliothek, FIS unverändert.
+* Weiß ist richtig: Alexanders HUD-Farbe ist weiß. Mit grünem HUD wären
+  sie grün, wie im Vanilla-Kreuz.
+
+Die Testwerte `VanillaIconsOnly=1` und `LogIcons=1` stehen noch in der
+Spiel-INI.
