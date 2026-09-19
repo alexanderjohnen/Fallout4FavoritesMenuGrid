@@ -1,6 +1,6 @@
 # Favorites Menu Grid (Fallout 4) — Arbeitsstand
 
-Stand: 2026-09-14. Der Controller im Pip-Boy ist seit Abschnitt 66 gelöst; Abschnitt 0 ist älter als 63–66. Portierung von
+Stand: 2026-09-19, 1.2.0 auf Nexus. Abschnitt 0 ist älter als 63–69; was seither gilt, steht in 66, 68 und 69. Portierung von
 [Favorites Menu Grid für Starfield](https://github.com/alexanderjohnen/StarfieldFavoritesMenuGrid).
 **Abschnitt 0 ist der Einstieg.** Er sagt, was gilt; die nummerierten
 Abschnitte danach sagen, wie es dazu kam, und sind Fundgrube, nicht Pflicht.
@@ -4482,3 +4482,29 @@ Muster von 1.1.0 (`Data`-Layout plus `git archive` der Quellen).
 Changelog in `docs/CHANGELOG.md`, Nexus-Text in `docs/NEXUS.md` ergänzt
 (Backdrop, Pause, Vanilla-Icons, IconColors=2). 1.1.1 wird nicht
 hochgeladen; 1.2.0 ersetzt es.
+
+### Offen für 1.2.1: Vanilla-Icons auf Next-Gen und 1.11.x
+
+Dort sind sie aus, weil 1423768 nur für 1.10.163 bekannt ist. Der Weg,
+den wir am 19.09. per Hand gegangen sind, ist mechanisch und geht zur
+Laufzeit auf jeder Version (Vorbild: `use.cpp` für `UseQuickkeyItem`):
+
+1. `"favIconType\0"` in `.rdata` suchen (Daten, nicht gepackt).
+2. Initialisierer `lea rdx,[string]; lea rcx,[global]` → die
+   `BSFixedString`-Globale.
+3. `lea rdx,[global]` im Code → der Schreiber im Pip-Boy-Datenbaum
+   (auf 1.10.163 RVA `0xc0df50`).
+4. Von dort rückwärts das Muster `call rel32; cmp dword [rip+x],2;
+   mov ebp,eax` → das `call` ist `GetFavIconType`.
+5. Auf 1.10.163 gegen `id2offset(1423768)` prüfen; weicht es ab, keine
+   Vanilla-Icons und eine Log-Zeile. Bausteine stehen in `peek.cpp`
+   (`FindReferences`, Segment-Scans).
+
+Risiko: anderer Code auf NG (Register, kein `cmp ..,2`) → nichts
+gefunden → kein Bild, kein Absturz. Prüfen kann es nur ein NG-Spieler;
+eine `LogIcons`-Zeile mit dem Fund macht ein Tester-Log ausreichend.
+Alternative: NG-ID über einen Tester mit `peek` messen und als
+`REL::ID(og, ng)` eintragen.
+
+**1.2.0 ist am 2026-09-19 auf Nexus hochgeladen.** Nächste Sitzung:
+neuer Chat, Einstieg über Abschnitt 0 und 68/69.
