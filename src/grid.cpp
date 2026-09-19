@@ -174,6 +174,8 @@ namespace
 	// no name. A band of empty plate over the grid read as something
 	// missing once the backdrop made the band visible.
 	RE::Scaleform::GFx::Value g_emblem;
+	// And its caption. Vault-Tec never left an acronym unexplained.
+	RE::Scaleform::GFx::Value g_caption;
 	// Kept so the vanilla menu can be put back the way it was found. Three
 	// things: the cross, and the two lines it writes beside it.
 	std::vector<RE::Scaleform::GFx::Value> g_hidden;
@@ -736,6 +738,7 @@ void grid::Forget()
 	g_note = RE::Scaleform::GFx::Value();
 	g_detail = RE::Scaleform::GFx::Value();
 	g_emblem = RE::Scaleform::GFx::Value();
+	g_caption = RE::Scaleform::GFx::Value();
 	g_rows = 0;
 }
 
@@ -760,6 +763,7 @@ void grid::Release()
 	g_note = RE::Scaleform::GFx::Value();
 	g_detail = RE::Scaleform::GFx::Value();
 	g_emblem = RE::Scaleform::GFx::Value();
+	g_caption = RE::Scaleform::GFx::Value();
 	// Without a panel there are no cells, and a hit test against the layout
 	// of a panel that is gone would answer for cells nobody can see.
 	g_rows = 0;
@@ -1048,23 +1052,39 @@ void grid::Draw(
 		a_color,
 		kDetailAlpha);
 
-	// And in the same band, for when both lines are empty. Its height is
-	// the band's; the wings reach out to about a third of the cells.
-	a_canvas->uiMovie->CreateObject(&g_emblem, "flash.display.Sprite");
-	if (g_emblem.IsDisplayObject()) {
-		g_emblem.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
-		RE::Scaleform::GFx::Value pen;
-		if (g_emblem.GetMember("graphics", &pen) && pen.IsObject()) {
-			const auto band = g_labelBottom - m.padding;
-			Emblem(
-				pen,
-				CellsLeft(m) + CellsWidth(m) / 2.0,
-				m.padding + band / 2.0,
-				band * 0.42,
-				a_color,
-				kEmblemAlpha);
+	// And in the same band, for when both lines are empty: the emblem
+	// over its caption, in the space the two lines would take. Only with a
+	// backdrop -- over the open landscape the empty band is not a hole,
+	// and an emblem there would be decoration.
+	if (a_where.backdrop > 0) {
+		const auto band = g_labelBottom - m.padding;
+		const auto captionHeight = m.detailSize + m.gap;
+		a_canvas->uiMovie->CreateObject(&g_emblem, "flash.display.Sprite");
+		if (g_emblem.IsDisplayObject()) {
+			g_emblem.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+			RE::Scaleform::GFx::Value pen;
+			if (g_emblem.GetMember("graphics", &pen) && pen.IsObject()) {
+				const auto room = band - captionHeight;
+				Emblem(
+					pen,
+					CellsLeft(m) + CellsWidth(m) / 2.0,
+					m.padding + room / 2.0,
+					room * 0.42,
+					a_color,
+					kEmblemAlpha);
+			}
+			g_panel.Invoke("addChild", nullptr, &g_emblem, 1);
 		}
-		g_panel.Invoke("addChild", nullptr, &g_emblem, 1);
+		g_caption = Label(
+			a_canvas,
+			a_font,
+			"Q.A.O.S. - Quick Access Operating System",
+			CellsLeft(m),
+			g_labelBottom - captionHeight,
+			CellsWidth(m),
+			m.detailSize,
+			a_color,
+			kDetailAlpha);
 	}
 
 	// The brackets, around the cells rather than around the panel: the grid
@@ -1416,9 +1436,11 @@ void grid::Say(std::string_view a_name, std::string_view a_what)
 	const auto nameHeight = m.titleSize + m.gap;
 	const auto detailHeight = m.detailSize + m.gap;
 
-	if (g_emblem.IsDisplayObject()) {
-		g_emblem.SetMember(
-			"visible", RE::Scaleform::GFx::Value(a_name.empty() && a_what.empty()));
+	for (auto* badge : { &g_emblem, &g_caption }) {
+		if (badge->IsDisplayObject()) {
+			badge->SetMember(
+				"visible", RE::Scaleform::GFx::Value(a_name.empty() && a_what.empty()));
+		}
 	}
 
 	if (a_what.empty()) {
