@@ -114,6 +114,10 @@ namespace
 	// And whether something nobody has a symbol for still gets one, by what
 	// kind of thing it is.
 	bool g_iconFallback = true;
+	// Debug: skip the sorter's chain so every cell falls to the game's own
+	// picture. The one way to see those on a save where a sorter tagged
+	// everything.
+	bool g_vanillaIconsOnly = false;
 
 	// Whether a second press on something already worn takes it off again.
 	bool g_toggleEquip = true;
@@ -551,6 +555,7 @@ namespace
 		read(L"Debug", L"SurveyKey", g_surveyKey);
 		read(L"Debug", L"PipboyCrossKey", g_crossKey);
 		g_logIcons = yes(L"Debug", L"LogIcons", false);
+		g_vanillaIconsOnly = yes(L"Debug", L"VanillaIconsOnly", false);
 		g_surveyDepth = std::clamp(
 			static_cast<int>(GetPrivateProfileIntW(
 				L"Debug", L"SurveyPipboy", 0, path.c_str())),
@@ -1897,7 +1902,7 @@ namespace
 				if (keyword.empty() && g_iconFallback) {
 					keyword = FallbackKeyword(object);
 				}
-				const auto* icon = tags::Find(keyword);
+				const auto* icon = g_vanillaIconsOnly ? nullptr : tags::Find(keyword);
 				cell.keyword = std::string(keyword);
 				if (g_logIconsDue.load()) {
 					std::string colors;
