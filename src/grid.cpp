@@ -56,6 +56,8 @@ namespace
 	// mark stays the thing with an edge.
 	constexpr double kHoldFillAlpha = 0.40;
 	constexpr double kKeyAlpha = 1.0;
+	// The emblem stands in for a name, not beside one: as solid as the name.
+	constexpr double kEmblemAlpha = 0.9;
 
 	[[nodiscard]] Metrics MetricsFor(double a_cell)
 	{
@@ -166,6 +168,10 @@ namespace
 	// only moves.
 	RE::Scaleform::GFx::Value g_note;
 	RE::Scaleform::GFx::Value g_detail;
+	// The Vault-Tec emblem, standing where the name would, while there is
+	// no name. A band of empty plate over the grid read as something
+	// missing once the backdrop made the band visible.
+	RE::Scaleform::GFx::Value g_emblem;
 	// Kept so the vanilla menu can be put back the way it was found. Three
 	// things: the cross, and the two lines it writes beside it.
 	std::vector<RE::Scaleform::GFx::Value> g_hidden;
@@ -563,6 +569,60 @@ namespace
 		PaintParts(a_canvas, icon, a_cell.colors);
 	}
 
+	// The Vault-Tec emblem out of the drawing API: three wings each side, a
+	// dot, and a ring. The ring is a thick stroke and comes last, because a
+	// pen once set stays set for every fill after it (see Outline).
+	void Emblem(
+		RE::Scaleform::GFx::Value& a_graphics,
+		double a_cx,
+		double a_cy,
+		double a_radius,
+		std::uint32_t a_color,
+		double a_alpha)
+	{
+		const auto v = [](double a_value) { return RE::Scaleform::GFx::Value(a_value); };
+		const auto call = [&](const char* a_name, std::initializer_list<double> a_args) {
+			std::vector<RE::Scaleform::GFx::Value> args;
+			for (const auto value : a_args) {
+				args.emplace_back(value);
+			}
+			a_graphics.Invoke(
+				a_name, nullptr, args.data(), static_cast<std::uint32_t>(args.size()));
+		};
+		const auto color = static_cast<double>(a_color);
+
+		// A wing: a bar from the ring outwards, ending in a point. Mirrored
+		// for the other side by the sign of a_side.
+		const auto wing = [&](double a_side, double a_from, double a_to, double a_y, double a_half) {
+			const auto x0 = a_cx + a_side * a_from;
+			const auto x1 = a_cx + a_side * a_to;
+			const auto tip = a_cx + a_side * (a_to + a_half * 2.2);
+			call("beginFill", { color, a_alpha });
+			call("moveTo", { x0, a_y - a_half });
+			call("lineTo", { x1, a_y - a_half });
+			call("lineTo", { tip, a_y });
+			call("lineTo", { x1, a_y + a_half });
+			call("lineTo", { x0, a_y + a_half });
+			call("lineTo", { x0, a_y - a_half });
+			call("endFill", {});
+		};
+
+		const auto ring = a_radius * 0.30;
+		const auto half = a_radius * 0.14;
+		for (const auto side : { -1.0, 1.0 }) {
+			wing(side, a_radius * 0.8, a_radius * 3.0, a_cy, half);
+			wing(side, a_radius * 0.9, a_radius * 2.3, a_cy - a_radius * 0.62, half);
+			wing(side, a_radius * 0.9, a_radius * 2.3, a_cy + a_radius * 0.62, half);
+		}
+
+		call("beginFill", { color, a_alpha });
+		call("drawCircle", { a_cx, a_cy, a_radius * 0.42 });
+		call("endFill", {});
+
+		call("lineStyle", { ring, color, a_alpha });
+		call("drawCircle", { a_cx, a_cy, a_radius - ring / 2.0 });
+	}
+
 	// ---- Text ------------------------------------------------------------
 
 	// A name has to fit its cell. Cutting it with an ellipsis says that
@@ -666,6 +726,7 @@ void grid::Forget()
 	g_holder = RE::Scaleform::GFx::Value();
 	g_note = RE::Scaleform::GFx::Value();
 	g_detail = RE::Scaleform::GFx::Value();
+	g_emblem = RE::Scaleform::GFx::Value();
 	g_rows = 0;
 }
 
@@ -689,6 +750,7 @@ void grid::Release()
 	g_holder = RE::Scaleform::GFx::Value();
 	g_note = RE::Scaleform::GFx::Value();
 	g_detail = RE::Scaleform::GFx::Value();
+	g_emblem = RE::Scaleform::GFx::Value();
 	// Without a panel there are no cells, and a hit test against the layout
 	// of a panel that is gone would answer for cells nobody can see.
 	g_rows = 0;
@@ -976,6 +1038,25 @@ void grid::Draw(
 		m.detailSize,
 		a_color,
 		kDetailAlpha);
+
+	// And in the same band, for when both lines are empty. Its height is
+	// the band's; the wings reach out to about a third of the cells.
+	a_canvas->uiMovie->CreateObject(&g_emblem, "flash.display.Sprite");
+	if (g_emblem.IsDisplayObject()) {
+		g_emblem.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+		RE::Scaleform::GFx::Value pen;
+		if (g_emblem.GetMember("graphics", &pen) && pen.IsObject()) {
+			const auto band = g_labelBottom - m.padding;
+			Emblem(
+				pen,
+				CellsLeft(m) + CellsWidth(m) / 2.0,
+				m.padding + band / 2.0,
+				band * 0.42,
+				a_color,
+				kEmblemAlpha);
+		}
+		g_panel.Invoke("addChild", nullptr, &g_emblem, 1);
+	}
 
 	// The brackets, around the cells rather than around the panel: the grid
 	// is the thing, and the writing above and below it is about the grid.
@@ -1325,6 +1406,11 @@ void grid::Say(std::string_view a_name, std::string_view a_what)
 	const auto& m = g_metrics;
 	const auto nameHeight = m.titleSize + m.gap;
 	const auto detailHeight = m.detailSize + m.gap;
+
+	if (g_emblem.IsDisplayObject()) {
+		g_emblem.SetMember(
+			"visible", RE::Scaleform::GFx::Value(a_name.empty() && a_what.empty()));
+	}
 
 	if (a_what.empty()) {
 		write(g_note, a_name, g_labelBottom - nameHeight, m.titleSize);
