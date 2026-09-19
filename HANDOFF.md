@@ -4320,3 +4320,25 @@ nie. Was feststeht:
 
 Standard-Icons: noch nicht gezeichnet, kommt im nächsten Update. Pause:
 kommt als INI-Option.
+
+---
+
+## 68. Der Zuweisen-Bug von Hitman136, wirklich behoben (2026-09-19)
+
+Nach dem Zuweisen im Pip-Boy ging Hoch/Runter in der Liste nicht mehr,
+Stick wie W/S, bis ein Tab-Wechsel die Seite neu baute. Ursache
+(`9468549`, 17.09.): `HideHotkeys` gibt `disableInput` frei, im selben
+Bild sperrt `KeepPipboyFocus` wieder, und `TakePipboyGridDown` gab nichts
+zurück. Der Fix von `9468549` stand aber **hinter**
+`ShieldPipboyList(false)`, das `g_pipboyList` loslässt -- der Block lief
+nie, und der Fokus-Rückgabe-Teil davor auch nicht. `3c85b65` zieht beides
+vor die Abschirmung. **Im Spiel bestätigt, 2026-09-19.**
+
+Nebenbei gelernt: `deploy.py` weigert sich bei laufendem Spiel, still --
+ein "funktioniert nicht" nach einem Deploy zuerst gegen die Zeitstempel
+von `build/Release` und `Data\F4SE\Plugins` prüfen.
+
+1.1.1 ist getaggt und gepackt, nicht hochgeladen. Das Update wird 1.2 mit
+allem: dieser Fix, `PauseGame` (Abschnitt 67, ungespielt), die
+Vanilla-Icons, und ein dunkler Grid-Hintergrund als INI-Option mit
+Deckkraft (Hitman136, 0 = wie bisher).
