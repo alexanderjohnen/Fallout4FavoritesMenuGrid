@@ -61,10 +61,12 @@ namespace grid
 		double x{ -1.0 };
 		double y{ -1.0 };
 
-		// A plate behind the whole panel. Fallout 4 draws its interface
-		// without one -- the cross has no backdrop either -- and a slab is
-		// what makes an addition look like an addition.
-		bool backdrop{ false };
+		// A dark plate behind the whole panel, 0 to 100 percent. Fallout 4
+		// draws its interface without one -- the cross has no backdrop
+		// either -- and a slab is what makes an addition look like an
+		// addition. Asked for anyway by players whose sky is the same
+		// colour as the icons (Hitman136, Nexus, 2026-09-16).
+		int backdrop{ 0 };
 
 		// The one number the whole layout is built from. Starfield's grid
 		// uses 66 on the same 1280x720 stage both games author their menus

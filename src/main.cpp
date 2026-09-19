@@ -531,6 +531,11 @@ namespace
 
 		g_gridWhere.showRowLabels = yes(L"Grid", L"ShowPageNumbers", true);
 		g_gridWhere.corners = yes(L"Grid", L"GridCorners", false);
+		g_gridWhere.backdrop = std::clamp(
+			static_cast<int>(GetPrivateProfileIntW(
+				L"Grid", L"GridBackdrop", 0, path.c_str())),
+			0,
+			100);
 		g_useIcons = yes(L"Grid", L"UseIcons", true);
 		g_gridWhere.iconColors = yes(L"Grid", L"IconColors", true);
 		g_iconFallback = yes(L"Grid", L"IconFallback", true);

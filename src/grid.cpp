@@ -105,8 +105,6 @@ namespace
 	// the pointer and the keys, every cell on the panel is one move away, and
 	// picking one page out would say that the others are further off.
 	constexpr double kCellAlpha = 0.20;
-	// Only drawn when a backdrop is asked for.
-	constexpr double kPanelAlpha = 0.72;
 
 	// The twelve cells, without the margin or the column of page numbers
 	// beside them. Everything written above or below the grid is centred on
@@ -933,8 +931,8 @@ void grid::Draw(
 
 	// A plate behind everything only on request. The game draws no such
 	// slab anywhere, and the cells read well enough without one.
-	if (a_where.backdrop) {
-		Fill(graphics, 0.0, 0.0, width, height, 0x000000, kPanelAlpha);
+	if (a_where.backdrop > 0) {
+		Fill(graphics, 0.0, 0.0, width, height, 0x000000, a_where.backdrop / 100.0);
 		Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
 	}
 
