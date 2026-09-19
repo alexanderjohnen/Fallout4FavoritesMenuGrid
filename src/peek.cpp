@@ -220,7 +220,8 @@ void peek::Run(const std::filesystem::path& a_settings)
 	const auto ids = ParseList(ReadSetting(a_settings, L"PeekIDs"));
 	const auto offsets = ParseList(ReadSetting(a_settings, L"PeekRVAs"));
 	const auto vtables = ParseList(ReadSetting(a_settings, L"PeekVtableRefs"));
-	if (ids.empty() && offsets.empty() && vtables.empty()) {
+	const auto dataRefs = ParseList(ReadSetting(a_settings, L"PeekDataRefs"));
+	if (ids.empty() && offsets.empty() && vtables.empty() && dataRefs.empty()) {
 		return;
 	}
 
@@ -270,6 +271,30 @@ void peek::Run(const std::filesystem::path& a_settings)
 			WritePlace(
 				out,
 				std::format("vtable {} used at", request.value),
+				hit,
+				request.length);
+		}
+	}
+
+	// The same search from a plain RVA in the data: a string such as
+	// "FavIconType" has no ID, and the code that names it is where the
+	// engine decides a thing like that.
+	for (const auto& request : dataRefs) {
+		const auto address = base + request.value;
+		if (!InSegment(address, REL::Segment::rdata) &&
+			!InSegment(address, REL::Segment::data)) {
+			logger::warn("peek: {:#x} is not in a data section", request.value);
+			continue;
+		}
+		const auto hits = FindReferences(address);
+		logger::info(
+			"peek: data {:#x} is mentioned {} time(s) in the code",
+			request.value,
+			hits.size());
+		for (const auto hit : hits) {
+			WritePlace(
+				out,
+				std::format("data {:#x} used at", request.value),
 				hit,
 				request.length);
 		}
