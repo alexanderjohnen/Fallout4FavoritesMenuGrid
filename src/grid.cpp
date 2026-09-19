@@ -266,10 +266,11 @@ namespace
 			RE::Scaleform::GFx::Value(a_height)
 		};
 		a_graphics.Invoke("drawRect", nullptr, rect.data(), rect.size());
-		// No arguments, not a zero: lineStyle(0) is a hairline, and it stayed
-		// on for every fill after the backdrop's outline -- a fan of lines
-		// from the corner to each icon.
-		a_graphics.Invoke("lineStyle");
+		// The pen stays set. lineStyle(0) is a hairline, lineStyle() with no
+		// arguments does nothing here, and either way every fill drawn after
+		// this on the same graphics ran a line from the pen to its corner --
+		// a fan across the whole panel. So an outline is the last thing on
+		// its graphics, and gets a sprite of its own when it is not.
 	}
 
 	// Four right angles around a rectangle, each two strokes meeting at a
@@ -935,7 +936,14 @@ void grid::Draw(
 	// slab anywhere, and the cells read well enough without one.
 	if (a_where.backdrop > 0) {
 		Fill(graphics, 0.0, 0.0, width, height, 0x000000, a_where.backdrop / 100.0);
-		Outline(graphics, 0.0, 0.0, width, height, a_color, 0.5);
+		RE::Scaleform::GFx::Value frame;
+		a_canvas->uiMovie->CreateObject(&frame, "flash.display.Sprite");
+		RE::Scaleform::GFx::Value pen;
+		if (frame.IsDisplayObject() && frame.GetMember("graphics", &pen) && pen.IsObject()) {
+			frame.SetMember("mouseEnabled", RE::Scaleform::GFx::Value(false));
+			Outline(pen, 0.0, 0.0, width, height, a_color, 0.5);
+			g_panel.Invoke("addChild", nullptr, &frame, 1);
+		}
 	}
 
 	// Above the keys, the middle of the panel: what the mark is on, and under
